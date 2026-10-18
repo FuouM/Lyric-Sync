@@ -14,6 +14,7 @@ import {
   decodeLineMbr,
   nodeMarginals,
   weightsToVec,
+  lowerBound,
   type BoundaryEvidenceInputs,
   type LineProblem,
   type LineSkeleton,
@@ -60,6 +61,36 @@ function boundaryTimes(line: ConsensusLine): number[] {
   const last = line.words[line.words.length - 1]!;
   t.push(last.syl && last.syl.length > 0 ? last.syl[last.syl.length - 1]![1] : last.end);
   return t;
+}
+
+/** A pitch-note start this far inside a syllable is singing the syllable does not explain. */
+const INSIDE_MARGIN_SEC = 0.03;
+/** A line alignment with at least this many unexplained note starts per syllable has collapsed (one syllable swallows the singing of the
+ *  next ones), when the other aligner's alignment of the line has at most 1 / COLLAPSE_RATIO of that. */
+const COLLAPSE_INSIDE_PER_SYL = 3;
+const COLLAPSE_RATIO = 2;
+
+/** Pitch-note starts strictly inside a line's syllables (boundary times t), per syllable. The last syllable is left out: a held line end
+ *  carries melismas. */
+function insideStartsPerSyllable(t: number[], noteStarts: number[]): number {
+  let inside = 0;
+  for (let j = 0; j + 2 < t.length; j++) {
+    const lo = t[j]! + INSIDE_MARGIN_SEC;
+    const hi = t[j + 1]! - INSIDE_MARGIN_SEC;
+    if (hi > lo) inside += lowerBound(noteStarts, hi) - lowerBound(noteStarts, lo);
+  }
+  return inside / (t.length - 1);
+}
+
+function sameSyllables(a: ConsensusLine, b: ConsensusLine): boolean {
+  return a.words.length === b.words.length && a.words.every((w, i) => (w.syl?.length ?? 1) === (b.words[i]!.syl?.length ?? 1));
+}
+
+/** The line's consensus input: the primary aligner's alignment, or the other aligner's when the primary one collapsed and the other did not. */
+function lineInput(primary: ConsensusLine, other: ConsensusLine | null | undefined, noteStarts: number[]): ConsensusLine {
+  if (!other || !sameSyllables(primary, other)) return primary;
+  const p = insideStartsPerSyllable(boundaryTimes(primary), noteStarts);
+  return p >= COLLAPSE_INSIDE_PER_SYL && p >= COLLAPSE_RATIO * insideStartsPerSyllable(boundaryTimes(other), noteStarts) ? other : primary;
 }
 
 /**
@@ -185,12 +216,15 @@ export function prepareSolve(input: Omit<SolveInput, 'weights'>): PreparedSolve 
   const { evidence, anchors, sliced } = input;
   const lineCount = evidence.fullBase.length;
 
-  // Consensus input per line, pins resolved against its syllable structure.
+  // Consensus input per line, pins resolved against its syllable structure. The base model's alignment, unless it collapsed on the line and
+  // the combined model's did not (see lineInput).
+  const noteStarts = [...evidence.rmvpeNotes, ...evidence.harmoNotes].map((n) => n.start).sort((a, b) => a - b);
   const inputs: ConsensusLine[] = [];
-  for (let i = 0; i < lineCount; i++) inputs.push(structuredClone(evidence.fullBase[i]!));
+  for (let i = 0; i < lineCount; i++) inputs.push(structuredClone(lineInput(evidence.fullBase[i]!, evidence.fullCombined?.[i], noteStarts)));
   let linePins = extractAndValidatePins(inputs, anchors, sliced);
   for (const lp of linePins) {
-    if (lp.isAnchored) inputs[lp.lineIndex] = structuredClone(sliced[lp.lineIndex]!.base);
+    const s = sliced[lp.lineIndex]!;
+    if (lp.isAnchored) inputs[lp.lineIndex] = structuredClone(lineInput(s.base, s.combined, noteStarts));
   }
   linePins = extractAndValidatePins(inputs, anchors, sliced);
   linePins.forEach((lp) => pinInputLine(inputs[lp.lineIndex]!, lp.pins));

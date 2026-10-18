@@ -8,14 +8,16 @@
 | phone posteriors | HuBERT forced aligner, **base** model (`models/hubert-base`, ~208 MB) | per-frame phone probabilities; nucleus/edge phone features |
 | boundary edge peaks + breath pauses | same base model | candidate boundary times; line-edge and breath cues |
 | edge peaks (second opinion) | HuBERT forced aligner, **combined** model (`models/hubert-combined`, ~203 MB) | a second, independently trained set of boundary candidates |
-| full-song forced alignment | base (and, for English, combined) | the starting point for lines that are not anchored; DP features |
-| per-line forced alignment | base (and, for English, combined), run on the audio cut to an anchored line | the starting point and features for anchored lines (computed on demand, cached) |
+| full-song forced alignment | base (and, for English, combined) | the starting point for lines that are not anchored (the base alignment; the combined alignment when the base one collapsed on the line, see below); DP features |
+| per-line forced alignment | base (and, for English, combined), run on the audio cut to an anchored line | the starting point and features for anchored lines (computed on demand, cached; same collapse rule) |
 | f0 contour + notes | RMVPE (`models/rmvpe`, ~181 MB), despiked and segmented | pitch-change boundaries, voicing |
 | onset notes | Swift-F0 (`models/swift-f0`, ~0.1 MB) | note onsets |
 | sustained notes | HarmoF0 (`models/harmof0`, ~5.5 MB), smoothed | sustained-note segmentation |
 | boundary frames + queries | the syllable-boundary model (`models/boundary`, ~117 MB; mHuBERT-147 backbone; head trained on GTSinger, fine-tuned on the Namine Ritsu database), see [guided.md](guided.md) | the guided solver's score for every boundary candidate |
 
 Dictionaries (`ds_cmudict-07b.txt` for English, `japanese_dict_full.txt` for romaji Japanese) sit next to the HuBERT models and give each word its phones. A word that is not in the dictionary is an error (give it explicit `phones` in a JSON lyrics file); words are never skipped, because skipping one would shift every later word of the alignment.
+
+A forced alignment can collapse on a held melisma: one syllable takes most of the line and the remaining syllables move to its end (or into the next line). The solver detects this with the pitch notes (RMVPE and HarmoF0): a line alignment that has 3 or more note starts per syllable inside its syllables (the last syllable not counted, because a held line end can carry a melisma) has collapsed. When the base alignment of a line collapsed and the combined alignment has half or fewer note starts per syllable, the combined alignment is the starting point of that line.
 
 ## Model file sizes
 

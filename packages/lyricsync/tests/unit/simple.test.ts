@@ -69,4 +69,26 @@ describe('solveSimple', () => {
       expect(times(out.lines, 0).at(-1)).toBe(3.0);
     });
   });
+
+  // A forced aligner can collapse on a held melisma: the line's first syllable swallows the whole line and the rest pile up at the end.
+  describe('collapsed alignment', () => {
+    // Sung: hel 1.0, lo 1.5, wor 2.0, ld 2.5 held to 5.0 as a melisma (a note every 0.1 s).
+    const melisma = Array.from({ length: 26 }, (_, i) => 2.5 + i * 0.1);
+    const sung = line(0, 'hello world', [{ w: 'hello', syl: [1.0, 1.5, 2.0] }, { w: 'world', syl: [2.0, 2.5, 5.0] }]);
+    const collapsed = line(0, 'hello world', [{ w: 'hello', syl: [1.0, 4.7, 4.8] }, { w: 'world', syl: [4.8, 4.9, 5.0] }]);
+    const later = line(1, 'good night moon', [{ w: 'good', syl: [6.0, 6.5] }, { w: 'night', syl: [6.5, 7.0] }, { w: 'moon', syl: [7.0, 7.5] }]);
+    const song = (base: typeof sung, combined: typeof sung) =>
+      evidence({ fullBase: [base, later], fullCombined: [combined, later], rmvpeNotes: notes([1.0, 1.5, 2.0, ...melisma, 6.0, 6.5, 7.0, 7.5]) });
+
+    test('a base alignment that swallows the line gives way to the combined one', () => {
+      const t = times(solveSimple({ evidence: song(collapsed, sung), anchors: none, sliced: {} }).lines, 0);
+      expect(t[1]!).toBeCloseTo(1.5, 1);
+      expect(t[3]!).toBeCloseTo(2.5, 1);
+    });
+
+    test('the base alignment stays when the combined one collapsed instead', () => {
+      const t = times(solveSimple({ evidence: song(sung, collapsed), anchors: none, sliced: {} }).lines, 0);
+      expect(t[1]!).toBeCloseTo(1.5, 1);
+    });
+  });
 });
