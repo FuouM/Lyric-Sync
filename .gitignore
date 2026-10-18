@@ -8,3 +8,4 @@ packages/*/models/**/*.onnx
 # The editor's default songs folder (bun run dev; --songs points elsewhere) and model release staging.
 songs/
 release/
+.known-roots.json

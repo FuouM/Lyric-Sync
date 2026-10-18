@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Session, type SyllableChange } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
-import { songDir } from "./song-inputs.ts";
+import { findSongDir, type SongsRoots } from "./song-inputs.ts";
 
 export interface ReanalyzeJob {
   project: string;
@@ -49,8 +49,9 @@ interface ProjectLyrics {
   session: Session;
 }
 
-function openProject(songsRoot: string, id: string): ProjectLyrics {
-  const dir = songDir(songsRoot, id);
+function openProject(roots: SongsRoots, id: string): ProjectLyrics {
+  const dir = findSongDir(roots, id);
+  if (!dir) throw new Error(`Song "${id}" not found.`);
   const syncFile = path.join(dir, "user_input", "lyrics.sync.json");
   if (!fs.existsSync(syncFile)) throw new Error(`Song ${id} has no user_input/lyrics.sync.json.`);
   const sync: unknown = JSON.parse(fs.readFileSync(syncFile, "utf8"));
@@ -68,19 +69,23 @@ function openProject(songsRoot: string, id: string): ProjectLyrics {
 }
 
 /** The analysed syllables per editor line and word, and whether the evidence matches the current workspace inputs. */
-export function analysedSplits(songsRoot: string, id: string): { lines: string[][][]; fresh: boolean } {
-  const { indices, session } = openProject(songsRoot, id);
-  return {
-    lines: indices.map((i) => session.definition.lines[i]!.words.map((w) => w.syllables)),
-    fresh: session.status().evidenceFresh,
-  };
+export function analysedSplits(roots: SongsRoots, id: string): { lines: string[][][]; fresh: boolean } {
+  try {
+    const { indices, session } = openProject(roots, id);
+    return {
+      lines: indices.map((i) => session.definition.lines[i]!.words.map((w) => w.syllables)),
+      fresh: session.status().evidenceFresh,
+    };
+  } catch {
+    return { lines: [], fresh: false };
+  }
 }
 
 /** Validates and writes the editor's splits, then starts `prepare` in the background. Throws before writing anything when a split is invalid. */
-export function reanalyze(songsRoot: string, id: string, lines: EditorSplitLine[], busy: string | null): ReanalyzeJob {
+export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[], busy: string | null): ReanalyzeJob {
   if (job?.state === "running") throw new Error(`Re-analysis of ${job.project} is already running.`);
   if (busy) throw new Error(busy);
-  const project = openProject(songsRoot, id);
+  const project = openProject(roots, id);
   const { indices, session, sync } = project;
   if (lines.length !== indices.length) throw new Error(`The editor has ${lines.length} lines but the project lyrics have ${indices.length}.`);
 

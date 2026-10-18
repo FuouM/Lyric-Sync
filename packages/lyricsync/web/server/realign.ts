@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { emptyAnchors, importCalibrated, Session } from "../../src/index.ts";
 import type { ConsensusLine } from "../../src/index.ts";
-import { songDir } from "./song-inputs.ts";
+import { findSongDir, toRoots, type SongsRoots } from "./song-inputs.ts";
 
 export interface EditorWord {
   w?: string;
@@ -66,12 +66,16 @@ function readUnannotatedLines(dir: string): number[] {
   return lines;
 }
 
-function songSession(songsRoot: string, id: string): SongSession {
-  const dir = songDir(songsRoot, id);
+function songSession(roots: SongsRoots, id: string): SongSession {
+  const dir = findSongDir(roots, id);
+  if (!dir) {
+    const list = toRoots(roots).join(", ");
+    throw new RealignError(404, "SONG_NOT_FOUND", `Song "${id}" was not found in any known song directories (${list}).`);
+  }
   const workspace = path.join(dir, "lyricsync");
   const manifest = path.join(workspace, "lyricsync.json");
   if (!fs.existsSync(manifest)) {
-    throw new RealignError(409, "WORKSPACE_MISSING", `Song "${id}" has no lyricsync workspace (${workspace}). Build it with the New Song wizard, or: lyricsync init + prepare.`);
+    throw new RealignError(409, "WORKSPACE_MISSING", `Song "${id}" has no lyricsync workspace (${workspace}). Build it with the New Song wizard, or run: lyricsync init + prepare.`);
   }
   const stamp = fs.statSync(manifest).mtimeMs;
   let song = sessions[dir];
@@ -96,8 +100,8 @@ function definitionIndices(editorLines: number, definitionLines: number, unannot
   return mapped;
 }
 
-async function realign(songsRoot: string, id: string, lines: EditorLine[], snapToBeats: boolean): Promise<EditorLine[]> {
-  const { session, unannotatedLines } = songSession(songsRoot, id);
+async function realign(roots: SongsRoots, id: string, lines: EditorLine[], snapToBeats: boolean): Promise<EditorLine[]> {
+  const { session, unannotatedLines } = songSession(roots, id);
   const def = session.definition;
   const indices = definitionIndices(lines.length, def.lines.length, unannotatedLines);
 
@@ -133,7 +137,7 @@ function merge(line: EditorLine, solved: ConsensusLine): EditorLine {
 }
 
 /** The route: HTTP status and JSON body. */
-export async function handleRealign(songsRoot: string, body: RealignBody): Promise<{ status: number; body: unknown }> {
+export async function handleRealign(roots: SongsRoots, body: RealignBody): Promise<{ status: number; body: unknown }> {
   const error = (status: number, code: string, message: string) => ({ status, body: { ok: false, error: code, message } });
   const id = body.project;
   if (!id) return error(400, "BAD_REQUEST", "Missing project");
@@ -142,8 +146,7 @@ export async function handleRealign(songsRoot: string, body: RealignBody): Promi
   const lines = body.lines;
   const snapToBeats = body.snapToBeats ?? true;
 
-  // One solve at a time: solves share the session's evidence and write the workspace's out/ and sliced/ caches.
-  const run = queue.then(() => realign(songsRoot, id, lines, snapToBeats));
+  const run = queue.then(() => realign(roots, id, lines, snapToBeats));
   queue = run.catch(() => undefined);
   try {
     const refined = await run;

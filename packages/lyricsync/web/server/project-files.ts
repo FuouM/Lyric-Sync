@@ -5,7 +5,7 @@
 // Paths stay inside <songs>/<id> (dev.ts --songs).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ID_RE } from "./song-inputs.ts";
+import { findSongDir, type SongsRoots } from "./song-inputs.ts";
 
 const WRITABLE: Record<string, true> = { "user_input/lyrics.calibrated.json": true, "user_input/prompt.yaml": true };
 
@@ -18,23 +18,23 @@ export class ProjectFileError extends Error {
   }
 }
 
-function resolve(songsRoot: string, id: string, rel: string): string {
-  if (!ID_RE.test(id)) throw new ProjectFileError(400, `Bad song id "${id}".`);
-  const dir = path.join(songsRoot, id);
+function resolve(roots: SongsRoots, id: string, rel: string): string {
+  const dir = findSongDir(roots, id);
+  if (!dir) throw new ProjectFileError(404, `Song "${id}" not found.`);
   const file = path.resolve(dir, rel);
-  if (!file.startsWith(dir + path.sep)) throw new ProjectFileError(400, `Path "${rel}" is outside the song folder ${id}.`);
+  if (!file.startsWith(dir + path.sep)) throw new ProjectFileError(400, `Path "${rel}" is outside the song folder.`);
   return file;
 }
 
-export function readProjectFile(songsRoot: string, id: string, rel: string): { file: string; mtimeMs: number } {
-  const file = resolve(songsRoot, id, rel);
+export function readProjectFile(roots: SongsRoots, id: string, rel: string): { file: string; mtimeMs: number } {
+  const file = resolve(roots, id, rel);
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new ProjectFileError(404, `${id}/${rel} not found.`);
   return { file, mtimeMs: fs.statSync(file).mtimeMs };
 }
 
-export function writeProjectFile(songsRoot: string, id: string, rel: string, body: Uint8Array): { mtimeMs: number } {
+export function writeProjectFile(roots: SongsRoots, id: string, rel: string, body: Uint8Array): { mtimeMs: number } {
   if (!WRITABLE[rel]) throw new ProjectFileError(403, `Only ${Object.keys(WRITABLE).join(" and ")} are writable.`);
-  const file = resolve(songsRoot, id, rel);
+  const file = resolve(roots, id, rel);
   fs.writeFileSync(file, body);
   return { mtimeMs: fs.statSync(file).mtimeMs };
 }

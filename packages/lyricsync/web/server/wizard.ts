@@ -33,7 +33,7 @@ import {
 import type { BeatsDocument, ConsensusLine } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { dictionaryG2P } from "../../src/lyrics/index.ts";
-import { ID_RE, readPromptManifest, songDir, songInputs } from "./song-inputs.ts";
+import { findSongDir, ID_RE, readPromptManifest, songDir, songInputs, type SongsRoots } from "./song-inputs.ts";
 
 export interface WizardJob {
   project: string;
@@ -160,12 +160,13 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
 }
 
 /** (Re)starts the build of an existing wizard project; finished stages are skipped. */
-export function resumeSong(songsRoot: string, id: string): void {
+export function resumeSong(roots: SongsRoots, id: string): void {
   if (job?.state === "running") throw new Error(`A build is already running (${job.project}). Wait for it to finish.`);
-  if (!ID_RE.test(id) || !fs.existsSync(path.join(songsRoot, id, "user_input", "prompt.yaml"))) {
+  const dir = findSongDir(roots, id);
+  if (!dir || !fs.existsSync(path.join(dir, "user_input", "prompt.yaml"))) {
     throw new Error(`Song ${id} has no user_input/prompt.yaml; it was not made by the wizard.`);
   }
-  startBuild(songsRoot, id);
+  startBuild(roots, id);
 }
 
 function writeJson(file: string, value: unknown): void {
@@ -173,11 +174,11 @@ function writeJson(file: string, value: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function startBuild(songsRoot: string, id: string): void {
+function startBuild(roots: SongsRoots, id: string): void {
   const current: WizardJob = { project: id, state: "running", log: [] };
   job = current;
   const say = (m: string) => current.log.push(m);
-  build(songsRoot, id, say).then(
+  build(roots, id, say).then(
     () => {
       current.state = "done";
       say("Done. Open the song to start calibrating.");
@@ -189,13 +190,13 @@ function startBuild(songsRoot: string, id: string): void {
   );
 }
 
-async function build(songsRoot: string, id: string, say: (m: string) => void): Promise<void> {
-  const dir = songDir(songsRoot, id);
+async function build(roots: SongsRoots, id: string, say: (m: string) => void): Promise<void> {
+  const dir = songDir(roots, id);
   const beatsFile = path.join(dir, "generated", "timing.ai.json");
 
   if (fs.existsSync(beatsFile)) say("Beats: generated/timing.ai.json exists, kept.");
   else {
-    const prompt = readPromptManifest(songsRoot, id);
+    const prompt = readPromptManifest(roots, id);
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
     say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${prompt.nearestBpm} BPM)…`);
     const a = await trackBeats(prompt.songPath, { targetBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat ?? undefined });
@@ -212,7 +213,7 @@ async function build(songsRoot: string, id: string, say: (m: string) => void): P
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);
   }
 
-  const inputs = songInputs(songsRoot, id);
+  const inputs = songInputs(roots, id);
   let session: Session;
   if (fs.existsSync(path.join(inputs.workspaceDir, "lyricsync.json"))) session = Session.open(inputs.workspaceDir);
   else {

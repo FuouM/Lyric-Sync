@@ -30,16 +30,44 @@ export interface PromptManifest {
   firstDownbeat: number | null;
 }
 
-/** The folder of song `id`; throws for an id that is not a plain folder name. */
-export function songDir(songsRoot: string, id: string): string {
-  if (!ID_RE.test(id)) throw new Error(`Bad song id "${id}": lowercase letters, digits, - or _, starting with a letter or digit.`);
-  return path.join(songsRoot, id);
+export type SongsRoots = string | string[];
+
+export function toRoots(roots: SongsRoots): string[] {
+  return Array.isArray(roots) ? roots : [roots];
 }
 
-function existingSongDir(songsRoot: string, id: string): string {
-  const dir = songDir(songsRoot, id);
-  if (!fs.existsSync(path.join(dir, "project.json"))) throw new Error(`Unknown song "${id}": ${dir} has no project.json.`);
-  return dir;
+/** Locates a song folder: supports absolute path, relative path from cwd, or searching across all roots. */
+export function findSongDir(roots: SongsRoots, id: string): string | null {
+  const norm = id.replace(/\\/g, "/");
+  if (path.isAbsolute(norm) || path.win32.isAbsolute(id)) {
+    return fs.existsSync(id) ? path.resolve(id) : null;
+  }
+  if (fs.existsSync(path.resolve(id)) && (fs.existsSync(path.resolve(id, "lyricsync")) || fs.existsSync(path.resolve(id, "project.json")))) {
+    return path.resolve(id);
+  }
+  for (const root of toRoots(roots)) {
+    const candidate = path.join(root, id);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** The folder of song `id`: existing location if found, or inside primary root for creation. */
+export function songDir(roots: SongsRoots, id: string): string {
+  const found = findSongDir(roots, id);
+  if (found) return found;
+  const norm = id.replace(/\\/g, "/");
+  if (path.isAbsolute(norm) || path.win32.isAbsolute(id)) return path.resolve(id);
+  const primary = toRoots(roots)[0] ?? "songs";
+  return path.join(primary, id);
+}
+
+function existingSongDir(roots: SongsRoots, id: string): string {
+  const found = findSongDir(roots, id);
+  if (!found) {
+    throw new Error(`Song "${id}" not found in any known song directories (${toRoots(roots).join(", ")}).`);
+  }
+  return found;
 }
 
 function readPrompt(dir: string): Record<string, unknown> {
@@ -56,8 +84,8 @@ function promptFile(prompt: Record<string, unknown>, key: string): string {
   return files[key];
 }
 
-export function readPromptManifest(songsRoot: string, id: string): PromptManifest {
-  const dir = existingSongDir(songsRoot, id);
+export function readPromptManifest(roots: SongsRoots, id: string): PromptManifest {
+  const dir = existingSongDir(roots, id);
   const prompt = readPrompt(dir);
   const songPath = path.join(dir, "user_input", promptFile(prompt, "song"));
   if (!fs.existsSync(songPath)) throw new Error(`Full mix not found: ${songPath}`);
@@ -78,9 +106,8 @@ function promptVocalStem(dir: string, prompt: Record<string, unknown>): string {
   if (name === null) throw new Error("prompt.yaml needs files.stems.vocal (a file name, or a mapping with main_vocal).");
   return path.join(dir, "user_input", folder, name);
 }
-
-export function songInputs(songsRoot: string, id: string): SongInputs {
-  const dir = existingSongDir(songsRoot, id);
+export function songInputs(roots: SongsRoots, id: string): SongInputs {
+  const dir = existingSongDir(roots, id);
   const prompt = readPrompt(dir);
   const lyricsFile = path.join(dir, "user_input", "lyrics.sync.json");
   if (!fs.existsSync(lyricsFile)) throw new Error(`Lyrics contract not found: ${lyricsFile}`);

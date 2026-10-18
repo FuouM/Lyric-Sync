@@ -18,7 +18,7 @@
 // `project` / `id` is a song folder name inside the songs folder.
 // usage: bun dev.ts [--songs <dir>] [--port <n>]
 //   --songs  the folder that holds the song folders (default: <repository>/songs, created when missing). Point it at another
-//            project's song folders (e.g. probable-video-editor/projects) to edit them in place.
+//            folder of song folders (e.g. ~/Music/projects) to edit them in place.
 //   --port   default 3000.
 // Run with Bun (`bun run dev`): the routes and lyricsync are TypeScript and are imported here directly, outside Vite's
 // config bundling, so lyricsync still resolves its models from its own source location.
@@ -32,14 +32,42 @@ import { handleRealign } from "./server/realign.ts";
 import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze } from "./server/syllables.ts";
+import { findSongDir } from "./server/song-inputs.ts";
 import { isRecord } from "../src/guards.ts";
 import { pronounceAs } from "../src/index.ts";
 
 const WEB_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(WEB_DIR, "../../..");
+
 const { values: args } = parseArgs({ options: { songs: { type: "string" }, port: { type: "string" } } });
-const SONGS = args.songs !== undefined ? path.resolve(args.songs) : path.resolve(WEB_DIR, "../../..", "songs");
-if (args.songs === undefined) fs.mkdirSync(SONGS, { recursive: true });
-else if (!fs.existsSync(SONGS) || !fs.statSync(SONGS).isDirectory()) throw new Error(`--songs ${SONGS} is not a folder.`);
+
+// Primary default songs folder
+const DEFAULT_SONGS = path.resolve(REPO_ROOT, "songs");
+fs.mkdirSync(DEFAULT_SONGS, { recursive: true });
+
+// Persistent roots remembered across restarts
+const KNOWN_ROOTS_FILE = path.join(REPO_ROOT, ".known-roots.json");
+let persistentRoots: string[] = [];
+try {
+  if (fs.existsSync(KNOWN_ROOTS_FILE)) {
+    const raw: unknown = JSON.parse(fs.readFileSync(KNOWN_ROOTS_FILE, "utf8"));
+    if (Array.isArray(raw)) persistentRoots = raw.filter((r): r is string => typeof r === "string" && fs.existsSync(r));
+  }
+} catch {}
+
+
+// CLI and ENV roots
+const cliRoots: string[] = [];
+const songsInput = args.songs ?? process.env.SONGS_DIR;
+if (songsInput) {
+  for (const part of songsInput.split(/[;,]/)) {
+    const trimmed = part.trim();
+    if (trimmed && fs.existsSync(trimmed)) cliRoots.push(path.resolve(trimmed));
+  }
+}
+
+const ROOT_LIST = Array.from(new Set([...cliRoots, ...persistentRoots, DEFAULT_SONGS]));
+const PRIMARY_SONGS = cliRoots[0] ?? DEFAULT_SONGS;
 const PORT = args.port !== undefined ? Number(args.port) : 3000;
 if (!Number.isInteger(PORT) || PORT <= 0) throw new Error(`--port must be a port number, got "${args.port}".`);
 
@@ -68,14 +96,54 @@ const localApi: Plugin = {
   configureServer(server) {
     server.middlewares.use("/api/config", (req, res) => {
       if (req.method !== "GET") return send(res, 405, { error: "METHOD", message: "GET only" });
-      send(res, 200, { songsDir: SONGS });
+      send(res, 200, { songsDir: PRIMARY_SONGS, roots: ROOT_LIST });
     });
 
     server.middlewares.use("/api/realign", async (req, res) => {
       if (req.method !== "POST") return send(res, 405, { error: "METHOD", message: "POST only" });
       try {
-        const r = await handleRealign(SONGS, await (await toRequest(req)).json());
+        const r = await handleRealign(ROOT_LIST, await (await toRequest(req)).json());
         send(res, r.status, r.body);
+      } catch (e: unknown) {
+        fail(res, 500, e);
+      }
+    });
+
+    server.middlewares.use("/api/library/add", async (req, res) => {
+      if (req.method !== "POST") return send(res, 405, { error: "METHOD", message: "POST only" });
+      try {
+        const body: unknown = await (await toRequest(req)).json();
+        if (!isRecord(body) || typeof body.path !== "string") {
+          return send(res, 400, { error: "BAD_REQUEST", message: "Needs path string." });
+        }
+        const resolved = path.resolve(body.path);
+        if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+          return send(res, 404, { error: "NOT_FOUND", message: `Folder not found: ${resolved}` });
+        }
+        if (!ROOT_LIST.includes(resolved)) {
+          ROOT_LIST.unshift(resolved);
+          persistentRoots = Array.from(new Set([resolved, ...persistentRoots]));
+          try { fs.writeFileSync(KNOWN_ROOTS_FILE, JSON.stringify(persistentRoots, null, 2), "utf8"); } catch {}
+        }
+        return send(res, 200, { ok: true, path: resolved, roots: ROOT_LIST });
+      } catch (e: unknown) {
+        fail(res, 500, e);
+      }
+    });
+
+    server.middlewares.use("/api/project/verify", async (req, res) => {
+      try {
+        const url = new URL(`http://localhost${req.url ?? "/"}`);
+        const p = url.searchParams.get("path");
+        if (!p) return send(res, 400, { error: "BAD_REQUEST", message: "Needs path query param." });
+        const dir = findSongDir(ROOT_LIST, p);
+        if (!dir) return send(res, 404, { error: "NOT_FOUND", message: `Song folder "${p}" not found.` });
+        if (!ROOT_LIST.includes(dir)) {
+          ROOT_LIST.unshift(dir);
+          persistentRoots = Array.from(new Set([dir, ...persistentRoots]));
+          try { fs.writeFileSync(KNOWN_ROOTS_FILE, JSON.stringify(persistentRoots, null, 2), "utf8"); } catch {}
+        }
+        return send(res, 200, { ok: true, dir, name: path.basename(dir) });
       } catch (e: unknown) {
         fail(res, 500, e);
       }
@@ -117,7 +185,7 @@ const localApi: Plugin = {
             return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, mix and vocal." });
           }
           try {
-            await createSong(SONGS, {
+            await createSong(PRIMARY_SONGS, {
               id,
               language,
               bpm: Number(form.get("bpm")),
@@ -136,7 +204,7 @@ const localApi: Plugin = {
           const body: unknown = await (await toRequest(req)).json();
           if (!isRecord(body) || typeof body.id !== "string") return send(res, 400, { error: "BAD_REQUEST", message: "Needs id." });
           try {
-            resumeSong(SONGS, body.id);
+            resumeSong(ROOT_LIST, body.id);
           } catch (e: unknown) {
             return fail(res, 422, e);
           }
@@ -149,12 +217,14 @@ const localApi: Plugin = {
     });
 
     server.middlewares.use("/api/project", async (req, res) => {
-      const m = /^\/([^/]+)\/file\/(.+)$/.exec(decodeURIComponent((req.url ?? "/").split("?")[0]!));
+      const raw = (req.url ?? "/").split("?")[0]!;
+      const m = /^\/([^/]+)\/file\/(.+)$/.exec(raw);
       if (!m) return send(res, 404, { error: "NOT_FOUND", message: req.url });
-      const [, id, rel] = m;
+      const id = decodeURIComponent(m[1]!);
+      const rel = decodeURIComponent(m[2]!);
       try {
         if (req.method === "GET" || req.method === "HEAD") {
-          const { file, mtimeMs } = readProjectFile(SONGS, id!, rel!);
+          const { file, mtimeMs } = readProjectFile(ROOT_LIST, id, rel);
           res.statusCode = 200;
           res.setHeader("X-Mtime-Ms", String(mtimeMs));
           res.setHeader("Cache-Control", "no-store");
@@ -163,7 +233,7 @@ const localApi: Plugin = {
         }
         if (req.method === "PUT") {
           const body = new Uint8Array(await (await toRequest(req)).arrayBuffer());
-          return send(res, 200, writeProjectFile(SONGS, id!, rel!, body));
+          return send(res, 200, writeProjectFile(ROOT_LIST, id, rel, body));
         }
         send(res, 405, { error: "METHOD", message: "GET or PUT" });
       } catch (e: unknown) {
@@ -177,13 +247,19 @@ const localApi: Plugin = {
       const m = /^(GET|POST) \/([^/]+)\/(splits|reanalyze)$/.exec(route);
       try {
         if (route === "GET /job") return send(res, 200, { job: currentReanalyzeJob() });
-        if (m?.[1] === "GET" && m[3] === "splits") return send(res, 200, analysedSplits(SONGS, decodeURIComponent(m[2]!)));
+        if (m?.[1] === "GET" && m[3] === "splits") {
+          try {
+            return send(res, 200, analysedSplits(ROOT_LIST, decodeURIComponent(m[2]!)));
+          } catch (e: unknown) {
+            return send(res, 404, { error: "NOT_FOUND", message: e instanceof Error ? e.message : String(e) });
+          }
+        }
         if (m?.[1] === "POST" && m[3] === "reanalyze") {
           const body: unknown = await (await toRequest(req)).json();
           if (!isRecord(body)) return send(res, 400, { error: "BAD_REQUEST", message: "Needs lines." });
           const build = currentJob();
           try {
-            const job = reanalyze(SONGS, decodeURIComponent(m[2]!), parseSplitLines(body.lines), build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null);
+            const job = reanalyze(ROOT_LIST, decodeURIComponent(m[2]!), parseSplitLines(body.lines), build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null);
             return send(res, 202, { job });
           } catch (e: unknown) {
             return fail(res, 422, e);
@@ -200,4 +276,4 @@ const localApi: Plugin = {
 const server = await createServer({ root: WEB_DIR, configFile: path.join(WEB_DIR, "vite.config.ts"), plugins: [localApi], server: { port: PORT } });
 await server.listen();
 server.printUrls();
-console.log(`  songs folder: ${SONGS}`);
+console.log(`  songs folders: ${ROOT_LIST.join(", ")}`);

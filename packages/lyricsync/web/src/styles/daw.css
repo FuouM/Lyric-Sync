@@ -1189,10 +1189,48 @@
   font-size: 11px;
 }
 
+.daw-status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.daw-status-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--daw-muted);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.1s ease, border-color 0.1s ease, background 0.1s ease;
+}
+
+.daw-status-copy-btn:hover {
+  color: var(--daw-text);
+  border-color: var(--daw-border);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.daw-status-copy-btn--copied {
+  color: #38bdf8 !important;
+}
+
 .daw-status-msg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .daw-status-hint {

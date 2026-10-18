@@ -241,21 +241,42 @@ export function App() {
     }
   };
 
+  const getProjectPath = (name: string): string => {
+    const direct = localStorage.getItem(`lyricsync.songPath.${name}`);
+    if (direct) return direct;
+    const lib = libraryHandle();
+    if (lib) {
+      const libPath = localStorage.getItem(`lyricsync.libraryPath.${lib.name}`);
+      if (libPath) return `${libPath.replace(/[/\\]+$/, "")}/${name}`;
+    }
+    return name;
+  };
   const loadAnalysed = async (name: string) => {
     setAnalysed(null);
     try {
-      const res = await fetch(`/api/lyrics/${encodeURIComponent(name)}/splits`);
+      const target = getProjectPath(name);
+      const res = await fetch(`/api/lyrics/${encodeURIComponent(target)}/splits`);
+      if (!res.ok) return;
       const body: unknown = await res.json();
-      if (!isRecord(body)) throw new Error(`HTTP ${res.status}`);
-      if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
+      if (!isRecord(body) || body.found === false) return;
       const lines = body.lines;
-      // line -> word -> syllables
       const valid = Array.isArray(lines) && lines.every((l): l is string[][] => Array.isArray(l) && l.every(isStringArray));
-      if (!valid || typeof body.fresh !== "boolean") throw new Error("Malformed splits response.");
+      if (!valid || typeof body.fresh !== "boolean") return;
       setAnalysed({ lines, fresh: body.fresh });
     } catch (e: unknown) {
-      setStatus(`Cannot read the analysed syllables of ${name}: ${errorMessage(e)}`);
+      console.warn(`Could not read analysed syllables of ${name}:`, e);
     }
+  };
+
+  const [copiedStatus, setCopiedStatus] = createSignal(false);
+  const copyStatus = async () => {
+    const text = status();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedStatus(true);
+      setTimeout(() => setCopiedStatus(false), 1500);
+    } catch {}
   };
 
   /** Saves, writes the document's syllable splits to the lyrics and re-runs the analysis on the dev server, then reloads its state. */
@@ -268,12 +289,30 @@ export function App() {
       if (dirty()) return;
     }
     setAnalysing(true);
+    let target = getProjectPath(s.name);
     try {
-      const res = await fetch(`/api/lyrics/${encodeURIComponent(s.name)}/reanalyze`, {
+      let res = await fetch(`/api/lyrics/${encodeURIComponent(target)}/reanalyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lines: doc.lines.map((l) => ({ words: l.words.map((w) => ({ w: w.w, sylText: w.sylText })) })) }),
       });
+      if (res.status === 404) {
+        const input = window.prompt(
+          `Re-analysis needs the song folder's path on your computer.\n\nEnter path for "${s.name}":`,
+          target !== s.name ? target : ""
+        );
+        if (!input || !input.trim()) {
+          setStatus("Re-analysis cancelled (song folder path needed).");
+          return;
+        }
+        target = input.trim();
+        localStorage.setItem(`lyricsync.songPath.${s.name}`, target);
+        res = await fetch(`/api/lyrics/${encodeURIComponent(target)}/reanalyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lines: doc.lines.map((l) => ({ words: l.words.map((w) => ({ w: w.w, sylText: w.sylText })) })) }),
+        });
+      }
       const started: unknown = await res.json();
       if (!res.ok) throw new Error(isRecord(started) && typeof started.message === "string" ? started.message : `HTTP ${res.status}`);
       for (;;) {
@@ -452,12 +491,43 @@ export function App() {
     await loadSong(serverStore(id));
   };
 
+  const openByPath = async () => {
+    if (!confirmDiscard()) return;
+    const input = window.prompt("Enter or paste the song folder's path on your computer (e.g. K:\\Music\\MySong):");
+    if (!input || !input.trim()) return;
+    const trimmed = input.trim();
+    try {
+      const res = await fetch(`/api/project/verify?path=${encodeURIComponent(trimmed)}`);
+      const body: unknown = await res.json();
+      if (!res.ok || !isRecord(body) || typeof body.dir !== "string") {
+        throw new Error(isRecord(body) && typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
+      }
+      setLibraryHandle(null);
+      setSongs([]);
+      await loadSong(serverStore(body.dir));
+    } catch (e: unknown) {
+      setStatus(`Could not open "${trimmed}": ${errorMessage(e)}`);
+    }
+  };
   const pickSingleSong = async () => {
     if (!confirmDiscard()) return;
     try {
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
       setLibraryHandle(null);
       setSongs([]);
+
+      // Ask for the full path immediately after picking the folder
+      const prevPath = localStorage.getItem(`lyricsync.songPath.${handle.name}`) ?? "";
+      const input = window.prompt(
+        `Enter the full path of "${handle.name}" on your computer:\n(The server uses this path for Auto-time and Re-analysis)`,
+        prevPath
+      );
+      if (input && input.trim()) {
+        const fullPath = input.trim();
+        localStorage.setItem(`lyricsync.songPath.${handle.name}`, fullPath);
+        void fetch(`/api/project/verify?path=${encodeURIComponent(fullPath)}`).catch(() => {});
+      }
+
       await loadSong(handleStore(handle));
     } catch (e: unknown) {
       if (!isAbort(e)) setStatus(`Could not open song folder: ${errorMessage(e)}`);
@@ -470,6 +540,22 @@ export function App() {
       const handle = await window.showDirectoryPicker({ mode: "readwrite" });
       setLibraryHandle(handle);
       await storeLibraryHandle(handle);
+
+      const prevPath = localStorage.getItem(`lyricsync.libraryPath.${handle.name}`) ?? "";
+      const input = window.prompt(
+        `Enter the full path of the library folder "${handle.name}":\n(All songs in this library will be registered with the server)`,
+        prevPath
+      );
+      if (input && input.trim()) {
+        const libPath = input.trim();
+        localStorage.setItem(`lyricsync.libraryPath.${handle.name}`, libPath);
+        void fetch("/api/library/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: libPath }),
+        }).catch(() => {});
+      }
+
       await refreshSongs(handle);
     } catch (e: unknown) {
       if (!isAbort(e)) setStatus(`Could not open library: ${errorMessage(e)}`);
@@ -585,12 +671,30 @@ export function App() {
     }
     setSolving(true);
     setStatus("Auto-timing unpinned syllables…");
+    let project = getProjectPath(s.name);
     try {
-      const res = await fetch("/api/realign", {
+      let res = await fetch("/api/realign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project: s.name, lines: doc.lines, snapToBeats: solveSnap() }),
+        body: JSON.stringify({ project, lines: doc.lines, snapToBeats: solveSnap() }),
       });
+      if (res.status === 404) {
+        const input = window.prompt(
+          `Auto-time needs the song folder's path on your computer.\n\nEnter path for "${s.name}":`,
+          project !== s.name ? project : ""
+        );
+        if (!input || !input.trim()) {
+          setStatus("Auto-timing cancelled (song folder path needed).");
+          return;
+        }
+        project = input.trim();
+        localStorage.setItem(`lyricsync.songPath.${s.name}`, project);
+        res = await fetch("/api/realign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project, lines: doc.lines, snapToBeats: solveSnap() }),
+        });
+      }
       const body: unknown = await res.json();
       if (!isRecord(body)) throw new Error(`Solve endpoint returned HTTP ${res.status} without a JSON object.`);
       if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
@@ -744,6 +848,7 @@ export function App() {
         label: "File",
         items: [
           { label: "Open Song Folder…", shortcut: "Ctrl+O", action: () => void pickSingleSong() },
+          { label: "Open Song by Path…", action: () => void openByPath() },
           { label: "New Song…", action: () => confirmDiscard() && setShowWizard(true) },
           { label: "Open Library Folder…", action: () => void pickLibrary() },
           { label: "Close Library", action: () => void closeLibrary(), disabled: !libraryHandle() },
@@ -824,6 +929,9 @@ export function App() {
         <button class="daw-btn daw-btn-lg" onClick={() => void pickSingleSong()}>
           <i class="bi bi-folder2-open" /> Open Song Folder…
         </button>
+        <button class="daw-btn daw-btn-lg" onClick={() => void openByPath()}>
+          <i class="bi bi-folder-symlink" /> Open by Path…
+        </button>
         <button class="daw-btn daw-btn-lg" onClick={() => void pickLibrary()}>
           <i class="bi bi-collection" /> Open Library Folder…
         </button>
@@ -839,8 +947,11 @@ export function App() {
     <div class="daw-app">
       <MenuBar menus={menus()}>
         <Show when={song()}>
-          <span class="daw-doc-title">
-            {song()!.name}
+          <span class="daw-doc-title" title={song()!.name}>
+            {(() => {
+              const n = song()!.name.replace(/\\/g, "/");
+              return n.includes("/") ? n.split("/").filter(Boolean).at(-1)! : song()!.name;
+            })()}
             <span class="daw-doc-path"> — {CALIBRATED_PATH}</span>
             <Show when={dirty()}>
               <span class="daw-dirty-dot" title="Unsaved changes" />
@@ -1001,7 +1112,17 @@ export function App() {
       </Show>
 
       <div class="daw-statusbar">
-        <span class="daw-status-msg">{status()}</span>
+        <div class="daw-status-left">
+          <button
+            class="daw-status-copy-btn"
+            classList={{ "daw-status-copy-btn--copied": copiedStatus() }}
+            title={copiedStatus() ? "Copied!" : "Copy status message to clipboard"}
+            onClick={copyStatus}
+          >
+            <i class={`bi bi-${copiedStatus() ? "check-lg" : "clipboard"}`} />
+          </button>
+          <span class="daw-status-msg" title={status()}>{status()}</span>
+        </div>
         <span class="daw-status-hint">Drag empty space to scroll · drag clip edges to retime · double-click a syllable to hear it · Ctrl+wheel zooms</span>
       </div>
     </div>
