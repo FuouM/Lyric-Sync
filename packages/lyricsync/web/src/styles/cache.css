@@ -1,0 +1,254 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+@layer components {
+/* Cache Management view, stat cards, and cached-works list. */
+
+.ds-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+.ds-stat-card {
+  padding: 8px 10px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+  border-radius: var(--radius-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ds-stat-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ds-accent-aero-dark, var(--sys-link, var(--sys-text-primary, #005a9e)));
+}
+.ds-stat-lbl {
+  font-size: var(--font-sm);
+  color: var(--sys-text-secondary, var(--sys-text-muted));
+}
+.ds-stat-card--success .ds-stat-val {
+  color: var(--sys-success, #198754) !important;
+}
+.ds-stat-card--warning .ds-stat-val {
+  color: var(--ds-warning-text, #c67d00) !important;
+}
+.ds-stat-card--danger .ds-stat-val {
+  color: var(--ds-danger-text, #d32f2f) !important;
+}
+.ds-stat-card--neutral .ds-stat-val {
+  color: var(--sys-text-secondary, #666666) !important;
+}
+.ds-cache-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-cache-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: scroll;
+  border: 1px solid var(--sys-border-light);
+  padding: 8px;
+  background: var(--sys-window-bg);
+  border-radius: var(--radius-2);
+}
+.ds-cache-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--sys-border-light);
+  background: var(--sys-window-bg);
+  border-radius: var(--radius-2);
+}
+.ds-cache-item:hover {
+  background: var(--sys-hover-bg);
+  border-color: var(--sys-border-medium);
+}
+.ds-cache-item .ds-btn-icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  aspect-ratio: 1 / 1;
+  padding: 0 !important;
+  box-sizing: border-box;
+}
+
+/* Cache Integrity Verification Modal */
+.ds-integrity-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 140px;
+}
+.ds-integrity-center-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 12px;
+}
+.ds-integrity-status-text {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--sys-text-primary);
+  text-align: center;
+}
+.ds-integrity-progress-track {
+  width: 100%;
+  max-width: 320px;
+  height: 8px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ds-integrity-progress-fill {
+  height: 100%;
+  background: var(--sys-primary);
+  transition: width 0.15s ease-out;
+}
+.ds-integrity-result-card {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--sys-border-light);
+}
+.ds-integrity-result--healthy {
+  background: color-mix(in srgb, var(--sys-success, #198754) 8%, var(--sys-window-bg));
+  border-color: color-mix(in srgb, var(--sys-success, #198754) 30%, transparent);
+}
+.ds-integrity-result--warning {
+  background: color-mix(in srgb, var(--sys-warning, #ffc107) 8%, var(--sys-window-bg));
+  border-color: color-mix(in srgb, var(--sys-warning, #ffc107) 30%, transparent);
+}
+.ds-integrity-header-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ds-integrity-status-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.ds-text-success {
+  color: var(--sys-success, #198754);
+}
+.ds-text-warning {
+  color: var(--sys-warning, #e69500);
+}
+.ds-integrity-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sys-text-primary);
+}
+.ds-integrity-subtitle {
+  font-size: var(--font-sm);
+  color: var(--sys-text-secondary, var(--sys-text-muted));
+  margin-top: 2px;
+}
+.ds-integrity-details-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.ds-integrity-issues-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--sys-border-light);
+  border-radius: var(--radius-2);
+  background: var(--sys-control-bg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-integrity-issue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-1);
+  background: var(--sys-window-bg);
+  font-size: var(--font-sm);
+}
+.ds-integrity-type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-1);
+  background: var(--sys-control-bg);
+  color: var(--sys-text-muted);
+  flex-shrink: 0;
+}
+.ds-integrity-type--page {
+  color: var(--sys-primary);
+  background: color-mix(in srgb, var(--sys-primary) 12%, transparent);
+}
+.ds-integrity-type--cover {
+  color: #7b1fa2;
+  background: color-mix(in srgb, #7b1fa2 12%, transparent);
+}
+.ds-integrity-issue-info {
+  flex: 1;
+  min-width: 0;
+}
+.ds-integrity-issue-id {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ds-integrity-issue-reason {
+  font-size: 11px;
+}
+.ds-integrity-issue-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.ds-badge--missing {
+  color: #c67d00;
+  background: color-mix(in srgb, #ffc107 20%, transparent);
+}
+.ds-badge--corrupted {
+  color: #d32f2f;
+  background: color-mix(in srgb, #d32f2f 16%, transparent);
+}
+.ds-cache-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ds-stats-grid--4 {
+  grid-template-columns: repeat(4, 1fr) !important;
+}
+.ds-cache-actions--mt {
+  margin-top: 10px;
+}
+.ds-cache-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+}

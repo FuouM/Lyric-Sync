@@ -1,0 +1,509 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+@layer components {
+#ds-library-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  box-sizing: border-box;
+  container-type: inline-size;
+}
+/* ==========================================================================
+   Desktop Master-Detail Split Layout for Library (WinForms Style)
+   ========================================================================== */
+
+.ds-library-split {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Master Left Navigation GroupBox ── */
+.ds-library-master-box {
+  width: 220px;
+  flex: 0 0 220px;
+  display: flex !important;
+  flex-direction: column !important;
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  padding: 14px 8px 8px !important;
+  box-sizing: border-box;
+}
+
+.ds-library-master-box > .group-box-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── WinForms ListBox Container ── */
+.win-listbox,
+.ds-library-nav-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--sys-window-bg);
+  border: 1px solid var(--sys-border-dark);
+  border-radius: 2px;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+
+/* ── WinForms ListBox Item ── */
+.win-listbox-item,
+.ds-library-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  height: 26px;
+  min-height: 26px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--sys-window-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.win-listbox-item:hover,
+.ds-library-nav-item:hover {
+  background: var(--sys-button-hover);
+  border-color: var(--sys-border-focus);
+}
+
+.win-listbox-item.active,
+.ds-library-nav-item.active {
+  background: var(--sys-highlight-bg);
+  color: var(--sys-highlight-text) !important;
+  border-color: var(--sys-primary-border);
+}
+
+.win-listbox-item .ds-nav-icon,
+.ds-library-nav-item .ds-nav-icon {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.win-listbox-item .ds-nav-label,
+.ds-library-nav-item .ds-nav-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.win-listbox-item .ds-nav-count,
+.ds-library-nav-item .ds-nav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  min-width: 18px;
+  height: 16px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 9999px;
+  background: var(--sys-hover-bg, rgba(0, 0, 0, 0.07));
+  color: var(--sys-text-muted, #666);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.win-listbox-item.active .ds-nav-count,
+.ds-library-nav-item.active .ds-nav-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--sys-highlight-text, #ffffff) !important;
+}
+
+/* ── Detail Right Content GroupBox ── */
+.ds-library-detail-box {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex !important;
+  flex-direction: column !important;
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  padding: 14px 0 6px 8px !important;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.ds-library-detail-box > .group-box-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ds-library-detail-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ds-library-detail-content .ds-library-tab-pane {
+  padding-right: 8px;
+}
+
+.ds-library-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+@container (max-width: 1150px) {
+  .ds-library-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@container (max-width: 600px) {
+  .ds-library-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Thin mobile-style scrollbars for library view */
+#ds-library-container *,
+.ds-library-split *,
+.ds-library-nav-list,
+.ds-library-detail-content,
+.ds-library-tab-pane {
+  -webkit-overflow-scrolling: touch;
+}
+
+#ds-library-container *::-webkit-scrollbar,
+.ds-library-split *::-webkit-scrollbar,
+.ds-library-nav-list::-webkit-scrollbar,
+.ds-library-detail-content::-webkit-scrollbar,
+.ds-library-tab-pane::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+#ds-library-container *::-webkit-scrollbar-track,
+.ds-library-split *::-webkit-scrollbar-track,
+.ds-library-nav-list::-webkit-scrollbar-track,
+.ds-library-detail-content::-webkit-scrollbar-track,
+.ds-library-tab-pane::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+#ds-library-container *::-webkit-scrollbar-thumb,
+.ds-library-split *::-webkit-scrollbar-thumb,
+.ds-library-nav-list::-webkit-scrollbar-thumb,
+.ds-library-detail-content::-webkit-scrollbar-thumb,
+.ds-library-tab-pane::-webkit-scrollbar-thumb {
+  background: var(--sys-scrollbar-thumb, rgba(0, 0, 0, 0.22));
+  border-radius: 4px;
+  border: none;
+}
+
+#ds-library-container *::-webkit-scrollbar-thumb:hover,
+.ds-library-split *::-webkit-scrollbar-thumb:hover,
+.ds-library-nav-list::-webkit-scrollbar-thumb:hover,
+.ds-library-detail-content::-webkit-scrollbar-thumb:hover,
+.ds-library-tab-pane::-webkit-scrollbar-thumb:hover {
+  background: var(--sys-scrollbar-thumb-hover, rgba(0, 0, 0, 0.45));
+}
+.ds-followed-cover,
+.ds-collection-cover {
+  width: 42px;
+  height: 58px;
+  min-width: 42px;
+  max-width: 42px;
+  object-fit: cover;
+  border: 1px solid var(--sys-border-light);
+  border-radius: 2px;
+  background: var(--sys-control-bg);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: block;
+}
+
+.ds-followed-cover-placeholder,
+.ds-collection-cover-placeholder {
+  width: 42px;
+  height: 58px;
+  min-width: 42px;
+  max-width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+  border-radius: 2px;
+  color: var(--sys-text-muted);
+  font-size: 14px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* Collection Detail View */
+#ds-collection-detail-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  padding-top: 4px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+.ds-collection-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+  border-radius: 3px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-collection-stats {
+  font-size: 11px;
+  color: var(--sys-window-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Narrow / Mobile Tabbed Layout */
+.ds-library-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 0;
+}
+.ds-library-tab-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: scroll;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+/* Library Export Dialog */
+.ds-export-form {
+  gap: 10px;
+}
+.ds-export-row {
+  display: flex;
+  gap: 12px;
+}
+.ds-export-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-export-field .ds-select {
+  width: 100%;
+}
+.ds-export-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.ds-export-summary-text {
+  color: var(--sys-window-text-muted, #666);
+}
+.ds-export-preview-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.ds-export-textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 180px;
+  max-height: 360px;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  tab-size: 2;
+}
+.ds-export-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ds-btn-success {
+  background-color: var(--ds-status-fresh-text) !important;
+  color: var(--sys-highlight-text) !important;
+  border-color: var(--ds-status-fresh-border) !important;
+}
+
+.ds-collection-checklist-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-collection-check-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.ds-collection-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 130px;
+  overflow-y: auto;
+  border: 1px solid var(--sys-border-light);
+  border-radius: 3px;
+  background: var(--sys-control-bg);
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
+.ds-collection-check-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--sys-window-text);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  user-select: none;
+}
+.ds-collection-check-item:hover {
+  background: var(--sys-hover-bg, rgba(0, 120, 212, 0.08));
+}
+.ds-collection-check-title {
+  font-weight: 500;
+}
+.ds-collection-check-count {
+  font-size: 10px;
+}
+
+/* Library Import Dialog */
+.ds-import-form {
+  gap: 10px;
+}
+.ds-import-actions-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-import-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+  color: var(--sys-window-text);
+}
+.ds-import-badge--success {
+  color: var(--ds-status-fresh-text);
+  border-color: var(--ds-status-fresh-border);
+}
+.ds-import-badge--warn {
+  color: var(--ds-warn-text);
+  border-color: var(--ds-warn-border);
+}
+.ds-import-badge--error {
+  color: var(--ds-danger-text);
+  border-color: var(--ds-danger-border);
+}
+.ds-import-textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 140px;
+  max-height: 280px;
+  tab-size: 2;
+}
+.ds-import-feedback {
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-light);
+}
+
+/* ── Library Empty States ── */
+.ds-library-empty,
+.ds-library-tab-pane > .ds-muted,
+.ds-library-tab-pane .ds-collection-empty,
+.ds-library-tab-pane .ds-collection-empty--center {
+  color: var(--sys-text-secondary);
+  font-size: 13px;
+  font-style: normal;
+  padding: 48px 20px;
+  text-align: center;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ds-library-empty svg,
+.ds-library-empty i {
+  color: var(--sys-text-secondary);
+  opacity: 0.7;
+}
+/* ── Library item row wrapper ── */
+/* Hold-to-select rows: a touch hold must not start native text selection or the callout menu. */
+.ds-library-item-wrap {
+  width: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+}

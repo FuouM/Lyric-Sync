@@ -1,0 +1,193 @@
+@charset "UTF-8";
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+/* tokens.css — design tokens: light palette + shared vars; dark/high-contrast in themes/ */
+@layer tokens {
+  :root {
+    --sys-control-bg: #ececec;
+    --sys-control-text: #000000;
+    --sys-window-bg: #ffffff;
+    --sys-window-text: #000000;
+    --sys-border-light: #ffffff;
+    --sys-border-dark: #b0b0b0;
+    --sys-border-medium: #cccccc;
+    --sys-border-focus: #0078d7;
+    --sys-highlight-bg: #0078d7;
+    --sys-highlight-text: #ffffff;
+    --sys-button-bg: #f0f0f0;
+    --sys-button-border: #707070;
+    --sys-button-hover: #e5f1fb;
+    --sys-button-active: #cce4f7;
+    --sys-status-bg: #f3f3f3;
+    --sys-status-text: #333333;
+    --sys-menu-bg: #f9f9f9;
+    --sys-menu-border: #d0d0d0;
+    --sys-text-primary: #000000;
+    --sys-text-secondary: #444444;
+    --sys-text-muted: #555555;
+    --sys-hover-bg: #f0f0f0;
+    --sys-bg-active: #f8f9fa;
+    --sys-card-bg: #ffffff;
+    --sys-primary: #0078d4;
+    --sys-primary-border: #005a9e;
+    --sys-primary-hover: #106ebe;
+    --sys-primary-active: #005a9e;
+    --sys-button-disabled-bg: #e1e1e1;
+    --sys-button-disabled-text: #838383;
+    --sys-button-disabled-border: #adadad;
+    --sys-success-accent: #10b981;
+    --sys-error-text: #d13438;
+    --sys-reader-viewport-bg: #eaeaea;
+    --sys-scrollbar-thumb: rgba(0, 0, 0, 0.22);
+    --sys-scrollbar-thumb-hover: rgba(0, 0, 0, 0.45);
+    --sys-scrollbar-track: #f0f0f0;
+    --sys-scrollbar-track-border: #dcdcdc;
+    --sys-scrollbar-thumb-border: #f0f0f0;
+    --ds-status-fresh-bg: #e6f4ea;
+    --ds-status-fresh-text: #137333;
+    --ds-status-fresh-border: #ceead6;
+    --ds-status-stale-bg: #fef7e0;
+    --ds-status-stale-text: #b06000;
+    --ds-status-stale-border: #feefc3;
+    --ds-danger-bg: #fde7e9;
+    --ds-danger-text: #a80000;
+    --ds-danger-border: #e81123;
+    --ds-danger-btn-bg: #d13438;
+    --ds-danger-btn-border: #e81123;
+    --ds-danger-btn-hover: #b82c30;
+    --ds-danger-btn-active: #a22428;
+    --ds-danger-btn-text: #ffffff;
+    --ds-warn-bg: #fdf3f4;
+    --ds-warn-text: #842029;
+    --ds-warn-border: #f5c2c7;
+    --ds-partial-text: #92400e;
+    --ds-partial-border: #d97706;
+    /* Followed series indicator tokens — dynamically tracks user accent color */
+    --ds-followed-corner: var(--sys-accent, var(--sys-primary, #0078d4));
+    --ds-followed-corner-hover: var(--sys-primary-hover, var(--sys-accent, #005a9e));
+    /* Accent colorization tokens */
+    --ds-accent-aero-light: #4da6ff;
+    --ds-accent-aero-mid: #0078d4;
+    --ds-accent-aero-dark: #005a9e;
+    --ds-accent-aero-border: #004578;
+    --ds-accent-active-grad-1: #e5f4fc;
+    --ds-accent-active-grad-2: #c4e5f6;
+    --ds-accent-active-grad-3: #98d1ef;
+    --ds-accent-active-grad-4: #68b3db;
+    --ds-accent-active-border: #2c597c;
+    --ds-accent-active-text: #0f2440;
+    --ds-accent-hover-grad-1: #eaf6fd;
+    --ds-accent-hover-grad-2: #bee6fd;
+    --ds-accent-hover-grad-3: #a7d9f5;
+    --ds-accent-hover-border: #3c7fb1;
+    --ds-accent-subtab-grad-1: #d8ebff;
+    --ds-accent-subtab-grad-2: #b9d8f6;
+    --ds-accent-subtab-grad-3: #8fb9ea;
+    --ds-accent-subtab-grad-4: #c8ddf5;
+    --ds-accent-subtab-border: #2e6aa5;
+    --ds-accent-subtab-text: #0f2440;
+    --ds-accent-topbar-text: #ffffff;
+    --ds-accent-topbar-shadow: 0 1px 2px rgba(0, 0, 0, 0.65), 0 0 6px rgba(0, 0, 0, 0.35);
+    --ds-accent-badge-bg: #edf4fc;
+    --ds-accent-badge-border: #b8cde6;
+    --ds-accent-badge-text: #1b3d64;
+    --ds-accent-box-bg-1: #ffffff;
+    --ds-accent-box-bg-2: #f4f8fd;
+    --ds-accent-box-border: #b8cde6;
+    --ds-accent-divider: #d6e3f2;
+    /* Canonical stacking scale — all global z-index values must use these. */
+    --z-topbar: 10;
+    --z-bottom-nav: 1000;
+    --z-reader-nav: 1100;
+    --z-sheet: 1200;
+    --z-reader-hint: 1500;
+    --z-reader-overscroll: 2000;
+    --z-reader-fullscreen: 9000;
+    --z-modal: 10000;
+    --z-banner: 10010;
+    --z-dropdown: 10020;
+    --z-tooltip: 10030;
+    /* spacing scale */
+    --space-0: 0;
+    --space-1: 2px;
+    --space-2: 4px;
+    --space-3: 6px;
+    --space-4: 8px;
+    --space-5: 12px;
+    --space-6: 16px;
+    --radius-1: 2px;
+    --radius-2: 3px;
+    --radius-3: 6px;
+    --font-xs: 10px;
+    --font-sm: 11px;
+    --font-md: 12px;
+    --font-lg: 13px;
+    /* reader */
+    --ds-reader-bg: var(--sys-window-bg);
+    --ds-reader-viewport-bg: #eaeaea;
+    --ds-reader-nav-border: var(--sys-border-light);
+    --ds-reader-divider: rgba(0, 0, 0, 0.06);
+    --tag-character-bg: #d1ecf1;
+    --tag-character-border: #bee5eb;
+    --tag-character-text: #0c5460;
+    --tag-character-hover-bg: #b8e0e8;
+    --tag-character-hover-border: #9ad0db;
+    --tag-character-hover-text: #0a4550;
+    --tag-copyright-bg: #ebdcf9;
+    --tag-copyright-border: #dcbdf5;
+    --tag-copyright-text: #511c74;
+    --tag-copyright-hover-bg: #dfc5f5;
+    --tag-copyright-hover-border: #c9a3ef;
+    --tag-copyright-hover-text: #3d1558;
+    --tag-meta-bg: #e2e3e5;
+    --tag-meta-border: #d6d8db;
+    --tag-meta-text: #383d41;
+    --tag-meta-hover-bg: #d5d7da;
+    --tag-meta-hover-border: #c2c5c9;
+    --tag-meta-hover-text: #2a2e32;
+    --tag-artist-bg: #fff0e6;
+    --tag-artist-border: #ffd9c2;
+    --tag-artist-text: #7c2d12;
+    --tag-artist-hover-bg: #ffe0c7;
+    --tag-artist-hover-border: #ffbe99;
+    --tag-artist-hover-text: #5f220e;
+    --tag-pairing-bg: #fce7f3;
+    --tag-pairing-border: #fbcfe8;
+    --tag-pairing-text: #9d174d;
+    --tag-pairing-hover-bg: #fbd0e6;
+    --tag-pairing-hover-border: #f8b5d6;
+    --tag-pairing-hover-text: #7a113c;
+    --tag-status-bg: #e6f4ea;
+    --tag-status-border: #ceead6;
+    --tag-status-text: #0e6b38;
+    --tag-status-hover-bg: #d3ecd9;
+    --tag-status-hover-border: #b6dfc0;
+    --tag-status-hover-text: #0a4d28;
+    --tag-rank-3-bg: #e7f0f7;
+    --tag-rank-3-border: #cfe1ee;
+    --tag-rank-3-text: #33515f;
+    --tag-rank-3-hover-bg: #d6e6f1;
+    --tag-rank-3-hover-border: #b9d2e4;
+    --tag-rank-3-hover-text: #25404d;
+    --sys-link: #0284c7;
+    --sys-link-hover: #0078d7;
+    --skeleton-shimmer: rgba(255, 255, 255, 0.4);
+    --sys-switch-thumb-bg: var(--sys-window-bg);
+    --sys-switch-thumb-border: var(--sys-border-dark);
+    --sys-switch-thumb-checked-bg: #ffffff;
+    --sys-button-primary-bg: var(--sys-highlight-bg);
+    --sys-button-primary-border: var(--sys-primary-border);
+    --sys-button-primary-hover: var(--sys-primary-hover);
+    --sys-button-primary-active: var(--sys-primary-active);
+  }
+  /* Theme switch guard — must win over all later layers for !important */
+  /* Placed in the earliest layer (tokens) so !important beats later layers. */
+  html.ds-disable-transitions,
+  html.ds-disable-transitions *,
+  html.ds-disable-transitions *::before,
+  html.ds-disable-transitions *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

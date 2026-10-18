@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+
+# Model weights come from the GitHub release listed in models.json (bun run fetch-models).
+packages/*/models/**/*.onnx
+
+# The editor's default songs folder (bun run dev; --songs points elsewhere) and model release staging.
+songs/
+release/

@@ -1,0 +1,45 @@
+{
+  "name": "beatsync",
+  "version": "0.1.0",
+  "description": "Fast, robust beat and downbeat tracking for music audio using Beat This! RoFormer ONNX model.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "beatsync": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "models",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test tests/unit",
+    "test:e2e": "bun test tests/e2e",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "trustedDependencies": [
+    "onnxruntime-node"
+  ]
+}

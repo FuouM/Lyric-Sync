@@ -1,0 +1,203 @@
+// packages/lyricsync/web/dev.ts
+// Editor server: Vite (with vite.config.ts) plus the local endpoints the editor's server features use.
+//   GET  /api/config                      { songsDir }: the songs folder this server works on.
+//   POST /api/realign { project, lines, snapToBeats? }   lyricsync's full solve around the pins in `lines` (server/realign.ts);
+//                                          returns the lines with every unpinned syllable re-timed, and writes
+//                                          <songs>/<project>/lyricsync/out/lyrics.json and review.json.
+//   POST /api/wizard/check { text, language, pronunciations }   lints lyrics: every word problem (unknown words), or counts,
+//                                          sections and automatic syllable splits. Always 200; `ok` says whether they are usable.
+//   POST /api/wizard/pronounce { language, input }   phones for a hand-added pronunciation ("sounds like" words, or phones).
+//   POST /api/wizard/create  (multipart: id, language, bpm, firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
+//   POST /api/wizard/resume { id }        continues a failed build.
+//   GET  /api/wizard/job                  the current or last build: state and log.
+//   GET/PUT /api/project/<id>/file/<path> song folder files (server/project-files.ts), for songs opened without the folder picker.
+//   GET  /api/lyrics/<id>/splits          the analysed syllables per editor line and word, and whether the evidence is current.
+//   POST /api/lyrics/<id>/reanalyze { lines }   writes the editor's syllable splits (server/syllables.ts) and re-prepares.
+//   GET  /api/lyrics/job                  the current or last re-analysis: state and log.
+// Builds and re-analyses use the GPU, so only one of them runs at a time.
+// `project` / `id` is a song folder name inside the songs folder.
+// usage: bun dev.ts [--songs <dir>] [--port <n>]
+//   --songs  the folder that holds the song folders (default: <repository>/songs, created when missing). Point it at another
+//            project's song folders (e.g. probable-video-editor/projects) to edit them in place.
+//   --port   default 3000.
+// Run with Bun (`bun run dev`): the routes and lyricsync are TypeScript and are imported here directly, outside Vite's
+// config bundling, so lyricsync still resolves its models from its own source location.
+import * as fs from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { createServer, type Plugin } from "vite";
+import { handleRealign } from "./server/realign.ts";
+import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
+import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
+import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze } from "./server/syllables.ts";
+import { isRecord } from "../src/guards.ts";
+import { pronounceAs } from "../src/index.ts";
+
+const WEB_DIR = path.dirname(fileURLToPath(import.meta.url));
+const { values: args } = parseArgs({ options: { songs: { type: "string" }, port: { type: "string" } } });
+const SONGS = args.songs !== undefined ? path.resolve(args.songs) : path.resolve(WEB_DIR, "../../..", "songs");
+if (args.songs === undefined) fs.mkdirSync(SONGS, { recursive: true });
+else if (!fs.existsSync(SONGS) || !fs.statSync(SONGS).isDirectory()) throw new Error(`--songs ${SONGS} is not a folder.`);
+const PORT = args.port !== undefined ? Number(args.port) : 3000;
+if (!Number.isInteger(PORT) || PORT <= 0) throw new Error(`--port must be a port number, got "${args.port}".`);
+
+/** The Node request as a fetch Request, so `.json()` and `.formData()` (file uploads) parse it. The body is read fully first. */
+async function toRequest(req: IncomingMessage): Promise<Request> {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
+  const chunks: Uint8Array[] = [];
+  for await (const c of req) chunks.push(c);
+  return new Request(`http://localhost${req.url ?? "/"}`, { method: req.method, headers, body: Buffer.concat(chunks) });
+}
+
+function send(res: ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+const fail = (res: ServerResponse, status: number, e: unknown) =>
+  send(res, status, { error: "FAILED", message: e instanceof Error ? e.message : String(e) });
+
+const isLanguage = (v: unknown): v is "en" | "ja" => v === "en" || v === "ja";
+
+const localApi: Plugin = {
+  name: "lyricsync-local-api",
+  configureServer(server) {
+    server.middlewares.use("/api/config", (req, res) => {
+      if (req.method !== "GET") return send(res, 405, { error: "METHOD", message: "GET only" });
+      send(res, 200, { songsDir: SONGS });
+    });
+
+    server.middlewares.use("/api/realign", async (req, res) => {
+      if (req.method !== "POST") return send(res, 405, { error: "METHOD", message: "POST only" });
+      try {
+        const r = await handleRealign(SONGS, await (await toRequest(req)).json());
+        send(res, r.status, r.body);
+      } catch (e: unknown) {
+        fail(res, 500, e);
+      }
+    });
+
+    server.middlewares.use("/api/wizard", async (req, res) => {
+      const route = `${req.method} ${(req.url ?? "/").split("?")[0]}`;
+      const reanalysis = currentReanalyzeJob();
+      if ((route === "POST /create" || route === "POST /resume") && reanalysis?.state === "running") {
+        return send(res, 409, { error: "BUSY", message: `Re-analysis of ${reanalysis.project} is running. Wait for it to finish.` });
+      }
+
+      try {
+        if (route === "GET /job") return send(res, 200, { job: currentJob() });
+        if (route === "POST /check") {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body) || typeof body.text !== "string" || !isLanguage(body.language)) return send(res, 400, { error: "BAD_REQUEST", message: "Needs text and language." });
+          return send(res, 200, checkLyrics(body.text, body.language, parsePronunciations(body.pronunciations ?? {}, body.language)));
+        }
+        if (route === "POST /pronounce") {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body) || typeof body.input !== "string" || !isLanguage(body.language)) return send(res, 400, { error: "BAD_REQUEST", message: "Needs input and language." });
+          try {
+            return send(res, 200, { ok: true, phones: pronounceAs(body.input, body.language) });
+          } catch (e: unknown) {
+            return send(res, 200, { ok: false, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        if (route === "POST /create") {
+          const form = await (await toRequest(req)).formData();
+          const id = form.get("id");
+          const language = form.get("language");
+          const lyrics = form.get("lyrics");
+          const mix = form.get("mix");
+          const vocal = form.get("vocal");
+          const downbeat = form.get("firstDownbeat");
+          const pronunciations = form.get("pronunciations");
+          if (typeof id !== "string" || !isLanguage(language) || typeof lyrics !== "string" || typeof pronunciations !== "string" || !(mix instanceof File) || !(vocal instanceof File)) {
+            return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, mix and vocal." });
+          }
+          try {
+            await createSong(SONGS, {
+              id,
+              language,
+              bpm: Number(form.get("bpm")),
+              firstDownbeat: typeof downbeat === "string" && downbeat.trim() !== "" ? Number(downbeat) : null,
+              lyrics,
+              pronunciations: parsePronunciations(JSON.parse(pronunciations), language),
+              mix,
+              vocal,
+            });
+          } catch (e: unknown) {
+            return fail(res, 422, e);
+          }
+          return send(res, 202, { job: currentJob() });
+        }
+        if (route === "POST /resume") {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body) || typeof body.id !== "string") return send(res, 400, { error: "BAD_REQUEST", message: "Needs id." });
+          try {
+            resumeSong(SONGS, body.id);
+          } catch (e: unknown) {
+            return fail(res, 422, e);
+          }
+          return send(res, 202, { job: currentJob() });
+        }
+        send(res, 404, { error: "NOT_FOUND", message: route });
+      } catch (e: unknown) {
+        fail(res, 500, e);
+      }
+    });
+
+    server.middlewares.use("/api/project", async (req, res) => {
+      const m = /^\/([^/]+)\/file\/(.+)$/.exec(decodeURIComponent((req.url ?? "/").split("?")[0]!));
+      if (!m) return send(res, 404, { error: "NOT_FOUND", message: req.url });
+      const [, id, rel] = m;
+      try {
+        if (req.method === "GET" || req.method === "HEAD") {
+          const { file, mtimeMs } = readProjectFile(SONGS, id!, rel!);
+          res.statusCode = 200;
+          res.setHeader("X-Mtime-Ms", String(mtimeMs));
+          res.setHeader("Cache-Control", "no-store");
+          res.end(req.method === "GET" ? Buffer.from(await Bun.file(file).arrayBuffer()) : undefined);
+          return;
+        }
+        if (req.method === "PUT") {
+          const body = new Uint8Array(await (await toRequest(req)).arrayBuffer());
+          return send(res, 200, writeProjectFile(SONGS, id!, rel!, body));
+        }
+        send(res, 405, { error: "METHOD", message: "GET or PUT" });
+      } catch (e: unknown) {
+        if (e instanceof ProjectFileError) return send(res, e.status, { error: "FILE", message: e.message });
+        fail(res, 500, e);
+      }
+    });
+
+    server.middlewares.use("/api/lyrics", async (req, res) => {
+      const route = `${req.method} ${(req.url ?? "/").split("?")[0]}`;
+      const m = /^(GET|POST) \/([^/]+)\/(splits|reanalyze)$/.exec(route);
+      try {
+        if (route === "GET /job") return send(res, 200, { job: currentReanalyzeJob() });
+        if (m?.[1] === "GET" && m[3] === "splits") return send(res, 200, analysedSplits(SONGS, decodeURIComponent(m[2]!)));
+        if (m?.[1] === "POST" && m[3] === "reanalyze") {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body)) return send(res, 400, { error: "BAD_REQUEST", message: "Needs lines." });
+          const build = currentJob();
+          try {
+            const job = reanalyze(SONGS, decodeURIComponent(m[2]!), parseSplitLines(body.lines), build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null);
+            return send(res, 202, { job });
+          } catch (e: unknown) {
+            return fail(res, 422, e);
+          }
+        }
+        send(res, 404, { error: "NOT_FOUND", message: route });
+      } catch (e: unknown) {
+        fail(res, 500, e);
+      }
+    });
+  },
+};
+
+const server = await createServer({ root: WEB_DIR, configFile: path.join(WEB_DIR, "vite.config.ts"), plugins: [localApi], server: { port: PORT } });
+await server.listen();
+server.printUrls();
+console.log(`  songs folder: ${SONGS}`);

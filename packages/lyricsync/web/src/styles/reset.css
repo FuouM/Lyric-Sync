@@ -1,0 +1,83 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+/* reset.css — box model, body, scrollbars, skeleton placeholders */
+@layer reset {
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Tahoma, Arial, sans-serif;
+  font-size: 12px;
+}
+
+body {
+  background-color: var(--sys-control-bg);
+  color: var(--sys-control-text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+::-webkit-scrollbar-track {
+  background: var(--sys-scrollbar-track);
+  border: 1px solid var(--sys-scrollbar-track-border);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--sys-scrollbar-thumb);
+  border: 3px solid var(--sys-scrollbar-thumb-border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sys-scrollbar-thumb-hover);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--sys-control-bg, #e0e0e0);
+}
+.skeleton-pulse {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--sys-control-bg, #e0e0e0);
+  border-radius: 3px;
+}
+.skeleton::after,
+.skeleton-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--skeleton-shimmer) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: ds-skeleton-slide 1.5s ease-in-out infinite;
+}
+.skeleton-card {
+  height: 80px;
+  border-radius: 3px;
+  background-color: var(--sys-control-bg);
+  border: 1px solid var(--sys-border-dark);
+}
+.skeleton-text {
+  height: 12px;
+  border-radius: 2px;
+}
+@keyframes ds-skeleton-slide {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .skeleton-pulse::after {
+    animation: none;
+  }
+}
+}

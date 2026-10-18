@@ -1,0 +1,17 @@
+{
+  "name": "lyric-sync",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "workspaces": ["packages/beatsync", "packages/lyricsync", "packages/lyricsync/web"],
+  "trustedDependencies": ["onnxruntime-node"],
+  "scripts": {
+    "postinstall": "bun run --cwd packages/beatsync build",
+    "fetch-models": "bun scripts/models.ts fetch",
+    "verify-models": "bun scripts/models.ts verify",
+    "dev": "bun run --cwd packages/lyricsync/web dev",
+    "build:web": "bun run --cwd packages/lyricsync/web build",
+    "typecheck": "bun run --cwd packages/beatsync typecheck && bun run --cwd packages/lyricsync typecheck && bun run --cwd packages/lyricsync/web typecheck",
+    "test": "bun run --cwd packages/beatsync test && bun run --cwd packages/lyricsync test"
+  }
+}

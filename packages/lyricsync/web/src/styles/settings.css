@@ -1,0 +1,618 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+@layer layout {
+/* Settings Modal Quick-Jump Sidebar Layout */
+.ds-modal-body:has(.ds-settings-layout),
+.ds-modal-body:has(.ds-settings-subpage),
+#ds-settings-modal-backdrop .ds-modal-body {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ds-settings-subpage {
+  display: flex;
+  flex-direction: column;
+  height: 440px;
+  max-height: calc(100vh - 180px);
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 4px 0 0 0;
+  flex: 1 1 auto;
+}
+.ds-settings-subpage-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--sys-border-light, #eaeaea);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.ds-settings-subpage-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+
+.ds-settings-layout {
+  display: flex;
+  gap: 12px;
+  height: 440px;
+  max-height: calc(100vh - 180px);
+  min-height: 0;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.ds-settings-sidebar {
+  width: 175px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--sys-control-bg, #f5f5f5);
+  border: 1px solid var(--sys-border-dark, #b0b0b0);
+  border-radius: var(--radius-2);
+  box-sizing: border-box;
+  user-select: none;
+  overflow-y: auto;
+}
+.ds-settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--sys-window-text, #333);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.ds-settings-nav-item:hover {
+  background: var(--sys-button-hover, #e5f1fb);
+}
+.ds-settings-nav-item.active {
+  background: var(--sys-highlight-bg, #0078d7);
+  color: var(--sys-highlight-text) !important;
+}
+.ds-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: scroll;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scroll-behavior: smooth;
+  box-sizing: border-box;
+}
+.ds-settings-content .group-box {
+  margin-top: 12px;
+  margin-bottom: 2px;
+  scroll-margin-top: 16px;
+}
+.ds-settings-content .group-box:first-child {
+  margin-top: 10px;
+}
+.ds-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+.ds-settings-row:has(.ds-switch) {
+  flex-wrap: nowrap !important;
+}
+.ds-settings-row:has(.ds-switch) .ds-settings-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ds-settings-row:has(.ds-switch) .ds-settings-row-control {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.ds-settings-row.has-divider {
+  padding-top: 6px;
+  border-top: 1px solid var(--sys-border-light, #eaeaea);
+}
+.ds-settings-row.is-stacked {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+}
+.ds-settings-row.is-stacked .ds-settings-row-label {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+.ds-settings-row.is-stacked .ds-settings-row-control {
+  width: 100% !important;
+  flex-shrink: 0 !important;
+}
+.ds-settings-row.is-stacked .ds-settings-row-control .ds-segmented-switch,
+[data-mobile] #ds-settings-modal-backdrop .ds-segmented-switch,
+[data-mobile] .ds-settings-row-control .ds-segmented-switch {
+  width: 100% !important;
+  display: flex !important;
+}
+.ds-settings-row.is-stacked .ds-settings-row-control .ds-segmented-switch .ds-segmented-btn,
+[data-mobile] #ds-settings-modal-backdrop .ds-segmented-switch .ds-segmented-btn,
+[data-mobile] .ds-settings-row-control .ds-segmented-switch .ds-segmented-btn {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  justify-content: center !important;
+  padding: 0 6px !important;
+}
+.ds-settings-row-label {
+  flex: 1;
+  min-width: 180px;
+}
+.ds-settings-row-desc {
+  font-size: var(--font-sm);
+  color: var(--sys-text-muted, #666);
+  margin-top: 1px;
+}
+.ds-settings-row-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
+.ds-settings-row-control .ds-segmented-switch {
+  height: 24px;
+  min-height: 24px;
+  box-sizing: border-box;
+}
+.ds-settings-row-control .ds-segmented-switch .ds-segmented-btn {
+  height: 100%;
+  min-height: 100%;
+  padding: 0 10px;
+  font-size: var(--font-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+.ds-settings-row-control .ds-segmented-switch .ds-segmented-btn span,
+.ds-settings-row-control .ds-segmented-switch .ds-segmented-btn .ds-btn-text {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.ds-settings-row-control .ds-segmented-switch .ds-segmented-btn span.ds-btn-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-size: var(--font-lg);
+}
+/* Mobile Landscape Overrides — stacked SettingsRows (WinForms fieldset) */
+.ds-landscape-override-group {
+  margin-top: 8px;
+}
+.ds-landscape-override-stack {
+  display: flex;
+  flex-direction: column;
+}
+.ds-landscape-override-stack .ds-settings-row {
+  padding: 6px 0;
+}
+
+/* ── Advanced Settings / Haptic Feedback Preview ── */
+.ds-haptic-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .ds-haptic-preview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ds-haptic-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--sys-border-light, #dcdcdc);
+  border-radius: 3px;
+  background: var(--sys-control-bg, #f5f5f5);
+  transition: border-color 0.15s ease-out, background 0.15s ease-out, box-shadow 0.15s ease-out;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.ds-haptic-card:hover {
+  border-color: var(--sys-highlight-bg, #0078d7);
+}
+
+.ds-haptic-card--active {
+  border-color: var(--sys-highlight-bg, #0078d7) !important;
+  background: var(--sys-button-hover, #eef4fc) !important;
+  box-shadow: 0 0 0 1px var(--sys-highlight-bg, #0078d7);
+}
+
+.ds-haptic-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.ds-haptic-card-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--sys-window-text);
+}
+
+.ds-haptic-card-desc {
+  font-size: 11px;
+  color: var(--sys-text-muted, #666666);
+  line-height: 1.35;
+  min-height: 28px;
+}
+
+.ds-haptic-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--sys-border-light, #e0e0e0);
+}
+
+.ds-haptic-badge {
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--sys-button-bg, #e0e0e0);
+  color: var(--sys-window-text, #333333);
+  font-weight: 500;
+}
+.ds-haptic-card-timing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ds-haptic-reset-mini {
+  height: 18px !important;
+  min-height: 18px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 10px !important;
+}
+
+.ds-haptic-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 2px 0;
+  box-sizing: border-box;
+}
+
+.ds-haptic-step-btn {
+  height: 20px !important;
+  min-height: 20px !important;
+  width: 20px !important;
+  min-width: 20px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  flex-shrink: 0;
+}
+
+.ds-haptic-slider {
+  flex: 1;
+  height: 14px;
+  cursor: pointer;
+  margin: 0;
+  accent-color: var(--sys-highlight-bg, #0078d7);
+}
+
+.ds-haptic-strength-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  background: var(--sys-control-bg, #f5f5f5);
+  border: 1px solid var(--sys-border-light, #dcdcdc);
+  border-radius: 3px;
+  margin-top: 4px;
+}
+
+.ds-haptic-strength-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.ds-haptic-strength-slider {
+  flex: 1;
+  height: 16px;
+}
+
+.ds-haptic-strength-readout {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  min-width: 44px;
+  text-align: right;
+  color: var(--sys-highlight-bg, #0078d7);
+}
+
+.ds-haptic-strength-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ds-haptic-preset-btn {
+  height: 22px !important;
+  min-height: 22px !important;
+  font-size: 11px !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px;
+}
+
+.ds-haptic-preset-btn.active {
+  background: var(--sys-highlight-bg, #0078d7) !important;
+  color: var(--sys-highlight-text) !important;
+  border-color: var(--sys-highlight-bg, #0078d7) !important;
+  font-weight: 600;
+}
+
+.ds-haptic-test-btn {
+  font-size: 11px !important;
+  height: 22px !important;
+  padding: 0 8px !important;
+}
+
+.ds-haptic-pulse-icon {
+  display: inline-block;
+  animation: ds-haptic-shake 0.15s ease-in-out infinite;
+  color: var(--sys-highlight-bg, #0078d7);
+}
+
+@keyframes ds-haptic-shake {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(-1.5px); }
+  75% { transform: translateX(1.5px); }
+  100% { transform: translateX(0); }
+}
+
+.ds-haptic-engine-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--sys-control-bg, #f0f0f0);
+  border: 1px solid var(--sys-border-light, #cccccc);
+}
+
+.ds-haptic-engine-badge.active {
+  color: var(--sys-success-accent, #107c41);
+  border-color: var(--sys-success-accent, #107c41);
+  background: color-mix(in srgb, var(--sys-success-accent, #107c41) 12%, transparent);
+}
+
+.ds-haptic-engine-badge.unsupported {
+  color: var(--sys-text-muted, #777);
+  border-color: var(--sys-border-light, #ccc);
+}
+.ds-settings-scale-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── WinForms-authentic Color Palette Wells ── */
+.ds-winforms-palette {
+  display: grid;
+  grid-template-columns: repeat(6, 20px);
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--sys-border-dark, #888888);
+  border-top-color: var(--sys-border-dark, #666666);
+  border-left-color: var(--sys-border-dark, #666666);
+  border-radius: var(--radius-1);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.ds-winforms-color-cell {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: var(--radius-1);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.2);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-sizing: border-box;
+  transition: none !important;
+}
+
+.ds-winforms-color-cell:hover {
+  border-color: var(--sys-border-focus, #0078d4);
+  box-shadow: inset 0 0 0 1px #ffffff, inset 1px 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.ds-winforms-color-cell.is-active {
+  border-color: var(--sys-window-text, #000000);
+  box-shadow: inset 0 0 0 1px #ffffff, inset 0 0 0 2px rgba(0, 0, 0, 0.85);
+}
+
+.ds-winforms-color-cell.is-active:hover {
+  border-color: var(--sys-window-text, #000000);
+  box-shadow: inset 0 0 0 1px #ffffff, inset 0 0 0 2px var(--sys-border-focus, #0078d4);
+}
+
+.ds-winforms-color-cell i {
+  font-size: var(--font-lg);
+  font-weight: bold;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ds-winforms-color-cell--custom {
+  background: var(--sys-button-bg, #f0f0f0);
+  border: 1px dashed var(--sys-border-dark, #888888);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.ds-winforms-color-cell--custom:hover {
+  border-style: solid;
+  border-color: var(--sys-border-focus, #0078d4);
+  box-shadow: inset 0 0 0 1px #ffffff;
+}
+
+.ds-winforms-color-cell--custom.is-active {
+  border-style: solid;
+}
+
+.ds-accent-color-native-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+}
+
+.ds-accent-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+}
+
+.ds-accent-hex-pill {
+  font-family: monospace;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius-1);
+  background: var(--sys-window-bg, #ffffff);
+  color: var(--sys-text-primary, #000000);
+  border: 1px solid var(--sys-border-medium, #cccccc);
+}
+#ds-settings-sec-storage .ds-settings-row-control .win-button {
+  width: 155px;
+  min-width: 155px;
+  padding: 0 8px;
+  height: 24px;
+  min-height: 24px;
+  box-sizing: border-box;
+}
+.ds-settings-about-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+.ds-settings-about-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Blacklist Settings */
+.ds-bl-mode-label {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--sys-window-text, #333);
+}
+.ds-bl-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+.ds-bl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 22px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.ds-bl-chips-error {
+  color: var(--ds-danger-text);
+}
+.ds-bl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--ds-danger-bg);
+  color: var(--ds-danger-text);
+  border: 1px solid var(--ds-danger-border);
+  border-radius: var(--radius-2);
+  padding: 1px 6px;
+  font-size: var(--font-xs);
+}
+}

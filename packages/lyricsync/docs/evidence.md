@@ -1,0 +1,49 @@
+# Evidence: what `prepare` computes and from which model
+
+`lyricsync prepare` turns the vocal stem into everything the solver needs. All of it runs locally with ONNX Runtime (DirectML on Windows where it can, otherwise CPU), using the model files shipped inside the package (`models/`). Nothing is downloaded and nothing needs Python.
+
+| Evidence | Model / method | Used for |
+|---|---|---|
+| beats | the `beatsync` package (Beat This!, ~79 MB) on the full mix, or your own beat file | the 16th-note grid that boundaries snap toward |
+| phone posteriors | HuBERT forced aligner, **base** model (`models/hubert-base`, ~208 MB) | per-frame phone probabilities; nucleus/edge phone features |
+| boundary edge peaks + breath pauses | same base model | candidate boundary times; line-edge and breath cues |
+| edge peaks (second opinion) | HuBERT forced aligner, **combined** model (`models/hubert-combined`, ~203 MB) | a second, independently trained set of boundary candidates |
+| full-song forced alignment | base (and, for English, combined) | the starting point for lines that are not anchored; DP features |
+| per-line forced alignment | base (and, for English, combined), run on the audio cut to an anchored line | the starting point and features for anchored lines (computed on demand, cached) |
+| f0 contour + notes | RMVPE (`models/rmvpe`, ~181 MB), despiked and segmented | pitch-change boundaries, voicing |
+| onset notes | Swift-F0 (`models/swift-f0`, ~0.1 MB) | note onsets |
+| sustained notes | HarmoF0 (`models/harmof0`, ~5.5 MB), smoothed | sustained-note segmentation |
+| boundary frames + queries | the syllable-boundary model (`models/boundary`, ~117 MB; mHuBERT-147 backbone; head trained on GTSinger, fine-tuned on the Namine Ritsu database), see [guided.md](guided.md) | the guided solver's score for every boundary candidate |
+
+Dictionaries (`ds_cmudict-07b.txt` for English, `japanese_dict_full.txt` for romaji Japanese) sit next to the HuBERT models and give each word its phones. A word that is not in the dictionary is an error (give it explicit `phones` in a JSON lyrics file); words are never skipped, because skipping one would shift every later word of the alignment.
+
+## Model file sizes
+
+The large models store their weights in reduced precision; the computation stays float32. HuBERT (both) and RMVPE keep every large weight as float16 behind a cast back to float32 (half the original size). The boundary model stores its MatMul weights as 8-bit integers (weight-only, a scale per block of 32) and the rest as float16. Measured on the three annotated songs against the float32 files, syllable MAE in ms (anchored / free):
+
+| Method | float32 models | shipped | int8 HuBERT too (not shipped) |
+|---|---|---|---|
+| guided | 16.50 / 23.46 | 16.50 / 23.47 | 16.56 / 23.56 |
+| trained | 14.24 / 23.63 | 14.23 / 23.63 | 15.11 / 23.73 |
+| simple | 21.34 / 30.33 | 21.34 / 30.33 | 21.48 / 31.28 |
+| analytic | 26.51 / 38.37 | 26.61 / 38.34 | 26.43 / 38.05 |
+
+int8 HuBERT weights would save another 160 MB, but the forced alignments move enough to cost the trained and simple methods up to 1 ms. The guided row was measured before a later fix for pinned line ends (shipped now: 16.49 / 23.47). `scripts/onnx_weights.py` in the repository does the conversion (`fp16` or `int8`).
+
+## Cost
+
+About a minute for a 3.5-minute song for `prepare` with DirectML (more on CPU), plus a few seconds per anchored line the first time it is solved (cached in `sliced/`). `solve` itself is seconds.
+
+## Input audio
+
+A **clean, isolated vocal stem**. If backing vocals are sung and are in your lyrics (e.g. `(oh)`), the stem must contain them. WAV is decoded and resampled natively (16/24/32-bit PCM and 32-bit float, any channel count, any rate), so the result never depends on installed tools; every other format requires `ffmpeg` on `PATH` and fails with a clear error without it. No pre-processing is needed.
+
+## How faithful is it to the research pipeline this package was extracted from?
+
+Measured on a research song with the research evidence files as reference:
+
+- Phone posteriors: bit-identical. Edge peaks (both models): identical counts, 100% matched within 10 ms. Breaths: identical.
+- Forced alignments: within a few ms on average (the reference files were made on a different vocal stem file than the evidence).
+- f0 / notes: the research notes came from a Python/PyTorch RMVPE plus Python smoothing; here RMVPE runs as ONNX and the smoothing is ported to TypeScript. Voicing agrees on 99% of frames; 80-93% of notes match within 20 ms start / 40 ms end. This costs accuracy (see the README).
+
+The solver on identical evidence reproduces the research implementation **exactly** (max difference 0 s on all three songs), so any accuracy difference comes from the evidence, not the solver.

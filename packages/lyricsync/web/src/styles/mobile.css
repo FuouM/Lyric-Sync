@@ -1,0 +1,1456 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+@layer mobile {
+/**
+ * Mobile and narrow-viewport responsive stylesheet for DynastyReader.
+ * Gated by `#ds-root[data-mobile]` and media queries.
+ */
+
+/* Mobile-style narrow disappearing overlay scrollbar */
+:is([data-mobile], body[data-mobile]) * {
+  -webkit-overflow-scrolling: touch;
+}
+
+:is([data-mobile], body[data-mobile]) ::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+:is([data-mobile], body[data-mobile]) ::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+:is([data-mobile], body[data-mobile]) ::-webkit-scrollbar-thumb {
+  background: var(--sys-scrollbar-thumb, rgba(0, 0, 0, 0.22));
+  border-radius: 4px;
+  border: none;
+}
+
+:is([data-mobile], body[data-mobile]) ::-webkit-scrollbar-thumb:hover {
+  background: var(--sys-scrollbar-thumb-hover, rgba(0, 0, 0, 0.45));
+}
+
+/* scrollbar colors now token-driven via reset.css — no per-theme overrides needed */
+
+
+/* Root viewport sizing */
+#ds-root[data-mobile] {
+  height: 100dvh;
+}
+
+#ds-root[data-mobile] #ds-view {
+  padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+}
+
+#ds-root[data-mobile] #ds-view:has(#ds-reader-container),
+#ds-root[data-mobile]:has(#ds-reader-container) #ds-view {
+  padding-bottom: 0 !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+/* When in reader view on mobile, hide the desktop topbar so the reader's dedicated HUD takes full screen */
+#ds-root[data-mobile]:has(#ds-reader-container) #ds-topbar {
+  display: none !important;
+}
+#ds-root[data-mobile] #ds-pane-browse,
+#ds-root[data-mobile] #ds-pane-library,
+#ds-root[data-mobile] #ds-pane-dynamic,
+#ds-root[data-mobile] .ds-settings-content {
+  overscroll-behavior-y: contain;
+}
+/* Compact Mobile Topbar */
+/* Compact Mobile Topbar — exactly 32px high, 24px buttons, 4px/8px padding */
+#ds-root[data-mobile] #ds-topbar {
+  flex-direction: row;
+  align-items: center;
+  height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px)) !important;
+  box-sizing: border-box !important;
+}
+
+#ds-root[data-mobile] #ds-topbar-main {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+}
+#ds-root[data-mobile] #ds-nav-history {
+  display: inline-flex;
+  align-items: stretch;
+  height: 24px;
+}
+
+#ds-root[data-mobile] #ds-view-switch,
+#ds-root[data-mobile] .ds-session-tab,
+#ds-root[data-mobile] #ds-page-refresh-btn {
+  display: none !important;
+}
+#ds-root[data-mobile] #ds-nav-history .ds-segmented-btn,
+#ds-root[data-mobile] .ds-reader-view-switch .ds-segmented-btn {
+  width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  font-size: 13px !important;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+#ds-root[data-mobile] #ds-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1 1 auto;
+  text-align: left;
+  margin: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+#ds-root[data-mobile] #ds-topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto !important;
+  flex-shrink: 0;
+}
+
+#ds-root[data-mobile] #ds-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  width: auto !important;
+  order: unset !important;
+}
+
+#ds-root[data-mobile] #ds-actions .ds-btn-text {
+  display: none !important;
+}
+#ds-root[data-mobile] #ds-actions .win-button {
+  width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  font-size: 13px !important;
+}
+#ds-root[data-mobile] #ds-topbar-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+#ds-root[data-mobile] #ds-topbar-tools .ds-btn-icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  font-size: 13px !important;
+}
+#ds-root[data-mobile] #ds-topbar-downloads-btn {
+  width: auto !important;
+  min-width: 28px !important;
+  max-width: none !important;
+  height: 24px !important;
+  aspect-ratio: auto !important;
+  padding: 0 5px !important;
+  gap: 3px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+#ds-root[data-mobile] #ds-topbar-downloads-btn .ds-topbar-download-speed {
+  display: none !important;
+}
+/* Landscape / Wide mobile: layout adjustments */
+@media (orientation: landscape) {
+  /* landscape OR tablet-wide (≥600px): restore desktop-style inline layout */
+  #ds-root[data-mobile] #ds-topbar {
+    padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px)) !important;
+    height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+    min-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  }
+  #ds-root[data-mobile] #ds-topbar-main {
+    height: 24px !important;
+    min-height: 24px !important;
+    max-height: 24px !important;
+    gap: 4px !important;
+  }
+  #ds-root[data-mobile] #ds-bottom-nav {
+    display: none !important;
+  }
+  #ds-root[data-mobile]:not(:has(#ds-reader-container)) #ds-view {
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* Mobile Bottom Navigation Bar (Styled identical to WinForms segmented switch) */
+#ds-bottom-nav {
+  display: flex;
+  flex-direction: row;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(50px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--sys-button-bg, #f0f0f0);
+  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
+  z-index: var(--z-bottom-nav);
+  box-sizing: border-box;
+}
+
+.ds-bn-tab {
+  flex: 1;
+  align-self: stretch;
+  height: auto !important;
+  min-height: 44px !important;
+  max-height: none !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--sys-control-text, #000);
+  padding: 4px 0;
+  box-sizing: border-box;
+  transition: none !important;
+  user-select: none;
+  line-height: 1.1;
+}
+
+.ds-bn-tab .bi,
+.ds-bn-tab i {
+  font-size: 18px !important;
+}
+
+.ds-bn-tab + .ds-bn-tab {
+  border-left: 1px solid var(--sys-border-dark, #b0b0b0);
+}
+
+@media (hover: hover) {
+  .ds-bn-tab:hover {
+    background: var(--sys-button-hover, #e5f1fb);
+  }
+}
+
+.ds-bn-tab .bi {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ds-bn-tab.active {
+  background: var(--sys-highlight-bg, #0078d4);
+  color: var(--sys-highlight-text);
+  font-weight: 600;
+  border-radius: 0;
+}
+.ds-bn-tab.active .bi,
+.ds-bn-tab.active i,
+.ds-bn-tab.active .ds-btn-icon-wrap,
+.ds-bn-tab.active .ds-btn-text,
+.ds-bn-tab.active svg {
+  color: inherit;
+  fill: currentColor;
+}
+/* Collapse action button text (Read Later, Read) to icon-only on mobile */
+#ds-root[data-mobile] .ds-action-btn-text {
+  display: none !important;
+}
+
+#ds-root[data-mobile] .ds-item-actions,
+#ds-root[data-mobile] .ds-feed-actions {
+  gap: 6px;
+}
+
+#ds-root[data-mobile] .ds-item-actions .win-button,
+#ds-root[data-mobile] .ds-feed-actions .win-button,
+#ds-root[data-mobile] .ds-item-actions .ds-btn-icon,
+#ds-root[data-mobile] .ds-feed-actions .ds-btn-icon {
+  padding: 0 !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  font-size: 14px !important;
+  aspect-ratio: 1 / 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+}
+
+#ds-root[data-mobile] .ds-item-actions .win-button i,
+#ds-root[data-mobile] .ds-item-actions .win-button .bi,
+#ds-root[data-mobile] .ds-feed-actions .win-button i,
+#ds-root[data-mobile] .ds-feed-actions .win-button .bi {
+  font-size: 14px;
+}
+#ds-root[data-mobile] .ds-item-actions .win-button .ds-btn-text,
+#ds-root[data-mobile] .ds-feed-actions .win-button .ds-btn-text {
+  display: none !important;
+}
+
+#ds-root[data-mobile] .ds-subtab i {
+  margin-right: 4px;
+  font-size: 11px;
+}
+/* Browse sub-tabs & pager layout on mobile */
+#ds-root[data-mobile] .ds-subtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#ds-root[data-mobile] .ds-subtabs-left {
+  display: flex;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 4px;
+  padding-bottom: 0;
+  padding-right: 16px;
+  box-sizing: border-box;
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+}
+#ds-root[data-mobile] .ds-subtabs-left::-webkit-scrollbar {
+  display: none;
+}
+
+#ds-root[data-mobile] .ds-subtab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  height: 24px;
+  min-height: 24px;
+  font-size: 11px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
+#ds-root[data-mobile] .ds-subtab-count {
+  font-size: 9.5px;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 4px;
+  margin-left: 4px;
+}
+
+#ds-root[data-mobile] #ds-pane-browse .ds-subtabs-left {
+  padding-right: 0;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+#ds-root[data-mobile] #ds-pane-browse .ds-subtab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
+}
+#ds-root[data-mobile] .ds-subtabs-right {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+#ds-root[data-mobile] .ds-subtabs-right .ds-scroll-top-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-height: 24px;
+  padding: 0 6px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+#ds-root[data-mobile] #ds-browse-check-updates-btn .ds-btn-text {
+  display: none !important;
+}
+
+#ds-root[data-mobile] #ds-browse-check-updates-btn {
+  padding: 0 !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#ds-root[data-mobile] #ds-browse-top-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end !important;
+  margin-left: auto;
+  gap: 4px !important;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+#ds-root[data-mobile] .ds-pager-widget {
+  margin: 0 !important;
+  gap: 4px !important;
+  justify-content: flex-end !important;
+  flex-wrap: nowrap;
+}
+
+#ds-root[data-mobile] .ds-pager-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+#ds-root[data-mobile] .ds-pager-input {
+  width: 44px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  font-size: 11px !important;
+  padding: 1px 2px !important;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+#ds-root[data-mobile] .ds-pager-label {
+  font-size: 11px !important;
+  white-space: nowrap;
+}
+
+#ds-root[data-mobile] .ds-pager-widget .ds-btn-icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  aspect-ratio: 1 / 1;
+  padding: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-pager-widget .ds-pager-go-btn {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+#ds-root[data-mobile] .tag-pill {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+#ds-root[data-mobile] .ds-chapter-row {
+  min-height: 40px;
+  padding: 8px 10px;
+  gap: 8px;
+}
+
+#ds-root[data-mobile] .ds-feed-status-bar {
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+#ds-root[data-mobile] .ds-feed-status-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+}
+#ds-root[data-mobile] .ds-feed-status-row-1 {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#ds-root[data-mobile] .ds-feed-status-row-2 {
+  justify-content: space-between;
+  align-items: center;
+}
+#ds-root[data-mobile] .ds-feed-status-row-3 {
+  justify-content: space-between;
+  align-items: center;
+}
+#ds-root[data-mobile] .ds-feed-status-row-3 .ds-scroll-top-btn {
+  margin-left: auto;
+}
+
+/* Series View Mobile Layout */
+#ds-root[data-mobile] .ds-series-head {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  margin-bottom: 10px;
+}
+
+#ds-root[data-mobile] .ds-series-head .ds-cover,
+#ds-root[data-mobile] .ds-series-head .ds-cover-placeholder {
+  width: 90px;
+  height: 126px;
+  min-width: 90px;
+  border-radius: 0;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+#ds-root[data-mobile] .ds-series-head .ds-fill {
+  flex: 1;
+  min-width: 0;
+}
+
+#ds-root[data-mobile] .ds-series-desc {
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#ds-root[data-mobile] .ds-meta-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+#ds-root[data-mobile] .ds-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+#ds-root[data-mobile] .ds-meta-label {
+  display: none !important;
+}
+
+#ds-root[data-mobile] .ds-meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ds-series-mobile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.ds-series-mobile-actions .win-button {
+  height: 32px;
+  min-height: 32px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 0;
+}
+
+.ds-series-mobile-actions .ds-btn-icon {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  aspect-ratio: 1 / 1;
+  justify-self: center;
+  padding: 0;
+}
+#ds-root[data-mobile] #ds-library-container {
+  padding-top: 0;
+  gap: 4px;
+}
+
+#ds-root[data-mobile] #ds-library-container .ds-subtabs-right {
+  justify-content: flex-end;
+}
+
+#ds-root[data-mobile] .ds-library-tab-content {
+  margin-top: 0;
+}
+
+#ds-root[data-mobile] .ds-library-tab-pane {
+  padding: 0;
+}
+#ds-root[data-mobile] #ds-banner,
+#ds-banner.ds-banner--mobile,
+body:has(#ds-root[data-mobile]) #ds-banner {
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 24px);
+}
+/* Reader HUD & Overlay on mobile */
+#ds-root[data-mobile] .ds-reader-nav {
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-reader-nav-top {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: var(--z-reader-nav) !important;
+  height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px)) !important;
+  box-sizing: border-box !important;
+  background: var(--ds-reader-bg, var(--sys-window-bg, #f5f5f5)) !important;
+  border-bottom: 1px solid var(--sys-border-light, #ccc) !important;
+  color: var(--sys-window-text, #000000);
+}
+
+#ds-root[data-mobile] .ds-reader-nav-bottom {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: var(--z-reader-nav) !important;
+  height: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+  min-height: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+  max-height: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
+  padding: 6px calc(8px + env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px)) !important;
+  box-sizing: border-box !important;
+  background: var(--ds-reader-bg, var(--sys-window-bg, #f5f5f5)) !important;
+  border-top: 1px solid var(--sys-border-light, #ccc) !important;
+  color: var(--sys-window-text, #000000);
+}
+
+#ds-root[data-mobile] .ds-reader-nav.ds-toolbar-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  margin: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-reader-nav-top.ds-toolbar-hidden {
+  transform: translateY(-100%) !important;
+  margin-top: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-reader-nav-bottom.ds-toolbar-hidden {
+  transform: translateY(100%) !important;
+  margin-bottom: 0 !important;
+}
+
+/* Mobile Reader Bottom Bar Scrubber & Chapter Navigation (MOB-02) */
+.ds-reader-mobile-bottom-row {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 24px !important;
+  gap: 6px !important;
+  box-sizing: border-box !important;
+}
+
+.ds-mobile-nav-btn {
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  border-radius: 3px !important;
+  font-size: 11px !important;
+}
+
+.ds-mobile-scrubber-wrap {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  touch-action: none !important;
+}
+
+.ds-mobile-scrubber-text {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums !important;
+  line-height: 24px !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  min-width: 16px !important;
+  text-align: center !important;
+  user-select: none !important;
+}
+
+.ds-mobile-scrubber-cur {
+  color: var(--sys-accent, var(--sys-primary, #0078d4)) !important;
+  font-weight: 700 !important;
+}
+
+.ds-mobile-scrubber-tot {
+  color: var(--sys-window-text, #666) !important;
+  opacity: 0.65 !important;
+}
+
+.ds-mobile-scrubber-slider {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  flex: 1 1 auto !important;
+  min-width: 60px !important;
+  height: 24px !important;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+  touch-action: none !important;
+}
+
+.ds-mobile-scrubber-slider:focus {
+  outline: none !important;
+}
+
+.ds-mobile-scrubber-slider::-webkit-slider-runnable-track {
+  height: 4px !important;
+  border-radius: 2px !important;
+  background: linear-gradient(
+    to right,
+    var(--sys-accent, var(--sys-primary, #0078d4)) var(--scrubber-pct, 0%),
+    color-mix(in srgb, var(--sys-window-text, #000) 18%, transparent) var(--scrubber-pct, 0%)
+  ) !important;
+  border: none !important;
+}
+
+.ds-mobile-scrubber-slider::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 2.5px solid var(--sys-accent, var(--sys-primary, #0078d4)) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  margin-top: -6px !important;
+  transition: transform 0.1s ease, box-shadow 0.1s ease !important;
+}
+
+.ds-mobile-scrubber-slider:active::-webkit-slider-thumb {
+  transform: scale(1.3) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Mobile Reader Topbar Actions (MOB-06) */
+.ds-reader-mobile-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#ds-root[data-mobile] .ds-reader-nav-top .ds-btn-icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+}
+
+/* Collapsed GroupBox Header on Mobile (MOB-08) */
+#ds-root[data-mobile] .group-box.collapsed {
+  min-height: 28px !important;
+  padding: 0 !important;
+  margin-top: 8px !important;
+  margin-bottom: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  border: 1px solid var(--sys-border-medium, #c8d4e2) !important;
+  border-radius: 4px !important;
+  background: var(--sys-window-bg, #ffffff) !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+#ds-root[data-mobile] .group-box.collapsed .group-box-title {
+  position: static !important;
+  top: unset !important;
+  left: unset !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 2px 8px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 4px !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+}
+#ds-root[data-mobile] .group-box.collapsed.group-box--has-actions .group-box-title {
+  max-width: calc(100% - var(--ds-group-actions-w, 100px) - 8px) !important;
+}
+#ds-root[data-mobile] .group-box.collapsed .group-box-actions {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  right: 6px !important;
+}
+
+#ds-root[data-mobile] .ds-slot-page-badge {
+  position: absolute !important;
+  top: 6px !important;
+  left: 6px !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  color: #ffffff !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 3px 8px !important;
+  border-radius: 3px !important;
+  pointer-events: none !important;
+  z-index: 10 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+  letter-spacing: 0.3px !important;
+  line-height: 1 !important;
+}
+/* Mobile Reader Slide-up Menu (WinForms Aesthetic) */
+.ds-reader-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: var(--z-sheet);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  animation: ds-modal-fade 0.15s ease forwards;
+  touch-action: manipulation;
+}
+
+.ds-reader-sheet-backdrop.ds-sheet-closing {
+  animation: ds-modal-fade-out 0.18s ease forwards;
+  pointer-events: none;
+}
+
+.ds-reader-sheet-window {
+  background: var(--sys-control-bg, #ececec);
+  border-top: 1px solid var(--sys-border-dark, #707070);
+  border-radius: 4px 4px 0 0;
+  padding: 8px calc(14px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(14px + env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 8px);
+  overflow-y: auto;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+  animation: ds-sheet-slide-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  color: var(--sys-window-text, #000);
+  box-sizing: border-box;
+  touch-action: manipulation;
+}
+.ds-reader-sheet-window.ds-sheet-closing {
+  animation: ds-sheet-slide-down 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+
+.ds-sheet-drag-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sys-scrollbar-thumb, rgba(0, 0, 0, 0.25));
+  margin: 0 auto 4px auto;
+  flex-shrink: 0;
+  touch-action: none;
+  cursor: grab;
+}
+
+.ds-reader-sheet-header .ds-modal-close {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  font-size: 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+/* Narrow mobile overscroll target card cap (OS-07) */
+#ds-root[data-mobile] .ds-overscroll-target-card {
+  min-width: unset !important;
+  width: calc(100vw - 48px) !important;
+  max-width: 260px !important;
+}
+
+.ds-reader-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
+  padding-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.ds-reader-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.ds-reader-sheet-window .ds-segmented-switch {
+  width: 100%;
+  display: flex;
+  height: 24px !important;
+  min-height: 24px !important;
+  box-sizing: border-box;
+}
+
+.ds-reader-sheet-window .ds-segmented-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100% !important;
+  min-height: 100% !important;
+  font-size: 11px !important;
+  padding: 0 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  box-sizing: border-box;
+}
+
+.ds-reader-sheet-window .ds-segmented-btn span,
+.ds-reader-sheet-window .ds-segmented-btn .ds-btn-text {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.ds-reader-sheet-window .ds-segmented-btn span.ds-btn-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-size: 13px;
+}
+
+.ds-reader-sheet-footer {
+  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
+  padding-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+@keyframes ds-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ds-modal-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes ds-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes ds-sheet-slide-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+#ds-root[data-mobile] #ds-topbar,
+#ds-root[data-mobile] #ds-topbar *,
+#ds-root[data-mobile] .win-button,
+#ds-root[data-mobile] .ds-segmented-btn,
+#ds-root[data-mobile] .ds-segmented-switch,
+#ds-root[data-mobile] .ds-nav-history-btn,
+#ds-root[data-mobile] .ds-subtab,
+#ds-root[data-mobile] .ds-chapter-row,
+#ds-root[data-mobile] .ds-feed-item,
+#ds-root[data-mobile] .ds-bn-tab,
+#ds-root[data-mobile] .tag-pill {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+#ds-root[data-mobile] .ds-reader-progress-fill {
+  width: 100% !important;
+  transform-origin: left center;
+  transition: transform 0.25s ease !important;
+}
+
+/* Full-page presentation for Settings when in mobile mode on any viewport */
+[data-mobile] #ds-settings-modal-backdrop.ds-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  background: var(--sys-control-bg, #ececec);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  border-radius: 0;
+  border: none;
+  z-index: var(--z-modal);
+}
+
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-window {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--sys-control-bg, #ececec) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 100% !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-header {
+  height: 32px !important;
+  min-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px)) !important;
+  margin: 0 !important;
+  background: var(--sys-control-bg, #ececec) !important;
+  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--sys-window-text, #000) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-close {
+  min-width: 24px !important;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  font-size: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 0 !important;
+}
+
+
+
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--sys-control-bg, #ececec) !important;
+}
+
+[data-mobile] #ds-settings-modal-backdrop .ds-modal-footer {
+  padding: 6px max(14px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)) !important;
+  background: var(--sys-control-bg, #ececec) !important;
+  border-top: 1px solid var(--sys-border-dark, #b0b0b0) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+}
+
+[data-mobile] #ds-settings-modal-backdrop #ds-settings-done-btn {
+  min-width: 80px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+[data-mobile] .ds-settings-layout {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+[data-mobile] .ds-settings-sidebar {
+  display: none !important;
+}
+
+[data-mobile] .ds-settings-subpage {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+[data-mobile] .ds-settings-subpage-content {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+[data-mobile] .ds-hotkey-scroll {
+  padding: 0 max(14px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)) !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain !important;
+}
+
+[data-mobile] .ds-advanced-scroll {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow-y: scroll !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain !important;
+  padding: 10px max(14px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)) !important;
+  box-sizing: border-box !important;
+}
+
+[data-mobile] .ds-settings-content {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow-y: scroll !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain !important;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)) 8px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  box-sizing: border-box !important;
+}
+
+[data-mobile] .ds-settings-content .group-box,
+[data-mobile] .ds-advanced-scroll .group-box {
+  margin: 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: var(--sys-window-bg, #ffffff) !important;
+  border: 1px solid var(--sys-border-dark, #b0b0b0) !important;
+  border-radius: 3px !important;
+  padding: 14px 8px 8px !important;
+}
+
+[data-mobile] .ds-settings-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+  padding: 6px 0 !important;
+}
+
+[data-mobile] .ds-settings-row:has(.ds-switch) {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: nowrap !important;
+  gap: 12px !important;
+}
+[data-mobile] .ds-settings-row:has(.ds-switch) .ds-settings-row-label {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+[data-mobile] .ds-settings-row:has(.ds-switch) .ds-settings-row-control {
+  width: auto !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+  justify-content: flex-end !important;
+}
+
+[data-mobile] .ds-settings-row:has(.ds-select),
+[data-mobile] .ds-settings-row:has(select) {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 6px 12px !important;
+}
+[data-mobile] .ds-settings-row:has(.ds-select) .ds-settings-row-label,
+[data-mobile] .ds-settings-row:has(select) .ds-settings-row-label {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+[data-mobile] .ds-settings-row:has(.ds-select) .ds-settings-row-control,
+[data-mobile] .ds-settings-row:has(select) .ds-settings-row-control {
+  width: auto !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+  justify-content: flex-end !important;
+}
+
+[data-mobile] #ds-settings-sec-storage .ds-settings-row {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+[data-mobile] #ds-settings-sec-storage .ds-settings-row-label {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+[data-mobile] #ds-settings-sec-storage .ds-settings-row-control {
+  width: auto !important;
+  flex: 0 0 auto !important;
+  justify-content: flex-end !important;
+}
+[data-mobile] #ds-settings-sec-storage .ds-settings-row-control .win-button {
+  width: 155px !important;
+  min-width: 155px !important;
+  justify-content: flex-start !important;
+  padding: 0 8px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  box-sizing: border-box !important;
+}
+
+[data-mobile] .ds-settings-row-label {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+[data-mobile] .ds-settings-row-control {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+[data-mobile] .ds-settings-row-control > .ds-col {
+  width: 100% !important;
+}
+
+/* Cache View mobile adaptations (layout wrapping only, preserving desktop sizing) */
+#ds-root[data-mobile] .ds-cache-view {
+  padding: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-stats-grid,
+#ds-root[data-mobile] .ds-stats-grid--4 {
+  grid-template-columns: repeat(2, 1fr) !important;
+}
+
+#ds-root[data-mobile] .ds-db-details {
+  grid-template-columns: 1fr !important;
+}
+
+#ds-root[data-mobile] .ds-cache-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+  gap: 6px !important;
+  width: 100% !important;
+}
+
+#ds-root[data-mobile] .ds-cache-actions .win-button {
+  width: 100% !important;
+  justify-content: center !important;
+  height: 26px !important;
+  min-height: 26px !important;
+  box-sizing: border-box !important;
+  padding: 0 8px !important;
+  min-width: 0 !important;
+}
+
+#ds-root[data-mobile] .ds-cache-actions .win-button .ds-btn-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+#ds-root[data-mobile] .ds-cache-filter-bar {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+}
+
+#ds-root[data-mobile] .ds-cache-filter-bar .ds-flex-row {
+  width: 100% !important;
+  justify-content: space-between !important;
+}
+
+#ds-root[data-mobile] .ds-cache-filter-bar .ds-select {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 24px !important;
+}
+
+#ds-root[data-mobile] .ds-cache-item .ds-btn-icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+}
+#ds-root[data-mobile] .ds-bl-mode-bar {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+#ds-root[data-mobile] .ds-bl-mode-bar .ds-segmented-switch {
+  width: 100% !important;
+  display: flex !important;
+}
+#ds-root[data-mobile] .ds-bl-mode-bar .ds-segmented-switch .ds-segmented-btn {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  justify-content: center !important;
+}
+
+/* ── Download Manager & Cinema Matrix Mobile Overrides ── */
+#ds-root[data-mobile] .ds-download-manager-header-actions {
+  flex-wrap: wrap !important;
+  gap: 2px !important;
+}
+
+#ds-root[data-mobile] .ds-download-series-header {
+  flex-wrap: wrap !important;
+}
+
+#ds-root[data-mobile] .ds-download-series-actions {
+  width: 100% !important;
+  justify-content: flex-end !important;
+  margin-top: 2px !important;
+}
+
+#ds-root[data-mobile] .ds-downloaded-series-actions {
+  flex-wrap: nowrap !important;
+  gap: 3px !important;
+}
+#ds-root[data-mobile] #ds-downloaded-header {
+  gap: 6px !important;
+  padding: 4px 6px !important;
+}
+
+#ds-root[data-mobile] #ds-downloaded-toolbar-left {
+  gap: 6px !important;
+}
+
+#ds-root[data-mobile] #ds-downloaded-toolbar-right {
+  width: 100% !important;
+  justify-content: flex-end !important;
+  font-size: 11px !important;
+  margin-top: -2px !important;
+}
+
+#ds-root[data-mobile] .ds-downloaded-legend {
+  gap: 8px !important;
+  padding: 3px 6px !important;
+  font-size: 11px !important;
+}
+
+/* Unify Downloaded tab chapter list rows to desktop sizing */
+#ds-root[data-mobile] .ds-downloaded-chapter-list .ds-chapter-row {
+  min-height: unset !important;
+  padding: 5px 8px !important;
+  gap: 0 !important;
+  font-size: var(--font-md) !important;
+}
+}

@@ -1,0 +1,166 @@
+@layer themes {
+  :root[data-theme="high-contrast"] {
+    --sys-control-bg: #000000;
+    --sys-control-text: #ffffff;
+    --sys-window-bg: #000000;
+    --sys-window-text: #ffffff;
+    --sys-border-light: #333333;
+    --sys-border-dark: #555555;
+    --sys-border-medium: #3a3a3a;
+    --sys-border-focus: #66b8ff;
+    --sys-highlight-bg: #0078d7;
+    --sys-highlight-text: #ffffff;
+    --sys-button-bg: #111111;
+    --sys-button-border: #555555;
+    --sys-button-hover: #1a1a1a;
+    --sys-button-active: #222222;
+    --sys-status-bg: #0a0a0a;
+    --sys-status-text: #ffffff;
+    --sys-menu-bg: #0d0d0d;
+    --sys-menu-border: #444444;
+    --sys-text-primary: #ffffff;
+    --sys-text-secondary: #cccccc;
+    --sys-text-muted: #aaaaaa;
+    --sys-hover-bg: #181818;
+    --sys-bg-active: #0d1a2b;
+    --sys-card-bg: #0d0d0d;
+    --sys-primary: #66b8ff;
+    --sys-primary-border: #005a9e;
+    --sys-primary-hover: #88ccff;
+    --sys-primary-active: #4499ee;
+    --sys-button-disabled-bg: #111111;
+    --sys-button-disabled-text: #555555;
+    --sys-button-disabled-border: #333333;
+    --sys-success-accent: #22dd88;
+    --sys-error-text: #ff6b6b;
+    --sys-reader-viewport-bg: #000000;
+    --sys-scrollbar-thumb: rgba(255, 255, 255, 0.3);
+    --sys-scrollbar-thumb-hover: rgba(255, 255, 255, 0.6);
+    --sys-scrollbar-track: #111111;
+    --sys-scrollbar-track-border: #2a2a2a;
+    --sys-scrollbar-thumb-border: #111111;
+    --ds-status-fresh-bg: rgba(34, 221, 136, 0.15);
+    --ds-status-fresh-text: #22dd88;
+    --ds-status-fresh-border: rgba(34, 221, 136, 0.4);
+    --ds-status-stale-bg: #1a1400;
+    --ds-status-stale-text: #ffdd55;
+    --ds-status-stale-border: #3d3300;
+    --ds-danger-bg: #1a0000;
+    --ds-danger-text: #ff8080;
+    --ds-danger-border: #cc0000;
+    --ds-warn-bg: #1a0a00;
+    --ds-warn-text: #ffaa80;
+    --ds-warn-border: #883300;
+    --ds-followed-corner: var(--sys-accent, var(--sys-primary, #66b8ff));
+    --ds-followed-corner-hover: var(--sys-primary-hover, var(--sys-accent, #88ccff));
+    --ds-partial-text: #ffaa00;
+    --ds-partial-border: #ffaa00;
+    /* reader */
+    --ds-reader-bg: #000000;
+    --ds-reader-viewport-bg: #000000;
+    --ds-reader-nav-border: var(--sys-border-medium);
+    --ds-reader-divider: rgba(255, 255, 255, 0.1);
+    /* tag taxonomy - reuse dark vibrant set */
+    --tag-character-bg: rgba(6, 182, 212, 0.16);
+    --tag-character-border: rgba(6, 182, 212, 0.5);
+    --tag-character-text: #22d3ee;
+    --tag-character-hover-bg: rgba(6, 182, 212, 0.28);
+    --tag-character-hover-border: rgba(6, 182, 212, 0.72);
+    --tag-character-hover-text: #67e8f9;
+    --tag-copyright-bg: rgba(192, 132, 252, 0.2);
+    --tag-copyright-border: rgba(192, 132, 252, 0.55);
+    --tag-copyright-text: #d8b4fe;
+    --tag-copyright-hover-bg: rgba(192, 132, 252, 0.34);
+    --tag-copyright-hover-border: rgba(192, 132, 252, 0.75);
+    --tag-copyright-hover-text: #f5f3ff;
+    --tag-meta-bg: rgba(148, 163, 184, 0.14);
+    --tag-meta-border: rgba(148, 163, 184, 0.42);
+    --tag-meta-text: #cbd5e1;
+    --tag-meta-hover-bg: rgba(148, 163, 184, 0.26);
+    --tag-meta-hover-border: rgba(148, 163, 184, 0.6);
+    --tag-meta-hover-text: #f1f5f9;
+    --tag-artist-bg: rgba(251, 146, 60, 0.2);
+    --tag-artist-border: rgba(251, 146, 60, 0.55);
+    --tag-artist-text: #fdba74;
+    --tag-artist-hover-bg: rgba(251, 146, 60, 0.34);
+    --tag-artist-hover-border: rgba(251, 146, 60, 0.75);
+    --tag-artist-hover-text: #fff7ed;
+    --tag-pairing-bg: rgba(244, 114, 182, 0.2);
+    --tag-pairing-border: rgba(244, 114, 182, 0.55);
+    --tag-pairing-text: #f9a8d4;
+    --tag-pairing-hover-bg: rgba(244, 114, 182, 0.34);
+    --tag-pairing-hover-border: rgba(244, 114, 182, 0.75);
+    --tag-pairing-hover-text: #fdf2f8;
+    --tag-status-bg: rgba(34, 197, 94, 0.16);
+    --tag-status-border: rgba(34, 197, 94, 0.5);
+    --tag-status-text: #4ade80;
+    --tag-status-hover-bg: rgba(34, 197, 94, 0.28);
+    --tag-status-hover-border: rgba(34, 197, 94, 0.7);
+    --tag-status-hover-text: #86efac;
+    --tag-rank-3-bg: rgba(59, 130, 246, 0.16);
+    --tag-rank-3-border: rgba(59, 130, 246, 0.48);
+    --tag-rank-3-text: #60a5fa;
+    --tag-rank-3-hover-bg: rgba(59, 130, 246, 0.28);
+    --tag-rank-3-hover-border: rgba(59, 130, 246, 0.7);
+    --tag-rank-3-hover-text: #bfdbfe;
+    --sys-link: #66b8ff;
+    --sys-link-hover: #99d0ff;
+    --skeleton-shimmer: rgba(255, 255, 255, 0.08);
+    --sys-switch-thumb-bg: #cccccc;
+    --sys-switch-thumb-border: #555555;
+    --sys-switch-thumb-checked-bg: #ffffff;
+    --sys-button-primary-bg: var(--sys-highlight-bg);
+    --sys-button-primary-border: #005a9e;
+    --sys-button-primary-hover: #106ebe;
+    --sys-button-primary-active: #005a9e;
+  }
+}
+
+@layer components {
+  /* Collapsed dual-stack via :is() — single rule covers data-theme and legacy body class */
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box {
+    background: #000000 !important;
+    border-color: #555555 !important;
+    box-shadow: none !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box-title {
+    background: #000000 !important;
+    border-color: #555555 !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box-title--collapsible:hover {
+    border-color: #ffffff !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box-collapse-btn {
+    color: #ffffff !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box-collapse-btn:hover {
+    background-color: #ffffff !important;
+    border-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .group-box-collapse-btn:active {
+    background-color: #cccccc !important;
+    border-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .ds-stat-val {
+    color: var(--sys-primary, #66b8ff) !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .win-button:disabled,
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .win-button[aria-disabled="true"],
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) button:disabled {
+    color: #666666 !important;
+    border-color: #444444 !important;
+    background-color: #000000 !important;
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+  }
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .win-button:disabled i,
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .win-button:disabled .bi,
+  :is(:root[data-theme="high-contrast"], body.ds-high-contrast) .win-button:disabled svg {
+    color: #666666 !important;
+    fill: #666666 !important;
+  }
+}

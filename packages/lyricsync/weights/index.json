@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "trainedOn": [
+    "breaked",
+    "breaked_retro",
+    "suika_retro"
+  ],
+  "anchored": {
+    "stages": 2,
+    "heldOutMaeMs": 22.945
+  },
+  "free": {
+    "stages": 1,
+    "heldOutMaeMs": 33.33
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "repo": "FuouM/Lyric-Sync",
+  "tag": "models-v1",
+  "files": [
+    {
+      "path": "packages/beatsync/models/beat_this.onnx",
+      "asset": "beatsync.beat_this.onnx",
+      "sha256": "6b9fd8ff0ab7110a92db52b83f7f4b4dfbe559bf5cdae9f7129e63f1d3177e82",
+      "size": 82539090
+    },
+    {
+      "path": "packages/lyricsync/models/boundary/frames.onnx",
+      "asset": "lyricsync.boundary.frames.onnx",
+      "sha256": "55526c2b4226593d2125417d62de7f9713ba652e7e691ad4975179bcf9d8c32b",
+      "size": 116924501
+    },
+    {
+      "path": "packages/lyricsync/models/boundary/queries.onnx",
+      "asset": "lyricsync.boundary.queries.onnx",
+      "sha256": "17bc238b8b0d6f487e02fd1941f547c666d66f49141e03c46276a2e6b22c5cef",
+      "size": 356270
+    },
+    {
+      "path": "packages/lyricsync/models/harmof0/harmof0_e2e.onnx",
+      "asset": "lyricsync.harmof0.harmof0_e2e.onnx",
+      "sha256": "fe5fa5a041c9b875daf475157946cd365606e6c4bee2baecf81ae70826be0412",
+      "size": 5756601
+    },
+    {
+      "path": "packages/lyricsync/models/hubert-base/model.onnx",
+      "asset": "lyricsync.hubert-base.model.onnx",
+      "sha256": "86421be7ad422349bc2645d886893a52f73885d2daf6403ac00091daa0477553",
+      "size": 208323554
+    },
+    {
+      "path": "packages/lyricsync/models/hubert-combined/model.onnx",
+      "asset": "lyricsync.hubert-combined.model.onnx",
+      "sha256": "ca9713fbee41bb2140b546ad73ae7d8eed3b85168b53eda0dce09eb15f7b049c",
+      "size": 203268218
+    },
+    {
+      "path": "packages/lyricsync/models/rmvpe/rmvpe.onnx",
+      "asset": "lyricsync.rmvpe.rmvpe.onnx",
+      "sha256": "8d552b96a8e52c2a09f58741143af1be2e841947e6abd8b86da5be833a6dab82",
+      "size": 181047872
+    },
+    {
+      "path": "packages/lyricsync/models/swift-f0/swift_f0.onnx",
+      "asset": "lyricsync.swift-f0.swift_f0.onnx",
+      "sha256": "6385e8c2ebc3872e82c9ff5946228de44cd3be77a750ea53698b7dbfe94b0a22",
+      "size": 135090
+    }
+  ]
+}

@@ -1,0 +1,1598 @@
+@layer tokens, themes, reset, base, layout, components, reader, utilities, mobile;
+
+@layer reader {
+/* Reader viewport, slots, shimmer, fullscreen, dark theme, fit modes. */
+
+/* Compact controls inside the reader nav bars (sizing stays theme-independent) */
+.ds-reader-nav .win-button {
+  font-size: var(--font-sm);
+  padding: 2px 8px;
+}
+.ds-reader-nav .win-input {
+  font-size: var(--font-sm);
+  padding: 2px 4px;
+}
+
+/* Reader View */
+#ds-reader-container {
+  --ds-reader-bg: var(--sys-window-bg);
+  --ds-reader-viewport-bg: var(--sys-reader-viewport-bg);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background: var(--ds-reader-bg);
+}
+
+/* Fullscreen Mode */
+#ds-reader-container.ds-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: var(--z-reader-fullscreen) !important;
+  background: var(--ds-reader-bg) !important;
+}
+#ds-reader-container.ds-fullscreen .ds-reader-nav {
+  background: var(--ds-reader-bg) !important;
+  color: var(--sys-window-text) !important;
+}
+#ds-reader-container.ds-fullscreen .ds-reader-nav.ds-reader-nav-top {
+  height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(32px + env(safe-area-inset-top, 0px)) !important;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px)) !important;
+  border-bottom: 1px solid var(--ds-reader-nav-border) !important;
+}
+#ds-reader-container.ds-fullscreen .ds-reader-nav.ds-reader-nav-bottom {
+  height: calc(32px + env(safe-area-inset-bottom, 0px)) !important;
+  min-height: calc(32px + env(safe-area-inset-bottom, 0px)) !important;
+  max-height: calc(32px + env(safe-area-inset-bottom, 0px)) !important;
+  padding: 4px calc(8px + env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px)) !important;
+  border-top: 1px solid var(--ds-reader-nav-border) !important;
+}
+#ds-reader-container.ds-fullscreen .ds-reader-nav.ds-reader-nav-top:has(.nav-controls) {
+  height: calc(60px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(60px + env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(60px + env(safe-area-inset-top, 0px)) !important;
+}
+#ds-reader-container.ds-fullscreen .ds-reader-nav.ds-reader-nav-bottom:has(.nav-controls) {
+  height: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  min-height: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  max-height: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+}
+#ds-reader-container.ds-fullscreen #ds-reader-viewport {
+  background: var(--ds-reader-viewport-bg) !important;
+}
+
+
+.ds-reader-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-sm);
+  color: var(--sys-text-muted);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--ds-reader-bg);
+  flex-shrink: 0;
+  z-index: var(--z-reader-nav);
+  position: absolute;
+  left: 0;
+  right: 0;
+  transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ds-reader-nav.ds-reader-nav-top {
+  top: 0;
+  min-height: calc(32px + env(safe-area-inset-top, 0px));
+  max-height: calc(32px + env(safe-area-inset-top, 0px));
+  height: calc(32px + env(safe-area-inset-top, 0px));
+  padding: calc(4px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--ds-reader-nav-border);
+  box-sizing: border-box;
+}
+.ds-reader-nav.ds-reader-nav-bottom {
+  bottom: 0;
+  min-height: calc(32px + env(safe-area-inset-bottom, 0px));
+  max-height: calc(32px + env(safe-area-inset-bottom, 0px));
+  height: calc(32px + env(safe-area-inset-bottom, 0px));
+  padding: 4px calc(8px + env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
+  border-top: 1px solid var(--ds-reader-nav-border);
+  box-sizing: border-box;
+}
+.ds-reader-nav.ds-toolbar-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.ds-reader-nav-top.ds-toolbar-hidden {
+  transform: translateY(-100%) !important;
+}
+.ds-reader-nav-bottom.ds-toolbar-hidden {
+  transform: translateY(100%) !important;
+}
+.ds-reader-nav.ds-reader-nav-top:has(.nav-controls) {
+  min-height: calc(60px + env(safe-area-inset-top, 0px));
+  max-height: calc(60px + env(safe-area-inset-top, 0px));
+  height: calc(60px + env(safe-area-inset-top, 0px));
+}
+.ds-reader-nav.ds-reader-nav-bottom:has(.nav-controls) {
+  min-height: calc(60px + env(safe-area-inset-bottom, 0px));
+  max-height: calc(60px + env(safe-area-inset-bottom, 0px));
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+}
+.ds-reader-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.ds-reader-nav-row.nav-main {
+  justify-content: space-between;
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  flex-shrink: 0;
+}
+.ds-reader-nav-row.nav-controls {
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.ds-reader-nav-top > .nav-controls:not(:first-child) {
+  padding-top: 4px;
+  border-top: 1px solid var(--ds-reader-divider);
+}
+
+.ds-ctrl-zoom-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.ds-ctrl-zoom-group.ds-zoom-disabled {
+  display: none !important;
+}
+.ds-ctrl-fit-select {
+  width: 90px;
+  max-width: 90px;
+  flex-shrink: 0;
+}
+.ds-ctrl-text {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .ds-ctrl-text {
+    display: inline;
+  }
+}
+
+@media (max-width: 680px) {
+  /* Narrow phone: compress toolbar, drop non-essential labels and controls */
+  .ds-nav-btn-ch .ds-ch-btn-text {
+    display: none;
+  }
+  .ds-reader-nav {
+    padding: 2px 4px;
+    gap: 4px;
+  }
+  .ds-reader-nav-row {
+    gap: 4px;
+  }
+  .ds-reader-nav-row.nav-controls {
+    justify-content: center;
+  }
+  .ds-ctrl-fit-select {
+    width: 74px;
+    max-width: 74px;
+    font-size: 10px;
+    padding: 1px 2px;
+  }
+  .ds-reader-progress-label .ds-prog-cached-dot,
+  .ds-reader-progress-label .ds-prog-cached {
+    display: none !important;
+  }
+  .ds-nav-btn-jump {
+    display: none;
+  }
+  .ds-ctrl-zoom-group.ds-zoom-disabled {
+    display: none;
+  }
+}
+
+@media (max-width: 360px) {
+  .ds-prog-prefix {
+    display: none !important;
+  }
+  .ds-ctrl-zoom-group {
+    display: none;
+  }
+  .ds-reader-progress-wrap {
+    padding: 0 1px;
+  }
+}
+
+.ds-nav-btn-ch {
+  flex-shrink: 0;
+}
+.ds-nav-btn-jump,
+.ds-nav-btn-page {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  max-width: 24px;
+  aspect-ratio: 1 / 1;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.ds-reader-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 24px;
+  max-height: 24px;
+  gap: 2px;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+.ds-reader-progress-pill {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  min-height: 20px;
+  max-height: 20px;
+  padding: 0 6px;
+  background: var(--sys-control-bg);
+  border: 1px solid var(--sys-button-border);
+  border-radius: 2px;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--sys-window-text);
+  white-space: nowrap;
+  max-width: 100%;
+  box-sizing: border-box;
+  line-height: 18px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.ds-reader-progress-pill:not(.ds-reader-progress-pill--editing):hover {
+  background: var(--sys-button-hover);
+  border-color: var(--sys-button-hover-border, #999);
+}
+.ds-reader-progress-pill:not(.ds-reader-progress-pill--editing):focus-visible {
+  outline: 1px dotted var(--sys-border-focus, #0078d4);
+  outline-offset: 1px;
+}
+.ds-reader-progress-pill.ds-reader-progress-pill--editing {
+  cursor: default;
+  padding: 0 4px;
+  background: var(--sys-window-bg);
+  border-color: var(--sys-primary);
+  box-shadow: 0 0 0 1px var(--sys-primary);
+}
+.ds-prog-jump-form {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+}
+.ds-prog-jump-input {
+  height: 16px;
+  min-height: 16px;
+  max-height: 16px;
+  width: 38px;
+  min-width: 32px;
+  max-width: 48px;
+  padding: 0 2px;
+  margin: 0;
+  border: 1px solid var(--sys-border-light);
+  border-radius: 2px;
+  background: var(--sys-window-bg);
+  color: var(--sys-window-text);
+  font-family: inherit;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+  -moz-appearance: textfield;
+}
+.ds-prog-jump-input::-webkit-outer-spin-button,
+.ds-prog-jump-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.ds-prog-jump-input:focus {
+  border-color: var(--sys-primary);
+}
+.ds-prog-jump-sep {
+  color: var(--sys-text-muted);
+  font-size: var(--font-sm);
+  font-weight: normal;
+  margin: 0 1px;
+}
+.ds-prog-jump-total {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--sys-text-muted);
+}
+.ds-prog-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+  margin-left: 2px;
+  background: var(--sys-button-primary-bg, var(--sys-highlight-bg));
+  color: var(--sys-highlight-text);
+  border: 1px solid var(--sys-button-primary-border, var(--sys-primary-border));
+  border-radius: 2px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ds-prog-jump-btn:hover {
+  background: var(--sys-button-primary-hover, var(--sys-primary-hover));
+  border-color: var(--sys-button-primary-hover, var(--sys-primary-hover));
+}
+.ds-reader-progress-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+  line-height: normal;
+}
+.ds-prog-page-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  line-height: normal;
+}
+.ds-prog-prefix {
+  margin-right: 2px;
+  color: var(--sys-window-text);
+  font-weight: normal;
+  line-height: normal;
+}
+.ds-prog-current {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: normal;
+}
+.ds-prog-sep {
+  color: var(--sys-text-muted);
+  margin: 0 1px;
+  font-weight: normal;
+  line-height: normal;
+}
+.ds-prog-total {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: normal;
+}
+.ds-prog-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--sys-text-muted);
+  font-weight: normal;
+  margin-left: 2px;
+  line-height: normal;
+}
+.ds-prog-cached-dot {
+  color: var(--sys-text-muted);
+  margin: 0 1px;
+  line-height: normal;
+}
+.ds-prog-cached {
+  font-variant-numeric: tabular-nums;
+  color: var(--sys-link, var(--sys-text-muted));
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: normal;
+}
+
+.ds-reader-progress-track {
+  width: 100%;
+  height: 2px;
+  background: color-mix(in srgb, var(--sys-window-text) 16%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  transition: height 0.15s ease, background-color 0.15s ease;
+}
+.ds-reader-progress-wrap:hover .ds-reader-progress-track,
+.ds-reader-progress-track:hover,
+.ds-reader-progress-track.is-scrubbing {
+  height: 4px;
+  background: color-mix(in srgb, var(--sys-window-text) 24%, transparent);
+}
+.ds-reader-progress-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--sys-link, var(--sys-primary));
+  border-radius: 1px;
+  transform-origin: left center;
+  will-change: transform;
+  transition: transform 0.25s ease;
+}
+#ds-reader-viewport {
+  zoom: calc(1 / var(--ds-ui-scale, 1));
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  user-select: none;
+  /* Allow vertical panning but keep browser pinch-zoom out of the reader —
+     the app implements its own fit/zoom modes. (Horizontal mode below uses
+     touch-action: none for full custom gesture control.) */
+  touch-action: pan-y;
+}
+#ds-reader-viewport.ds-dragging,
+#ds-reader-viewport.ds-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.fit-original #ds-reader-viewport {
+  cursor: grab;
+}
+.fit-original #ds-reader-viewport:not(.horizontal) {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  /* Zoomed (original-size) pages pan freely in both axes on touch (QoL-R1). */
+  touch-action: pan-x pan-y;
+}
+.fit-original #ds-reader-viewport:not(.horizontal) #ds-reader-strip {
+  width: max-content !important;
+  min-width: 100% !important;
+  align-items: center !important;
+}
+.fit-original #ds-reader-viewport:not(.horizontal) .ds-slot {
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  contain: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 auto !important;
+}
+#ds-reader-viewport.horizontal {
+  cursor: default;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden !important;
+  padding: 0 !important;
+  touch-action: none;
+}
+#ds-reader-strip {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Scroll Mode: Container strip has dynamic top and bottom clearance for first- and last-page centering */
+#ds-reader-viewport:not(.horizontal) #ds-reader-strip {
+  padding-top: max(0px, calc((var(--ds-viewport-height, calc(100vh - 48px)) - var(--ds-first-slot-height, 0px)) / 2));
+  padding-bottom: max(24px, calc((var(--ds-viewport-height, calc(100vh - 48px)) - var(--ds-last-slot-height, 0px)) / 2));
+  box-sizing: border-box;
+}
+
+#ds-root[data-mobile] #ds-reader-viewport:not(.horizontal) #ds-reader-strip {
+  padding-top: max(0px, calc((var(--ds-viewport-height, calc(100vh - 48px)) - var(--ds-first-slot-height, 0px)) / 2));
+  padding-bottom: max(calc(24px + env(safe-area-inset-bottom, 0px)), calc((var(--ds-viewport-height, calc(100vh - 48px)) - var(--ds-last-slot-height, 0px)) / 2));
+}
+/* Seamless Webtoon / Long-Strip stitching */
+#ds-reader-container.is-long-strip #ds-reader-viewport:not(.horizontal) #ds-reader-strip {
+  padding-top: 0 !important;
+  padding-bottom: 24px !important;
+}
+
+#ds-root[data-mobile] #ds-reader-container.is-long-strip #ds-reader-viewport:not(.horizontal) #ds-reader-strip {
+  padding-top: 0 !important;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* While restoring a saved position the strip is kept off-screen until the
+   instant jump lands and its images have decoded, so the first page never
+   flashes during the restore. */
+#ds-reader-container.ds-restoring #ds-reader-strip {
+  visibility: hidden;
+}
+.ds-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 0 auto;
+}
+
+/* Vertical Scroll Mode: Slots wrap image content naturally without internal height inflation */
+#ds-reader-viewport:not(.horizontal) .ds-slot {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  contain: layout style;
+}
+.ds-page-wrap {
+  position: relative !important;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  line-height: 0;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--sys-control-bg, #888) 10%, transparent);
+}
+
+#ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 100%;
+  max-width: 100%;
+}
+.ds-slot-page-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+#ds-reader-container.ds-hide-page-badge-with-toolbar:not(.ds-hud-visible) .ds-slot-page-badge {
+  display: none !important;
+}
+.ds-page-img {
+  display: block;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  /* Reader brightness/contrast/grayscale/sepia filter overlay (QoL-R5). */
+  filter: var(--ds-reader-filter, none);
+}
+.ds-snap-indicator {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.ds-snap-indicator.bottom {
+  bottom: 24px;
+  transform: translate(-50%, 6px);
+}
+.ds-snap-indicator.top {
+  top: 24px;
+  transform: translate(-50%, -6px);
+}
+.ds-snap-indicator.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.ds-slot-loading {
+  min-height: 200px;
+  background: linear-gradient(90deg, var(--sys-control-bg) 25%, var(--sys-hover-bg) 50%, var(--sys-control-bg) 75%);
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes ds-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Fit modes */
+.fit-width #ds-reader-viewport {
+  padding: 0;
+}
+.fit-width #ds-reader-strip {
+  width: 100%;
+}
+.fit-width .ds-slot {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fit-width .ds-page-img {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain;
+}
+.fit-height #ds-reader-viewport {
+  align-items: center;
+  padding: 0 !important;
+}
+.fit-height #ds-reader-strip {
+  align-items: center;
+  width: 100%;
+}
+.fit-height #ds-reader-viewport.horizontal #ds-reader-strip {
+  gap: 0 !important;
+}
+.fit-height .ds-slot {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fit-height #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot {
+  height: var(--ds-viewport-full, 100vh);
+  min-height: var(--ds-viewport-full, 100vh);
+  max-height: var(--ds-viewport-full, 100vh);
+  flex-shrink: 0;
+}
+.fit-height .ds-page-img {
+  max-height: var(--ds-viewport-full, 100vh) !important;
+  max-width: 100% !important;
+  height: auto !important;
+  width: auto !important;
+  object-fit: contain;
+}
+.fit-original .ds-page-wrap {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
+}
+.fit-original .ds-page-img {
+  zoom: var(--ds-zoom-scale, 1);
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+.fit-original .ds-slot {
+  width: auto;
+}
+
+/* Horizontal paged mode — smooth slide */
+#ds-reader-viewport.horizontal {
+  overflow: hidden !important;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0 !important;
+  width: 100%;
+  height: 100%;
+  /* strip is one full viewport wide per page; translateX drives the slide */
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#ds-reader-viewport.horizontal #ds-reader-strip.rtl,
+#ds-reader-viewport.horizontal.rtl #ds-reader-strip {
+  flex-direction: row-reverse;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip.ltr,
+#ds-reader-viewport.horizontal.ltr #ds-reader-strip {
+  flex-direction: row;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  display: flex !important;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  user-select: none;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot.ds-draggable,
+.fit-original #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot {
+  cursor: grab;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot.ds-dragging {
+  cursor: grabbing !important;
+}
+#ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-img {
+  margin: auto;
+  max-height: 100%;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+.fit-width #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-img {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain;
+}
+.fit-height #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-img {
+  height: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  max-width: 100% !important;
+  object-fit: contain;
+}
+
+/* Spread layout — two pages per slide (Paged mode) */
+#ds-reader-viewport.horizontal .ds-spread-slot {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  user-select: none;
+}
+#ds-reader-viewport.horizontal .ds-spread-canvas {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  flex-shrink: 0;
+  gap: 0;
+}
+#ds-reader-viewport.horizontal.ltr .ds-spread-canvas,
+#ds-reader-viewport.horizontal #ds-reader-strip.ltr .ds-spread-canvas,
+#ds-reader-viewport.horizontal .ds-spread-canvas.ltr {
+  flex-direction: row !important;
+}
+#ds-reader-viewport.horizontal.rtl .ds-spread-canvas,
+#ds-reader-viewport.horizontal #ds-reader-strip.rtl .ds-spread-canvas,
+#ds-reader-viewport.horizontal .ds-spread-canvas.rtl {
+  flex-direction: row-reverse !important;
+}
+#ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot {
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+/* Single-page spreads (cover standalone / wide scans) */
+#ds-reader-viewport.horizontal .ds-spread-canvas.ds-spread-single .ds-slot {
+  flex: 0 0 auto !important;
+  max-width: 100% !important;
+  width: auto !important;
+}
+#ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-img {
+  margin: 0 !important;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  box-shadow: none !important;
+}
+#ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot-state {
+  max-width: none;
+  min-width: 280px;
+  width: auto;
+}
+
+/* Fit modes in horizontal spread */
+.fit-width #ds-reader-viewport.horizontal .ds-spread-slot {
+  display: flex;
+  align-items: flex-start;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.fit-width #ds-reader-viewport.horizontal .ds-spread-canvas {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: stretch !important;
+}
+.fit-width #ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot {
+  flex: var(--spread-flex, 0 0 50%) !important;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+}
+.fit-width #ds-reader-viewport.horizontal .ds-spread-canvas.ds-spread-single .ds-slot {
+  flex: 0 0 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.fit-width #ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-img {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  display: block;
+}
+
+.fit-height #ds-reader-viewport.horizontal .ds-spread-slot {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas {
+  height: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  max-width: 100% !important;
+  aspect-ratio: var(--spread-ratio, auto);
+  margin: auto !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  box-sizing: border-box !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas.ltr,
+.fit-height #ds-reader-viewport.horizontal.ltr .ds-spread-canvas,
+.fit-height #ds-reader-viewport.horizontal #ds-reader-strip.ltr .ds-spread-canvas {
+  flex-direction: row !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas.rtl,
+.fit-height #ds-reader-viewport.horizontal.rtl .ds-spread-canvas,
+.fit-height #ds-reader-viewport.horizontal #ds-reader-strip.rtl .ds-spread-canvas {
+  flex-direction: row-reverse !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot {
+  flex: var(--spread-flex, 0 0 50%) !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas.ds-spread-single .ds-slot {
+  flex: 0 0 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-wrap {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-img {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  max-width: 100% !important;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Inner spine stitching alignment: ensure images align to the central seam */
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas:not(.ds-spread-single).ltr .ds-slot:first-child .ds-page-img,
+.fit-height #ds-reader-viewport.horizontal.ltr .ds-spread-canvas:not(.ds-spread-single) .ds-slot:first-child .ds-page-img {
+  object-position: right center !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas:not(.ds-spread-single).ltr .ds-slot:last-child .ds-page-img,
+.fit-height #ds-reader-viewport.horizontal.ltr .ds-spread-canvas:not(.ds-spread-single) .ds-slot:last-child .ds-page-img {
+  object-position: left center !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas:not(.ds-spread-single).rtl .ds-slot:first-child .ds-page-img,
+.fit-height #ds-reader-viewport.horizontal.rtl .ds-spread-canvas:not(.ds-spread-single) .ds-slot:first-child .ds-page-img {
+  object-position: left center !important;
+}
+.fit-height #ds-reader-viewport.horizontal .ds-spread-canvas:not(.ds-spread-single).rtl .ds-slot:last-child .ds-page-img,
+.fit-height #ds-reader-viewport.horizontal.rtl .ds-spread-canvas:not(.ds-spread-single) .ds-slot:last-child .ds-page-img {
+  object-position: right center !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-slot {
+  cursor: grab;
+  overflow: auto !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas {
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: auto !important;
+  flex-shrink: 0 !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-wrap {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas .ds-page-img {
+  zoom: var(--ds-zoom-scale, 1);
+  width: auto !important;
+  height: var(--spread-orig-height, auto) !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas.ds-spread-single .ds-slot {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  max-width: none !important;
+}
+.fit-original #ds-reader-viewport.horizontal .ds-spread-canvas.ds-spread-single .ds-page-img {
+  height: auto !important;
+  width: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+.fit-original #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot {
+  overflow: auto !important;
+}
+.fit-original #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-wrap {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
+  margin: auto !important;
+  flex-shrink: 0 !important;
+}
+.fit-original #ds-reader-viewport.horizontal #ds-reader-strip > .ds-slot .ds-page-img {
+  margin: auto;
+  zoom: var(--ds-zoom-scale, 1);
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  flex-shrink: 0 !important;
+}
+
+#ds-reader-viewport.horizontal .ds-spread-slot.ds-dragging {
+  cursor: grabbing !important;
+}
+#ds-reader-viewport.horizontal .ds-spread-canvas .ds-slot:has(.ds-slot-state) {
+  min-width: 280px !important;
+  width: auto !important;
+}
+
+.ds-slot-placeholder {
+  width: 100%;
+  max-width: 800px;
+  min-height: 200px;
+  background: transparent;
+  display: block;
+}
+
+.ds-slot-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--font-sm);
+  color: var(--sys-window-text);
+  padding: 40px 20px;
+  min-height: 240px;
+  width: 100%;
+  max-width: 460px;
+  background: color-mix(in srgb, var(--sys-window-text) 4%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--sys-window-text) 18%, transparent);
+  border-radius: 4px;
+}
+#ds-reader-viewport:not(.horizontal) .ds-slot-state {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  background: color-mix(in srgb, var(--sys-window-text) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sys-window-text) 8%, transparent);
+  border-radius: 4px;
+}
+.ds-slot-skeleton-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+}
+.ds-slot-pulse-wrap {
+  width: 180px;
+  height: 4px;
+  background: color-mix(in srgb, var(--sys-window-text) 16%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.ds-slot-pulse-bar {
+  width: 35%;
+  height: 100%;
+  background: var(--sys-link, var(--sys-primary));
+  border-radius: 2px;
+  position: absolute;
+  left: 0;
+  transform: translateX(-100%);
+  animation: ds-pulse-bar-slide 1.4s ease-in-out infinite;
+}
+@keyframes ds-pulse-bar-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-slot-pulse-bar,
+  .ds-yinyang-spinner,
+  .ds-reader-progress-fill {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.ds-slot-error {
+  color: var(--sys-error-text);
+  border-color: color-mix(in srgb, var(--sys-error-text) 30%, transparent);
+}
+.ds-progress-text {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--sys-window-text);
+}
+
+/* Smart Direction Hint Overlay */
+.ds-reader-direction-hint-wrap {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-reader-hint);
+  pointer-events: none;
+  animation: ds-hint-fade 0.25s ease-out;
+}
+.ds-reader-direction-hint-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--sys-control-bg);
+  color: var(--sys-window-text);
+  border: 1px solid var(--sys-link, var(--sys-highlight-bg));
+  border-radius: 16px;
+  font-size: var(--font-md);
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  user-select: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ds-hint-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--sys-highlight-bg);
+  color: var(--sys-highlight-text);
+  margin-left: 2px;
+}
+@keyframes ds-hint-fade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+:root {
+  --ds-overscroll-ready-bg: #107c41;
+  --ds-overscroll-ready-border: #0c592e;
+  --ds-overscroll-ready-text: #ffffff;
+}
+
+@keyframes ds-overscroll-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* In-Gesture Finger-Tracking Circle-to-Circle Unlock (WinForms Desktop Aesthetic) */
+.ds-overscroll-gesture-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-reader-overscroll);
+  user-select: none;
+  background: rgba(0, 0, 0, 0.35);
+  animation: ds-overscroll-in 120ms ease-out both;
+}
+
+/* Finger Cursor Token (Tracks finger/pointer in real-time) */
+.ds-overscroll-finger-circle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--sys-control-bg);
+  color: var(--sys-link, var(--sys-window-text));
+  border: 2px solid var(--sys-link, var(--sys-highlight-bg));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  pointer-events: none;
+  z-index: calc(var(--z-reader-overscroll) + 20);
+  will-change: transform;
+  box-sizing: border-box;
+}
+
+.ds-overscroll-finger-circle.ds-snap-ready {
+  background: var(--ds-overscroll-ready-bg) !important;
+  border-color: var(--ds-overscroll-ready-border) !important;
+  color: var(--ds-overscroll-ready-text) !important;
+}
+
+/* Center Lock Target Ring (Adaptive Position) */
+.ds-overscroll-target-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--sys-control-bg);
+  border: 2px dashed var(--sys-link, var(--sys-highlight-bg));
+  color: var(--sys-link, var(--sys-highlight-bg));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: calc(var(--z-reader-overscroll) + 10);
+  will-change: transform;
+}
+
+
+.ds-overscroll-target-ring.ds-snap-ready {
+  background: var(--ds-overscroll-ready-bg) !important;
+  border: 2px solid var(--ds-overscroll-ready-border) !important;
+  color: var(--ds-overscroll-ready-text) !important;
+}
+
+/* Floating Info Card (Always Centered) */
+.ds-overscroll-target-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--sys-control-bg);
+  color: var(--sys-window-text);
+  border: 1px solid var(--sys-border-dark);
+  border-radius: 2px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: calc(var(--z-reader-overscroll) + 10);
+}
+
+.ds-overscroll-target-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--sys-highlight-bg);
+  color: var(--sys-highlight-text);
+}
+
+.ds-overscroll-target-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.ds-overscroll-target-hint {
+  font-size: var(--font-sm);
+  color: var(--sys-text-muted);
+  font-weight: 500;
+}
+/* Tap Zone Visual Guide Overlay — Clean Flat Translucent Guide */
+.ds-tap-zone-guide {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: row;
+  z-index: var(--z-reader-hint);
+  pointer-events: none;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+.ds-tap-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  background: transparent;
+  border-right: 1px dashed rgba(255, 255, 255, 0.3);
+}
+
+.ds-tap-zone:last-child {
+  border-right: none;
+}
+
+.ds-tap-zone-side {
+  width: 22%;
+  color: #ffffff;
+}
+
+.ds-tap-zone-center {
+  width: 56%;
+  color: #ffffff;
+}
+
+.ds-tap-zone.is-active {
+  background: rgba(0, 120, 215, 0.25) !important;
+}
+
+.ds-tap-zone-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid #505050;
+  border-radius: 2px;
+  background: #202020;
+  color: #ffffff;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ds-tap-zone.is-active .ds-tap-zone-pill {
+  background: var(--sys-highlight-bg) !important;
+  border-color: var(--sys-primary-border) !important;
+  color: var(--sys-highlight-text) !important;
+}
+
+/* ── Reader image filter popover & sliders (QoL-R5) ── */
+.ds-reader-filter-popover {
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  z-index: var(--z-dropdown);
+}
+
+.ds-filter-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 5px;
+  border-bottom: 1px solid var(--sys-border-light, #dcdcdc);
+  background: var(--sys-header-bg, var(--sys-window-bg, #f5f5f5));
+  font-weight: 600;
+  font-size: var(--font-sm);
+}
+
+.ds-filter-popover-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sys-window-text);
+}
+
+.ds-filter-popover-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ds-filter-popover-body {
+  padding: 8px 10px;
+  background: var(--sys-window-bg);
+}
+
+.ds-reader-filter-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.ds-filter-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-size: var(--font-sm);
+  color: var(--sys-window-text);
+  cursor: pointer;
+}
+
+.ds-filter-slider-label {
+  min-width: 68px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.ds-filter-slider input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+  height: 16px;
+  accent-color: var(--sys-primary);
+  cursor: pointer;
+}
+
+.ds-filter-slider-val {
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--sys-text-muted);
+}
+
+.ds-filter-reset-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+  margin-top: 2px;
+  border-top: 1px solid var(--sys-border-light, #eee);
+}
+.ds-filter-reset-btn {
+  font-size: var(--font-xs);
+}
+
+/* Mobile controls sheet: full-width stacked sliders */
+.ds-reader-sheet-window .ds-reader-filter-controls {
+  gap: 6px;
+}
+.ds-reader-sheet-window .ds-filter-slider-label {
+  min-width: 72px;
+}
+/* End-of-chapter transition card */
+.ds-chapter-end-card {
+  margin: 40px auto 60px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  padding: 24px 20px;
+  border-radius: 8px;
+  text-align: center;
+  background: color-mix(in srgb, var(--sys-window-text) 4%, var(--sys-window-bg, #fff));
+  border: 1px solid color-mix(in srgb, var(--sys-window-text) 14%, transparent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  touch-action: pan-y;
+  user-select: none;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+.ds-chapter-end-card--ready-left {
+  border-color: var(--sys-highlight-bg, #0078d7) !important;
+  box-shadow: -3px 4px 18px rgba(0, 120, 215, 0.3) !important;
+}
+.ds-chapter-end-card--ready-right {
+  border-color: var(--sys-highlight-bg, #0078d7) !important;
+  box-shadow: 3px 4px 18px rgba(0, 120, 215, 0.3) !important;
+}
+.ds-chapter-end-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  color: #10b981;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ds-chapter-end-current {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sys-window-text);
+}
+.ds-chapter-end-next-box {
+  width: 100%;
+  padding: 14px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--sys-window-text) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sys-window-text) 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.ds-chapter-end-next-label {
+  font-size: 12.5px;
+  color: var(--sys-text-muted, #666);
+}
+.ds-chapter-end-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ds-chapter-end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+.ds-chapter-end-prev-btn,
+.ds-chapter-end-series-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  max-width: 100%;
+}
+.ds-chapter-end-prev-label {
+  flex-shrink: 0;
+}
+.ds-chapter-end-prev-title {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.ds-chapter-end-browse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.ds-chapter-end-swipe-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  opacity: 0.7;
+  user-select: none;
+  margin-top: 2px;
+}
+.ds-chapter-end-caughtup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+}
