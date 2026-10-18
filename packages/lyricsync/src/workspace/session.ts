@@ -16,6 +16,8 @@ import { solveAnalytic } from '../engine/analytic.ts';
 import { solveSimple } from '../engine/simple.ts';
 import { boundaryGuide, solveGuided } from '../engine/guided.ts';
 import { alignAnchoredLines, computeQueries, extractEvidence, loadEvidence, readBoundaryConfig, saveEvidence } from '../evidence/index.ts';
+import { HubertAligner } from '../evidence/hubert.ts';
+import { loadAudioFile } from '../audio/audio.ts';
 import { parseStoredDefinition, readLyricsFile, resolveSyllables } from '../lyrics/index.ts';
 import type { AutoSplitNote } from '../lyrics/index.ts';
 import type { ConsensusLine } from '../engine/consensus.ts';
@@ -367,11 +369,46 @@ export class Session {
         const alignments: unknown = JSON.parse(fs.readFileSync(alignPath, 'utf8'));
         // Evidence without an audio key predates it: its inputs are unknown, so it is extracted again.
         const audioFresh = isRecord(meta) && meta.audioKey === audioKey;
-        if (audioFresh && canResliceAlignments(alignments, this.definition)) {
-          say('Audio evidence is current; updating boundary queries and alignments...');
+        if (audioFresh) {
+          if (canResliceAlignments(alignments, this.definition)) {
+            say('Audio evidence is current; updating boundary queries and alignments...');
+            const t0 = Date.now();
+            resliceAlignments(alignments, this.definition);
+            fs.writeFileSync(alignPath, `${JSON.stringify(alignments, null, 2)}\n`, 'utf8');
+
+            const cfg = readBoundaryConfig();
+            const queries = await computeQueries(cfg, this.definition);
+            fs.writeFileSync(path.join(this.paths.evidence, 'boundary.json'), `${JSON.stringify(queries, null, 2)}\n`, 'utf8');
+
+            if (fs.existsSync(this.paths.sliced)) {
+              for (const f of fs.readdirSync(this.paths.sliced)) if (f.endsWith('.json')) fs.unlinkSync(path.join(this.paths.sliced, f));
+            }
+
+            this.evidence = null;
+            const key = computeEvidenceKey(this.paths.dir, this.manifest, this.definition);
+            this.manifest.evidenceKey = key;
+            writeManifest(this.paths.manifest, this.manifest);
+            say(`Evidence updated incrementally in ${Date.now() - t0} ms.`);
+            return { skipped: false, incremental: true };
+          }
+
+          // Audio is current, but lyrics text or words changed:
+          // Pitch contours (RMVPE, Swift-F0, HarmoF0) and acoustic frames are invariant to lyrics text; only re-align text and compute queries!
+          say('Audio evidence is current (pitch tracking and acoustic frames kept); re-aligning text...');
           const t0 = Date.now();
-          resliceAlignments(alignments, this.definition);
-          fs.writeFileSync(alignPath, `${JSON.stringify(alignments, null, 2)}\n`, 'utf8');
+          const audio = await loadAudioFile(this.vocalPath(), 44100);
+          const baseAligner = new HubertAligner('base');
+          say('Aligning full song (base model)...');
+          const fullBase = await baseAligner.alignFullSong(audio, this.definition);
+
+          let fullCombined: ConsensusLine[] | null = null;
+          if (this.definition.language === 'en') {
+            say('Aligning full song (combined model)...');
+            const combinedAligner = new HubertAligner('combined');
+            fullCombined = await combinedAligner.alignFullSong(audio, this.definition);
+          }
+
+          fs.writeFileSync(alignPath, `${JSON.stringify({ fullBase, fullCombined }, null, 2)}\n`, 'utf8');
 
           const cfg = readBoundaryConfig();
           const queries = await computeQueries(cfg, this.definition);
@@ -385,7 +422,7 @@ export class Session {
           const key = computeEvidenceKey(this.paths.dir, this.manifest, this.definition);
           this.manifest.evidenceKey = key;
           writeManifest(this.paths.manifest, this.manifest);
-          say(`Evidence updated incrementally in ${Date.now() - t0} ms.`);
+          say(`Alignments and boundary queries updated in ${((Date.now() - t0) / 1000).toFixed(1)} s (pitch tracking skipped).`);
           return { skipped: false, incremental: true };
         }
       } catch {
