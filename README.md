@@ -44,6 +44,10 @@ bun run build:web
 
 The syllable-boundary model is trained on [GTSinger](https://github.com/AaronZ345/GTSinger) and fine-tuned on the **"Namine Ritsu" singing database by Canon** (「波音リツ」歌声データベース, https://canon-voice.com/). Beat tracking uses [Beat This!](https://github.com/CPJKU/beat_this); forced alignment uses [HubertFA](https://github.com/wolfgitpr/HubertFA) models. Every model's source, license and required credit: [MODELS-LICENSE.md](MODELS-LICENSE.md).
 
+## AI Disclosure
+
+Developed with AI assistance using Gemini 3.8 Flash, Claude Sonnet 5.5, and Claude Opus 5.5.
+
 ## License
 
 The code is [Apache-2.0](LICENSE). The model files have their own licenses, listed in [MODELS-LICENSE.md](MODELS-LICENSE.md): the syllable-boundary model and the combined forced aligner are CC BY-NC-SA 4.0 (non-commercial), and `prepare` runs both.
