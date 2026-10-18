@@ -24,7 +24,7 @@ export function MenuBar(props: { menus: MenuDef[]; children?: JSX.Element }) {
   return (
     <div class="daw-menubar" ref={root}>
       <span class="daw-brand">
-        <i class="bi bi-soundwave" /> lyricsync
+        <img src="/favicon.svg" class="daw-brand-icon" alt="" /> lyricsync
       </span>
       <For each={props.menus}>
         {(m, mi) => (

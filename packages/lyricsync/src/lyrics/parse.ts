@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isRecord, isStringArray } from '../guards.ts';
 import type { Language, LyricLine, LyricsDefinition, LyricWord } from '../types.ts';
-import { dictionaryG2P } from './dictionary.ts';
+import { dictionaryG2P, pronounceAs } from './dictionary.ts';
 import { resolveSyllables } from './syllabify.ts';
 
 /** Hand-added pronunciations, keyed by pronunciationKey(word). */
@@ -60,12 +60,47 @@ interface RawLine {
   words: RawWord[];
 }
 
-function tokenToRawWord(token: string, where: string): RawWord {
-  if (!/[A-Za-z]/.test(token)) throw new Error(`${where}: token "${token}" has no letters.`);
-  if (!token.includes('|')) return { w: token, explicit: null };
-  const parts = token.split('|');
-  if (parts.some((p) => p.length === 0)) throw new Error(`${where}: token "${token}" has an empty syllable.`);
-  return { w: parts.join(''), explicit: parts };
+function tokenToRawWord(token: string, where: string, language?: Language): RawWord {
+  let wordToken = token;
+  let phones: string[] | undefined;
+
+  // Direct phoneme syntax: word{p h o n e s} or syl|la|ble{ph1 | ph2}
+  const braceMatch = /^([^{]+)\{([^}]+)\}$/.exec(token);
+  if (braceMatch) {
+    wordToken = braceMatch[1]!;
+    const pronInput = braceMatch[2]!.trim();
+    if (pronInput.length > 0 && language) {
+      if (pronInput.includes('|')) {
+        const phoneChunks = pronInput.split('|').map((c) => c.trim());
+        const sylParts = wordToken.split('|');
+        if (sylParts.length !== phoneChunks.length) {
+          throw new Error(
+            `${where} ("${token}"): syllable count (${sylParts.length}) in "${wordToken}" does not match phoneme chunks (${phoneChunks.length}) in "{${pronInput}}".`
+          );
+        }
+        try {
+          phones = phoneChunks.flatMap((chunk, idx) => {
+            if (chunk.length === 0) throw new Error(`empty phoneme chunk at index ${idx + 1}`);
+            return pronounceAs(chunk, language);
+          });
+        } catch (e: unknown) {
+          throw new Error(`${where} ("${token}"): ${e instanceof Error ? e.message : String(e)}`);
+        }
+      } else {
+        try {
+          phones = pronounceAs(pronInput, language);
+        } catch (e: unknown) {
+          throw new Error(`${where} ("${token}"): ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+  }
+
+  if (!/[A-Za-z]/.test(wordToken)) throw new Error(`${where}: token "${wordToken}" has no letters.`);
+  if (!wordToken.includes('|')) return { w: wordToken, explicit: null, phones };
+  const parts = wordToken.split('|');
+  if (parts.some((p) => p.length === 0)) throw new Error(`${where}: token "${wordToken}" has an empty syllable.`);
+  return { w: parts.join(''), explicit: parts, phones };
 }
 
 /** A `[Section]` header and how many lyric lines follow it before the next header (0 for an instrumental section). */
@@ -74,28 +109,63 @@ export interface SectionOutline {
   lines: number;
 }
 
-function parseTextLines(text: string): { lines: RawLine[]; outline: SectionOutline[] } {
+function parseTextLines(text: string, language?: Language): { lines: RawLine[]; outline: SectionOutline[]; pronunciations: Pronunciations } {
   const lines: RawLine[] = [];
   const outline: SectionOutline[] = [];
+  const pronunciations: Pronunciations = {};
+
   text.split(/\r?\n/).forEach((rawLine, i) => {
     const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith('#')) return;
+    if (line.length === 0) return;
+
+    // Direct pronunciation directive: @pron word = p h o n e s   or   # @pron word = sounds like
+    const pronMatch = /^#?\s*@pron\s+([^\s=]+)\s*=\s*(.+)$/i.exec(line);
+    if (pronMatch) {
+      if (language) {
+        const key = pronunciationKey(pronMatch[1]!);
+        try {
+          pronunciations[key] = pronounceAs(pronMatch[2]!.trim(), language);
+        } catch (e: unknown) {
+          throw new Error(`line ${i + 1} (@pron ${pronMatch[1]}): ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return;
+    }
+
+    if (line.startsWith('#')) return;
+
     const header = /^\[(.+)\]$/.exec(line);
     if (header) {
       outline.push({ name: header[1]!.trim(), lines: 0 });
       return;
     }
-    const words = line.split(/\s+/).map((tok) => tokenToRawWord(tok, `line ${i + 1}`));
+
+    // Normalize optional space between word and {phones}: "foom {f uw m}" -> "foom{f uw m}"
+    const normalizedLine = line.replace(/(\S+)\s+\{([^}]+)\}/g, '$1{$2}');
+    const tokens = normalizedLine.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
+    const words = tokens.map((tok) => tokenToRawWord(tok, `line ${i + 1}`, language));
     const section = outline.at(-1);
     if (section) section.lines++;
     lines.push({ section: section?.name, words });
   });
-  return { lines, outline };
+  return { lines, outline, pronunciations };
 }
 
 /** Every `[Section]` header of a lyrics text in order, empty (instrumental) ones included. */
 export function lyricsSectionOutline(text: string): SectionOutline[] {
-  return parseTextLines(text).outline;
+  const outline: SectionOutline[] = [];
+  text.split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#") || /^#?\s*@pron\b/i.test(line)) return;
+    const header = /^\[(.+)\]$/.exec(line);
+    if (header) {
+      outline.push({ name: header[1]!.trim(), lines: 0 });
+      return;
+    }
+    const section = outline.at(-1);
+    if (section) section.lines++;
+  });
+  return outline;
 }
 
 function parseJsonLines(raw: unknown): { language: Language | null; lines: RawLine[] } {
@@ -160,19 +230,22 @@ function withPronunciations(lines: RawLine[], pronunciations: Pronunciations): R
 }
 
 export function parseLyricsText(text: string, language: Language, pronunciations: Pronunciations = {}): ParsedLyrics {
-  return build(withPronunciations(parseTextLines(text).lines, pronunciations), language);
+  const parsed = parseTextLines(text, language);
+  const combined = { ...parsed.pronunciations, ...pronunciations };
+  return build(withPronunciations(parsed.lines, combined), language);
 }
 
 /** Every word problem of a lyrics text at once (parseLyricsText stops at the first). Line-level syntax errors still throw. */
 export function lintLyricsText(text: string, language: Language, pronunciations: Pronunciations = {}): LyricsIssue[] {
-  const g2p = dictionaryG2P(language);
   const issues: LyricsIssue[] = [];
-  withPronunciations(parseTextLines(text).lines, pronunciations).forEach((rl, line) => {
+  const parsed = parseTextLines(text, language);
+  const combined = { ...parsed.pronunciations, ...pronunciations };
+  withPronunciations(parsed.lines, combined).forEach((rl, line) => {
     for (const rw of rl.words) {
       try {
         resolveSyllables({ w: rw.w, phones: rw.phones }, rw.explicit, language);
       } catch (e: unknown) {
-        const unknown = !rw.phones && g2p.phonesForWord(rw.w) === null;
+        const unknown = !rw.phones && dictionaryG2P(language).phonesForWord(rw.w) === null;
         issues.push({ line, word: rw.w, message: e instanceof Error ? e.message : String(e), unknown });
       }
     }

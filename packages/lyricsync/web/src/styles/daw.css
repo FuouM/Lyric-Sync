@@ -32,7 +32,7 @@
 
 .daw-app button {
   font: inherit;
-  color: inherit;
+  color: var(--daw-text);
 }
 
 .daw-app input {
@@ -54,16 +54,18 @@
 .daw-brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 12px 0 4px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #fff;
 }
 
-.daw-brand .bi {
-  color: var(--daw-accent);
-  font-size: 15px;
+.daw-brand-icon {
+  width: 17px;
+  height: 17px;
+  display: block;
+  flex: none;
 }
 
 .daw-menu {
@@ -76,12 +78,15 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  cursor: default;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 12px;
 }
 
 .daw-menu-btn:hover,
 .daw-menu-btn--open {
-  background: var(--daw-raised);
+  background: #232730;
+  color: #ffffff;
 }
 
 .daw-menu-pop {
@@ -107,8 +112,9 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
+  color: #e2e8f0;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 
 .daw-menu-item:hover:not(:disabled) {
@@ -329,12 +335,14 @@
   border: 1px solid var(--daw-border);
   border-radius: 5px;
   background: var(--daw-raised);
+  color: #e2e8f0;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .daw-btn:hover:not(:disabled) {
   background: var(--daw-raised-hover);
+  color: #ffffff;
 }
 
 .daw-btn:active:not(:disabled) {
@@ -343,17 +351,30 @@
 
 .daw-btn:disabled {
   opacity: 0.45;
+  color: var(--daw-muted);
   cursor: default;
 }
 
-.daw-btn-accent {
-  background: var(--daw-accent-2);
-  border-color: #1d4a8e;
-  color: #fff;
+.daw-btn-accent,
+.daw-app .daw-btn-accent,
+.daw-welcome-actions .daw-btn-accent {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+  font-weight: 600;
 }
 
-.daw-btn-accent:hover:not(:disabled) {
-  background: var(--daw-accent);
+.daw-btn-accent:hover:not(:disabled),
+.daw-app .daw-btn-accent:hover:not(:disabled),
+.daw-welcome-actions .daw-btn-accent:hover:not(:disabled) {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+.daw-btn-accent .bi,
+.daw-app .daw-btn-accent .bi,
+.daw-welcome-actions .daw-btn-accent .bi {
+  color: #ffffff !important;
 }
 
 .daw-btn-dirty {
@@ -567,6 +588,23 @@
   white-space: nowrap;
 }
 
+.daw-lines-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #14171d;
+  border-bottom: 1px solid var(--daw-border);
+  gap: 8px;
+  flex: none;
+}
+
+.daw-lines-count {
+  font-size: 11px;
+  color: var(--daw-muted);
+  font-family: var(--daw-mono);
+}
+
 .daw-line-num {
   min-width: 24px;
   padding: 1px 4px;
@@ -630,8 +668,28 @@
   border: 1px solid #3a404b;
   border-radius: 10px;
   background: #23272f;
+  color: var(--daw-text);
+  font-family: var(--daw-mono);
   font-size: 11px;
   cursor: pointer;
+}
+
+.daw-chip-clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: all 80ms ease;
+}
+
+.daw-chip-clickable:hover {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45);
+}
+
+.daw-chip-clickable:active {
+  transform: translateY(0);
 }
 
 .daw-chip span {
@@ -962,9 +1020,15 @@
   color: #fff;
 }
 
-.daw-welcome-icon {
-  font-size: 44px;
-  color: var(--daw-accent);
+.daw-welcome-logo {
+  width: 80px;
+  height: 80px;
+  max-width: 80px;
+  max-height: 80px;
+  flex: none;
+  display: block;
+  margin: 0 auto 4px;
+  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.5));
 }
 
 .daw-welcome-actions {
@@ -1253,8 +1317,8 @@
 .daw-wizard {
   display: flex;
   flex-direction: column;
-  width: min(940px, 94vw);
-  height: min(640px, 90vh);
+  width: min(1240px, 96vw);
+  height: min(780px, 94vh);
   background: var(--daw-panel);
   border: 1px solid #3a404b;
   border-radius: 8px;
@@ -1279,14 +1343,42 @@
   font-weight: 700;
 }
 
-.daw-wizard-head .bi-magic {
-  color: var(--daw-accent);
+.daw-wizard-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.daw-wizard-head-icon {
+  width: 17px;
+  height: 17px;
+  display: block;
+  flex: none;
 }
 
 .daw-wizard-foot {
   justify-content: flex-end;
   height: 48px;
   border-top: 1px solid var(--daw-border);
+}
+
+.daw-wizard-foot .daw-btn {
+  border-color: #3e4756;
+  background: #232832;
+  color: #f1f5f9;
+}
+
+.daw-wizard-foot .daw-btn:hover:not(:disabled) {
+  background: #2e3543;
+  border-color: #4f5b6e;
+  color: #ffffff;
+}
+
+.daw-wizard-foot .daw-btn:disabled {
+  opacity: 0.45;
+  color: #64748b;
+  border-color: #2a303c;
+  background: #1a1e26;
 }
 
 .daw-wizard-main {
@@ -1307,12 +1399,26 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   height: 34px;
   padding: 0 8px;
+  border: 0;
   border-radius: 5px;
+  background: transparent;
   color: var(--daw-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
 }
 
+.daw-wizard-step--clickable {
+  cursor: pointer;
+}
+
+.daw-wizard-step--clickable:hover:not(.daw-wizard-step--active) {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
 .daw-wizard-step--active {
   background: #23406b;
   color: #fff;
@@ -1339,9 +1445,8 @@
 }
 
 .daw-wizard-step--done .daw-wizard-step-num {
-  background: #2f7d4f;
+  background: #2f7d4f !important;
 }
-
 .daw-wizard-body {
   flex: 1;
   min-width: 0;
@@ -1353,6 +1458,9 @@
   user-select: text;
 }
 
+.daw-wizard-body--no-overflow {
+  overflow: hidden !important;
+}
 .daw-wizard-body h2 {
   margin: 0;
   font-size: 17px;
@@ -1407,83 +1515,279 @@
   gap: 12px;
   flex: 1;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
-/* Highlighting editor: a transparent textarea over a mirror that draws the same text with marked words. */
-.daw-hl-editor {
-  position: relative;
+/* CodeMirror 6 lyrics editor */
+.daw-cm-editor-card {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
-  min-height: 300px;
-  border: 1px solid #0a0b0d;
-  border-radius: 4px;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid var(--daw-border);
+  border-radius: 6px;
   background: #101216;
-}
-
-.daw-hl-mirror,
-.daw-hl-input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: 10px;
-  border: 0;
-  font: 13px/1.6 var(--daw-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  overflow-y: scroll;
-  scrollbar-gutter: stable;
-  box-sizing: border-box;
-}
-
-/* Same metrics as the textarea down to every span (the base stylesheet's `* { font-size }` would break the overlay). */
-.daw-hl-mirror * {
-  font: inherit;
-}
-
-.daw-hl-mirror {
-  color: transparent;
   overflow: hidden;
-  pointer-events: none;
 }
 
-.daw-hl-input {
-  background: transparent;
+.daw-cm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 10px;
+  background: #161920;
+  border-bottom: 1px solid var(--daw-border);
+  font-size: 11px;
+}
+
+.daw-cm-toolbar-left,
+.daw-cm-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daw-cm-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
   color: var(--daw-text);
-  caret-color: #fff;
-  resize: none;
-  outline: none;
 }
 
-.daw-hl-editor:focus-within {
-  outline: 1px solid var(--daw-accent);
+.daw-cm-toolbar-title .bi {
+  color: var(--daw-accent);
 }
 
-.daw-hl-section {
+.daw-cm-stat {
+  color: var(--daw-muted);
+  font-family: var(--daw-mono);
+}
+
+.daw-cm-host {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.daw-cm-host .cm-editor {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--daw-mono), "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace !important;
+}
+.daw-cm-host .cm-editor *,
+.daw-cm-host .cm-content,
+.daw-cm-host .cm-line,
+.daw-cm-host .cm-gutters,
+.daw-cm-host .cm-gutterElement {
+  font-family: var(--daw-mono), "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace !important;
+}
+
+.daw-cm-host .cm-scroller,
+.daw-cm-host .cm-content,
+.daw-cm-host .cm-line,
+.daw-cm-host .cm-gutterElement {
+  line-height: 1.45 !important;
+}
+
+.daw-cm-host .cm-line {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.daw-cm-host .cm-scroller {
+  overflow: auto !important;
+  height: 100%;
+  max-height: 100%;
+  scrollbar-gutter: stable;
+}
+/* Syntax decorations */
+.daw-cm-section-line {
   background: rgba(155, 120, 255, 0.12);
+  border-left: 3px solid #9b78ff;
+  font-weight: 600;
+  color: #d8c8ff;
 }
 
-.daw-hl-comment {
-  background: rgba(255, 255, 255, 0.03);
+.daw-cm-pron-line {
+  background: rgba(34, 197, 94, 0.08);
+  border-left: 3px solid #22c55e;
+  color: #86efac;
+  font-weight: 500;
 }
 
-.daw-hl-unknown {
+.daw-cm-inline-phones {
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.14);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+/* Interactive hover linking between syllable and phoneme chunk */
+.daw-cm-syl[data-syl-link],
+.daw-cm-phone-chunk[data-syl-link] {
+  transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
+  cursor: pointer;
   border-radius: 2px;
-  background: rgba(255, 93, 93, 0.32);
+}
+
+.daw-cm-syl[data-syl-link]:hover,
+.daw-cm-phone-chunk[data-syl-link]:hover,
+.daw-cm-syl.daw-cm-hovered,
+.daw-cm-phone-chunk.daw-cm-hovered {
+  background: rgba(245, 158, 11, 0.45) !important;
+  color: #fef08a !important;
+  box-shadow: 0 0 0 1px #f59e0b !important;
+  font-weight: 600;
+}
+
+.daw-cm-inline-brace {
+  color: #7b93b8;
+  font-weight: 400;
+}
+
+/* Editor highlight when auto-split pill is hovered in sidebar */
+.daw-cm-hovered-autofix {
+  background: rgba(245, 158, 11, 0.45) !important;
+  color: #fef08a !important;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px #f59e0b !important;
+  font-weight: 700;
+}
+
+.daw-cm-comment-line {
+  color: #64748b;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.daw-cm-pipe {
+  color: #7b93b8;
+  font-weight: 700;
+  padding: 0 1px;
+}
+
+.daw-cm-unknown {
+  border-radius: 2px;
+  background: rgba(255, 93, 93, 0.28);
   box-shadow: inset 0 -2px 0 #ff5d5d;
+  color: #ff9898;
 }
 
-.daw-hl-issue {
+.daw-cm-issue {
   border-radius: 2px;
-  background: rgba(240, 166, 64, 0.3);
+  background: rgba(240, 166, 64, 0.28);
   box-shadow: inset 0 -2px 0 var(--daw-warn);
+  color: #ffd27a;
 }
 
-.daw-hl-custom {
+.daw-cm-custom {
   border-radius: 2px;
-  background: rgba(61, 139, 253, 0.22);
+  background: rgba(61, 139, 253, 0.25);
   box-shadow: inset 0 -2px 0 var(--daw-accent);
+  color: #9fc4ff;
 }
 
+/* CodeMirror autocomplete tooltip */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: #181b22;
+  border: 1px solid var(--daw-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+  font-family: var(--daw-mono), monospace !important;
+  font-size: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 500;
+}
+
+.cm-tooltip-autocomplete > ul {
+  counter-reset: cm-suggest-counter;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+}
+
+.cm-tooltip-autocomplete > ul > li {
+  counter-increment: cm-suggest-counter;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 8px;
+  padding: 4px 10px;
+  color: #cbd5e1;
+  font-family: var(--daw-mono), monospace !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cm-tooltip-autocomplete > ul > li::before {
+  content: counter(cm-suggest-counter);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #7b93b8;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  flex: none;
+  user-select: none;
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected]::before {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.28) !important;
+}
+
+.cm-completionLabel {
+  font-weight: 600;
+  color: inherit !important;
+  text-align: left;
+}
+
+/* Detail (e.g. "section", "dictionary", "split word") - right-aligned with high contrast */
+.cm-completionDetail {
+  font-style: normal;
+  color: #94a3b8 !important;
+  font-size: 11px;
+  margin-left: auto !important;
+  padding-left: 14px;
+  text-align: right !important;
+  opacity: 1 !important;
+  flex: none;
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail {
+  color: #e0f2fe !important; /* Bright crisp white-blue on the blue background */
+  font-weight: 500;
+}
+.daw-btn-danger-ghost {
+  background: transparent;
+  color: #ff7878;
+  border: 1px solid transparent;
+}
+
+.daw-btn-danger-ghost:hover {
+  background: rgba(255, 93, 93, 0.15);
+  border-color: rgba(255, 93, 93, 0.3);
+  color: #ff9898;
+}
 .daw-wizard-check {
   width: 300px;
   flex: none;

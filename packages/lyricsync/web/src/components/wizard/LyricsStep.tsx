@@ -1,7 +1,29 @@
 // packages/lyricsync/web/src/components/wizard/LyricsStep.tsx
-// Lyrics entry for the new-song wizard: a text editor that highlights words the dictionary does not know (and other word
-// problems) as you type, and a dictionary panel to add pronunciations for them.
-import { createMemo, createSignal, For, Show, type JSX } from "solid-js";
+// Lyrics entry for the new-song wizard: a full-featured CodeMirror 6 text editor that highlights
+// section headers, syllable separators, unknown dictionary words, and issues directly in the text,
+// alongside syllable autocompletion, quick edit tools (copy/select all, clear, split word), and a dictionary panel.
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Compartment, EditorState, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import {
+  Decoration,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+  type DecorationSet,
+} from "@codemirror/view";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  acceptCompletion,
+  autocompletion,
+  closeCompletion,
+  completionKeymap,
+  completionStatus,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import { isRecord } from "../../../../src/guards.ts";
 
 export interface LyricsIssue {
   line: number;
@@ -10,21 +32,22 @@ export interface LyricsIssue {
   unknown: boolean;
 }
 
-export type LyricsCheck =
-  | {
-      ok: true;
-      issues: LyricsIssue[];
-      lines: number;
-      syllables: number;
-      sections: Array<{ name: string; lines: number }>;
-      autoSplit: Array<{ line: number; word: string; syllables: string[] }>;
-    }
-  | { ok: false; issues: LyricsIssue[]; error?: string };
+export interface LyricsCheck {
+  ok: boolean;
+  issues: LyricsIssue[];
+  lines: number;
+  syllables: number;
+  sections: Array<{ name: string; lines: number }>;
+  autoSplit: Array<{ line: number; word: string; syllables: string[] }>;
+  error?: string;
+}
 
 export type Pronunciations = Record<string, string[]>;
 
 export interface LyricsStepProps {
   text: string;
+  language?: "en" | "ja";
+  initialLine?: number | null;
   onText: (text: string) => void;
   check: LyricsCheck | null;
   checking: boolean;
@@ -33,7 +56,6 @@ export interface LyricsStepProps {
   onAddPronunciation: (word: string, input: string) => Promise<string | null>;
   onRemovePronunciation: (key: string) => void;
 }
-
 /** Same key the server uses (pronunciationKey): lowercase, surrounding punctuation trimmed. */
 export const pronunciationKey = (word: string) => word.toLowerCase().replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, "");
 
@@ -43,11 +65,389 @@ split syllables yourself with bars: re|con|cil|i|a|tion
 (oh) in parentheses marks a backing-vocal word
 # comment lines and blank lines are ignored`;
 
+interface LyricsMeta {
+  issuesByLine: Map<number, Map<string, LyricsIssue>>;
+  pronunciations: Pronunciations;
+  hoveredAutoSplit: { line: number; word: string } | null;
+}
+
+const setLyricsMeta = StateEffect.define<LyricsMeta>();
+
+function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  let lyricLine = -1;
+
+  for (let i = 1; i <= state.doc.lines; i++) {
+    const line = state.doc.line(i);
+    const text = line.text;
+    const trimmed = text.trim();
+
+    if (trimmed === "") continue;
+    if (/^#?\s*@pron\b/i.test(trimmed)) {
+      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-pron-line" }));
+      continue;
+    }
+
+    if (trimmed.startsWith("#")) {
+      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-comment-line" }));
+      continue;
+    }
+
+    if (/^\[.+\]$/.test(trimmed)) {
+      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-section-line" }));
+      continue;
+    }
+
+    lyricLine++;
+    const lineIssues = meta.issuesByLine.get(lyricLine);
+
+    // Parse tokens on the line protecting {...}
+    let match: RegExpExecArray | null;
+    const tokenRe = /(?:[^\s{]|\{[^}]*\})+/g;
+    while ((match = tokenRe.exec(text)) !== null) {
+      const tok = match[0];
+      const tokStart = line.from + match.index;
+
+      let wordPart = tok;
+      let phonesPart: string | null = null;
+      let phonesStart = -1;
+
+      const braceMatch = /^([^{]+)(\{[^}]*\})$/.exec(tok);
+      if (braceMatch) {
+        wordPart = braceMatch[1]!;
+        phonesPart = braceMatch[2]!;
+        phonesStart = tokStart + wordPart.length;
+      }
+
+      const cleanWord = wordPart.replace(/\|/g, "");
+      const issue = lineIssues?.get(cleanWord);
+      const custom = !issue && (phonesPart !== null || meta.pronunciations[pronunciationKey(cleanWord)] !== undefined);
+
+      let wordClass = "";
+      const isAutoSplitHovered =
+        meta.hoveredAutoSplit !== null &&
+        lyricLine === meta.hoveredAutoSplit.line &&
+        cleanWord.toLowerCase() === meta.hoveredAutoSplit.word.toLowerCase();
+
+      if (isAutoSplitHovered) {
+        wordClass = "daw-cm-hovered-autofix";
+      } else if (issue?.unknown === true) {
+        wordClass = "daw-cm-unknown";
+      } else if (issue !== undefined && !issue.unknown) {
+        wordClass = "daw-cm-issue";
+      } else if (custom) {
+        wordClass = "daw-cm-custom";
+      }
+      const wordParts = wordPart.includes("|") ? wordPart.split("|") : null;
+      const innerPhones = phonesPart && phonesPart.startsWith("{") && phonesPart.endsWith("}") ? phonesPart.slice(1, -1) : null;
+      const phoneChunks = innerPhones && innerPhones.includes("|") ? innerPhones.split("|") : null;
+      const linked = wordParts !== null && phoneChunks !== null && wordParts.length === phoneChunks.length;
+
+      if (wordParts) {
+        let cur = tokStart;
+        for (let pi = 0; pi < wordParts.length; pi++) {
+          const part = wordParts[pi]!;
+          const linkId = linked ? `syl_${line.from}_${match.index}_${pi}` : undefined;
+          if (part.length > 0) {
+            const cls = (wordClass ? wordClass + " " : "") + (linked ? "daw-cm-syl" : "");
+            builder.add(
+              cur,
+              cur + part.length,
+              Decoration.mark({ class: cls.trim(), attributes: linkId ? { "data-syl-link": linkId } : undefined })
+            );
+            cur += part.length;
+          }
+          if (pi < wordParts.length - 1) {
+            builder.add(cur, cur + 1, Decoration.mark({ class: "daw-cm-pipe" }));
+            cur += 1;
+          }
+        }
+      } else if (wordClass) {
+        builder.add(tokStart, tokStart + wordPart.length, Decoration.mark({ class: wordClass }));
+      }
+
+      if (phonesPart !== null) {
+        if (linked && phoneChunks) {
+          let pCur = phonesStart;
+          builder.add(pCur, pCur + 1, Decoration.mark({ class: "daw-cm-inline-brace" }));
+          pCur += 1;
+
+          for (let ci = 0; ci < phoneChunks.length; ci++) {
+            const chunk = phoneChunks[ci]!;
+            const linkId = `syl_${line.from}_${match.index}_${ci}`;
+            if (chunk.length > 0) {
+              builder.add(
+                pCur,
+                pCur + chunk.length,
+                Decoration.mark({ class: "daw-cm-phone-chunk", attributes: { "data-syl-link": linkId } })
+              );
+              pCur += chunk.length;
+            }
+            if (ci < phoneChunks.length - 1) {
+              builder.add(pCur, pCur + 1, Decoration.mark({ class: "daw-cm-pipe" }));
+              pCur += 1;
+            }
+          }
+
+          if (pCur < phonesStart + phonesPart.length) {
+            builder.add(pCur, pCur + 1, Decoration.mark({ class: "daw-cm-inline-brace" }));
+          }
+        } else {
+          builder.add(phonesStart, phonesStart + phonesPart.length, Decoration.mark({ class: "daw-cm-inline-phones" }));
+        }
+      }
+    }
+  }
+
+  return builder.finish();
+}
+
+const lyricsMetaField = StateField.define<LyricsMeta>({
+  create() {
+    return { issuesByLine: new Map(), pronunciations: {}, hoveredAutoSplit: null };
+  },
+  update(meta, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setLyricsMeta)) return e.value;
+    }
+    return meta;
+  },
+});
+
+const lyricsField = StateField.define<DecorationSet>({
+  create(state) {
+    return buildDecorations(state, state.field(lyricsMetaField));
+  },
+  update(decorations, tr) {
+    const metaChanged = tr.effects.some((e) => e.is(setLyricsMeta));
+    if (metaChanged || tr.docChanged) {
+      return buildDecorations(tr.state, tr.state.field(lyricsMetaField));
+    }
+    return decorations.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+const wrapCompartment = new Compartment();
+
+const editorTheme = EditorView.theme({
+  "&": {
+    height: "100%",
+    backgroundColor: "#101216",
+    color: "#d4dbe6",
+    fontSize: "13px",
+  },
+  ".cm-scroller": {
+    overflow: "auto",
+    lineHeight: "1.45",
+  },
+  ".cm-content": {
+    padding: "8px 0",
+    caretColor: "#ffffff",
+  },
+  ".cm-line": {
+    padding: "0 10px",
+    lineHeight: "1.45",
+  },
+  "&.cm-focused .cm-cursor": {
+    borderLeftColor: "#ffffff",
+  },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
+    backgroundColor: "rgba(61, 139, 253, 0.35)",
+  },
+  ".cm-gutters": {
+    backgroundColor: "#0d0f13",
+    color: "#4e5969",
+    borderRight: "1px solid #1c212a",
+    paddingRight: "2px",
+  },
+  ".cm-gutterElement": {
+    padding: "0 8px 0 6px",
+    fontSize: "11px",
+    lineHeight: "1.45",
+    userSelect: "none",
+  },
+  ".cm-activeLine": {
+    backgroundColor: "rgba(255, 255, 255, 0.025)",
+  },
+  ".cm-activeLineGutter": {
+    backgroundColor: "rgba(61, 139, 253, 0.12)",
+    color: "#9fc4ff",
+    fontWeight: "700",
+  },
+  ".cm-placeholder": {
+    color: "#4a5568",
+    fontStyle: "italic",
+    padding: "0 10px",
+  },
+});
+
+function getDynamicSectionTemplates(docText: string) {
+  const getNextNum = (base: string) => {
+    const re = new RegExp(`^\\[${base}(?:\\s+(\\d+))?\\]`, "gim");
+    let count = 0;
+    let maxNum = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(docText)) !== null) {
+      count++;
+      if (m[1]) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+    }
+    return Math.max(count + 1, maxNum + 1);
+  };
+
+  const hasSection = (name: string) => new RegExp(`^\\[${name}\\]`, "gim").test(docText);
+
+  const nextVerse = getNextNum("Verse");
+  const nextChorus = getNextNum("Chorus");
+  const nextPreChorus = getNextNum("Pre-Chorus");
+  const nextBridge = getNextNum("Bridge");
+
+  const templates: Array<{ label: string; apply: string; detail: string; boost?: number }> = [];
+
+  if (!hasSection("Intro")) {
+    templates.push({ label: "[Intro]", apply: "[Intro]\n", detail: "section", boost: 14 });
+  }
+
+  templates.push({
+    label: `[Verse ${nextVerse}]`,
+    apply: `[Verse ${nextVerse}]\n`,
+    detail: "section",
+    boost: 12,
+  });
+
+  templates.push({
+    label: `[Pre-Chorus ${nextPreChorus}]`,
+    apply: `[Pre-Chorus ${nextPreChorus}]\n`,
+    detail: "section",
+    boost: 11,
+  });
+
+  templates.push({
+    label: `[Chorus ${nextChorus}]`,
+    apply: `[Chorus ${nextChorus}]\n`,
+    detail: "section",
+    boost: 10,
+  });
+
+  const bridgeLabel = nextBridge === 1 ? "[Bridge]" : `[Bridge ${nextBridge}]`;
+  templates.push({
+    label: bridgeLabel,
+    apply: `${bridgeLabel}\n`,
+    detail: "section",
+    boost: 9,
+  });
+
+  if (!hasSection("Outro")) {
+    templates.push({ label: "[Outro]", apply: "[Outro]\n", detail: "section", boost: 8 });
+  }
+
+  templates.push({ label: "[Instrumental]", apply: "[Instrumental]\n", detail: "section", boost: 7 });
+
+  return templates;
+}
+
+const suggestCache = new Map<string, Array<{ label: string; apply: string; detail?: string; boost?: number }>>();
+
+function lyricsCompletionSource(lang: "en" | "ja") {
+  return async (context: CompletionContext): Promise<CompletionResult | null> => {
+    // 1. Check for section header trigger '['
+    const line = context.state.doc.lineAt(context.pos);
+    const lineBefore = line.text.slice(0, context.pos - line.from);
+    const sectionMatch = /\[([A-Za-z0-9 -]*)$/.exec(lineBefore);
+    if (sectionMatch) {
+      const from = context.pos - sectionMatch[1]!.length - 1;
+      const docText = context.state.doc.toString();
+      return {
+        from,
+        options: getDynamicSectionTemplates(docText),
+        validFor: /^\[[A-Za-z0-9 -]*$/,
+      };
+    }
+
+    // 2. Word matching
+    const wordMatch = context.matchBefore(/[A-Za-z|']+/);
+    if (!wordMatch || wordMatch.text.length < 2) return null;
+
+    const raw = wordMatch.text;
+    const clean = raw.replace(/\|/g, "").toLowerCase();
+
+    // Check words already in document with syllables
+    const docText = context.state.doc.toString();
+    const docPipes = new Map<string, string>();
+    const pipeRe = /\b([a-zA-Z]+(?:\|[a-zA-Z]+)+)\b/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = pipeRe.exec(docText)) !== null) {
+      const full = pm[1]!;
+      const c = full.replace(/\|/g, "").toLowerCase();
+      if (!docPipes.has(c)) docPipes.set(c, full);
+    }
+
+    const options: Array<{ label: string; apply: string; detail?: string; boost?: number }> = [];
+
+    // Prioritize existing split from the current song
+    if (docPipes.has(clean)) {
+      const split = docPipes.get(clean)!;
+      options.push({ label: split, apply: split, detail: "from song", boost: 20 });
+    }
+
+    for (const [c, split] of docPipes.entries()) {
+      if (c !== clean && c.startsWith(clean)) {
+        options.push({ label: split, apply: split, detail: "from song", boost: 15 });
+      }
+    }
+
+    // For 2-letter tokens, only search dictionary if user explicitly triggered completion
+    if (clean.length >= 3 || context.explicit) {
+      const cached = suggestCache.get(clean);
+      if (cached) {
+        for (const o of cached) {
+          if (!options.some((x) => x.apply === o.apply)) options.push(o);
+        }
+      } else {
+        try {
+          const res = await fetch(`/api/wizard/suggest?q=${encodeURIComponent(clean)}&lang=${lang}`);
+          if (res.ok) {
+            const data: unknown = await res.json();
+            if (isRecord(data) && Array.isArray(data.suggestions)) {
+              const fetched: Array<{ label: string; apply: string; detail?: string; boost?: number }> = [];
+              const list = data.suggestions;
+              for (const s of list) {
+                if (isRecord(s) && typeof s.word === "string" && typeof s.split === "string") {
+                  const isAddPhones = s.detail === "add phonemes";
+                  const item = {
+                    label: s.split,
+                    apply: s.split,
+                    detail: typeof s.detail === "string" ? s.detail : s.word === clean ? "split word" : "dictionary",
+                    boost: isAddPhones ? 30 : s.word === clean ? 18 : 5,
+                  };
+                  fetched.push(item);
+                  if (!options.some((o) => o.apply === s.split)) options.push(item);
+                }
+              }
+              suggestCache.set(clean, fetched);
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (options.length === 0) return null;
+
+    return {
+      from: wordMatch.from,
+      options,
+    };
+  };
+}
+
 export function LyricsStep(props: LyricsStepProps) {
-  let mirror!: HTMLDivElement;
+  let editorContainer!: HTMLDivElement;
+  let view: EditorView | null = null;
+  const [wordWrap, setWordWrap] = createSignal(true);
+  const [copied, setCopied] = createSignal(false);
+  const [hoveredAutoSplit, setHoveredAutoSplit] = createSignal<{ line: number; word: string } | null>(null);
   const [drafts, setDrafts] = createSignal<Record<string, string>>({});
   const [errors, setErrors] = createSignal<Record<string, string>>({});
-
   const issueIndex = createMemo(() => {
     const byLine = new Map<number, Map<string, LyricsIssue>>();
     for (const i of props.check?.issues ?? []) {
@@ -70,7 +470,6 @@ export function LyricsStep(props: LyricsStepProps) {
     return [...seen.entries()].map(([key, v]) => ({ key, ...v }));
   });
 
-  /** Problems other than unknown words, one entry per distinct message (a repeated word is listed once, with its lines). */
   const otherIssues = createMemo(() => {
     const byMessage = new Map<string, { word: string; message: string; lines: number[] }>();
     for (const i of props.check?.issues ?? []) {
@@ -82,39 +481,318 @@ export function LyricsStep(props: LyricsStepProps) {
     return [...byMessage.values()];
   });
 
-  /** The text again, word by word, with problem words marked; drawn behind the transparent textarea. */
-  const highlighted = createMemo((): JSX.Element[] => {
-    let lyricLine = -1;
-    return props.text.split("\n").map((raw) => {
-      const trimmed = raw.trim();
-      if (trimmed === "") return <div>{"\u200b"}</div>;
-      if (trimmed.startsWith("#")) return <div class="daw-hl-comment">{raw}</div>;
-      if (/^\[.+\]$/.test(trimmed)) return <div class="daw-hl-section">{raw}</div>;
-      lyricLine++;
-      const issues = issueIndex().get(lyricLine);
-      return (
-        <div>
-          {raw.split(/(\s+)/).map((tok) => {
-            if (tok === "" || /^\s+$/.test(tok)) return tok;
-            const word = tok.replace(/\|/g, "");
-            const issue = issues?.get(word);
-            const custom = !issue && props.pronunciations[pronunciationKey(word)] !== undefined;
-            return (
-              <span
-                classList={{
-                  "daw-hl-unknown": issue?.unknown === true,
-                  "daw-hl-issue": issue !== undefined && !issue.unknown,
-                  "daw-hl-custom": custom,
-                }}
-              >
-                {tok}
-              </span>
-            );
-          })}
-        </div>
-      );
-    });
+  const checkStatusText = createMemo(() => {
+    const c = props.check;
+    if (!c) return props.checking ? "Checking…" : "Type or paste the lyrics.";
+    if (c.ok) return "Lyrics are ready.";
+    const count = c.issues?.length || 1;
+    return `${count} problem${count === 1 ? "" : "s"} to fix`;
   });
+  onMount(() => {
+    const lang = props.language ?? "en";
+    const state = EditorState.create({
+      doc: props.text,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLineGutter(),
+        highlightActiveLine(),
+        history(),
+        keymap.of([
+          { key: "Tab", run: acceptCompletion },
+          {
+            key: "]",
+            run: (cmView) => {
+              const sel = cmView.state.selection.main;
+              const line = cmView.state.doc.lineAt(sel.from);
+              const beforeCursor = line.text.slice(0, sel.from - line.from);
+              const m = /^\[(Chorus|Verse|Pre-Chorus|Bridge)$/i.exec(beforeCursor.trim());
+              if (m) {
+                const base = m[1]![0]!.toUpperCase() + m[1]!.slice(1).toLowerCase().replace(/-chorus/i, "-Chorus");
+                let count = 0;
+                for (let i = 1; i < line.number; i++) {
+                  const prev = cmView.state.doc.line(i).text.trim();
+                  if (new RegExp(`^\\[${base}(?:\\s+\\d+)?\\]`, "i").test(prev)) count++;
+                }
+                const num = count + 1;
+                const replacement = `[${base} ${num}]`;
+                cmView.dispatch({
+                  changes: { from: line.from, to: sel.from, insert: replacement },
+                  selection: { anchor: line.from + replacement.length },
+                });
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "Enter",
+            run: (cmView) => {
+              if (acceptCompletion(cmView)) return true;
+              const sel = cmView.state.selection.main;
+              const line = cmView.state.doc.lineAt(sel.from);
+              const trimmed = line.text.trim();
+              const m = /^\[(Chorus|Verse|Pre-Chorus|Bridge)\]$/i.exec(trimmed);
+              if (m) {
+                const base = m[1]![0]!.toUpperCase() + m[1]!.slice(1).toLowerCase().replace(/-chorus/i, "-Chorus");
+                let count = 0;
+                for (let i = 1; i < line.number; i++) {
+                  const prev = cmView.state.doc.line(i).text.trim();
+                  if (new RegExp(`^\\[${base}(?:\\s+\\d+)?\\]`, "i").test(prev)) count++;
+                }
+                const num = count + 1;
+                const replacement = `[${base} ${num}]\n`;
+                cmView.dispatch({
+                  changes: { from: line.from, to: line.to, insert: replacement },
+                  selection: { anchor: line.from + replacement.length },
+                });
+                return true;
+              }
+              return false;
+            },
+          },
+          ...completionKeymap,
+          ...defaultKeymap,
+          ...historyKeymap,
+          indentWithTab,
+        ]),
+        wrapCompartment.of(wordWrap() ? EditorView.lineWrapping : []),
+        autocompletion({
+          override: [lyricsCompletionSource(lang)],
+          defaultKeymap: true,
+          activateOnTyping: true,
+          activateOnTypingDelay: 0,
+          maxRenderedOptions: 30,
+        }),
+        EditorView.domEventHandlers({
+          keydown(event, cmView) {
+            if (event.key === "Escape") {
+              if (completionStatus(cmView.state) !== null) {
+                closeCompletion(cmView);
+                event.preventDefault();
+                event.stopPropagation();
+                return true;
+              }
+              event.stopPropagation();
+              return true;
+            }
+            return false;
+          },
+          mouseover(event, cmView) {
+            const target = event.target as HTMLElement | null;
+            const match = target?.closest("[data-syl-link]");
+            if (match) {
+              const linkId = match.getAttribute("data-syl-link");
+              if (linkId) {
+                cmView.dom.querySelectorAll(`[data-syl-link="${linkId}"]`).forEach((el) => {
+                  el.classList.add("daw-cm-hovered");
+                });
+              }
+            }
+            return false;
+          },
+          mouseout(event, cmView) {
+            const target = event.target as HTMLElement | null;
+            const match = target?.closest("[data-syl-link]");
+            if (match) {
+              const linkId = match.getAttribute("data-syl-link");
+              if (linkId) {
+                cmView.dom.querySelectorAll(`[data-syl-link="${linkId}"]`).forEach((el) => {
+                  el.classList.remove("daw-cm-hovered");
+                });
+              }
+            }
+            return false;
+          },
+        }),
+        editorTheme,
+        lyricsMetaField,
+        lyricsField,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            props.onText(update.state.doc.toString());
+          }
+        }),
+      ],
+    });
+
+    view = new EditorView({
+      state,
+      parent: editorContainer,
+    });
+    (editorContainer as unknown as { __cmView?: EditorView }).__cmView = view;
+
+    if (props.initialLine !== undefined && props.initialLine !== null && view) {
+      let lyricLine = -1;
+      for (let i = 1; i <= view.state.doc.lines; i++) {
+        const line = view.state.doc.line(i);
+        const trimmed = line.text.trim();
+        if (trimmed === "" || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed)) continue;
+        lyricLine++;
+        if (lyricLine === props.initialLine) {
+          view.dispatch({
+            selection: { anchor: line.from },
+            scrollIntoView: true,
+          });
+          break;
+        }
+      }
+    }
+  });
+  onCleanup(() => {
+    view?.destroy();
+    view = null;
+  });
+
+  // Sync external text into editor if changed outside (e.g. template reset or paste)
+  createEffect(() => {
+    const text = props.text;
+    if (view && view.state.doc.toString() !== text) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: text },
+      });
+    }
+  });
+
+  // Update decorations when check results, pronunciations, or hoveredAutoSplit change
+  createEffect(() => {
+    const issuesByLine = issueIndex();
+    const pronunciations = props.pronunciations;
+    const hovered = hoveredAutoSplit();
+    if (view) {
+      view.dispatch({
+        effects: setLyricsMeta.of({ issuesByLine, pronunciations, hoveredAutoSplit: hovered }),
+      });
+    }
+  });
+
+  const applyAutoSplit = (a: { line: number; word: string; syllables: string[] }) => {
+    if (!view) return;
+    const doc = view.state.doc;
+    let lyricLine = -1;
+    for (let i = 1; i <= doc.lines; i++) {
+      const line = doc.line(i);
+      const text = line.text;
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed) || /^#?\s*@pron\b/i.test(trimmed)) continue;
+      lyricLine++;
+      if (lyricLine === a.line) {
+        const re = /\b[A-Za-z]+(?:\{[^}]*\})?\b/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          const rawTok = m[0];
+          const clean = rawTok.replace(/\{[^}]*\}/g, "");
+          if (clean.toLowerCase() === a.word.toLowerCase()) {
+            const wordFrom = line.from + m.index;
+            const wordTo = wordFrom + clean.length;
+            const replacement = a.syllables.join("|");
+            view.focus();
+            view.dispatch({
+              changes: { from: wordFrom, to: wordTo, insert: replacement },
+              selection: { anchor: wordFrom + replacement.length },
+              userEvent: "input.type",
+            });
+            setHoveredAutoSplit(null);
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  // Toggle word wrap
+  createEffect(() => {
+    const wrap = wordWrap();
+    if (view) {
+      view.dispatch({
+        effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []),
+      });
+    }
+  });
+
+  const insertPipe = () => {
+    if (!view) return;
+    view.focus();
+    const sel = view.state.selection.main;
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: "|" },
+      selection: { anchor: sel.from + 1 },
+    });
+  };
+
+  const copyAll = async () => {
+    if (!view) return;
+    try {
+      await navigator.clipboard.writeText(view.state.doc.toString());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  const selectAll = () => {
+    if (!view) return;
+    view.focus();
+    view.dispatch({
+      selection: { anchor: 0, head: view.state.doc.length },
+    });
+  };
+
+  const clearAll = () => {
+    if (!view) return;
+    if (view.state.doc.length > 0) {
+      if (!window.confirm("Clear all lyrics?")) return;
+      view.focus();
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: "" },
+      });
+    }
+  };
+
+  const splitWordAtCursor = async () => {
+    if (!view) return;
+    const sel = view.state.selection.main;
+    const doc = view.state.doc;
+    const line = doc.lineAt(sel.from);
+    const lineOffset = sel.from - line.from;
+
+    // Find the word under or preceding the cursor
+    const text = line.text;
+    let wordStart = lineOffset;
+    let wordEnd = lineOffset;
+
+    if (sel.from === sel.to) {
+      while (wordStart > 0 && /[A-Za-z|']/.test(text[wordStart - 1]!)) wordStart--;
+      while (wordEnd < text.length && /[A-Za-z|']/.test(text[wordEnd]!)) wordEnd++;
+    } else {
+      wordStart = sel.from - line.from;
+      wordEnd = sel.to - line.from;
+    }
+
+    if (wordStart >= wordEnd) return;
+
+    const rawWord = text.slice(wordStart, wordEnd);
+    const cleanWord = rawWord.replace(/\|/g, "").toLowerCase();
+    const lang = props.language ?? "en";
+
+    try {
+      const res = await fetch(`/api/wizard/suggest?q=${encodeURIComponent(cleanWord)}&lang=${lang}`);
+      if (res.ok) {
+        const data: unknown = await res.json();
+        if (isRecord(data) && Array.isArray(data.suggestions)) {
+          const list = data.suggestions;
+          for (const s of list) {
+            if (isRecord(s) && typeof s.word === "string" && typeof s.split === "string" && s.word === cleanWord) {
+              view.focus();
+              view.dispatch({
+                changes: { from: line.from + wordStart, to: line.from + wordEnd, insert: s.split },
+                selection: { anchor: line.from + wordStart + s.split.length },
+              });
+              break;
+            }
+          }
+        }
+      }
+    } catch {}
+  };
 
   const add = async (key: string, word: string) => {
     const input = (drafts()[key] ?? "").trim();
@@ -125,34 +803,51 @@ export function LyricsStep(props: LyricsStepProps) {
 
   return (
     <div class="daw-wizard-lyrics">
-      <div class="daw-hl-editor">
-        <div class="daw-hl-mirror" ref={mirror} aria-hidden="true">
-          {highlighted()}
-        </div>
-        <textarea
-          class="daw-hl-input"
-          spellcheck={false}
-          placeholder={PLACEHOLDER}
-          value={props.text}
-          onInput={(e) => props.onText(e.currentTarget.value)}
-          onScroll={(e) => (mirror.scrollTop = e.currentTarget.scrollTop)}
-        />
+      <div class="daw-cm-editor-card">
+        <header class="daw-cm-toolbar">
+          <div class="daw-cm-toolbar-left">
+            <span class="daw-cm-toolbar-title">
+              <i class="bi bi-file-earmark-text" /> Lyrics
+            </span>
+          </div>
+          <div class="daw-cm-toolbar-right">
+            <button class="daw-btn daw-btn-xs" title="Select all text (Ctrl+A)" onClick={selectAll}>
+              <i class="bi bi-check2-all" /> Select All
+            </button>
+            <button class="daw-btn daw-btn-xs" title="Copy all lyrics to clipboard" onClick={copyAll}>
+              <i class={`bi bi-${copied() ? "check-lg" : "clipboard"}`} /> {copied() ? "Copied!" : "Copy All"}
+            </button>
+            <button class="daw-btn daw-btn-xs" title="Split syllables in word at cursor" onClick={splitWordAtCursor}>
+              <i class="bi bi-scissors" /> Split Word
+            </button>
+            <button class="daw-btn daw-btn-xs" title="Insert syllable divider (|) at cursor" onClick={insertPipe}>
+              <b>|</b> Pipe
+            </button>
+            <button
+              class="daw-btn daw-btn-xs"
+              classList={{ "daw-btn-accent": wordWrap() }}
+              title={wordWrap() ? "Line wrapping enabled (click to disable)" : "Line wrapping disabled (click to enable)"}
+              onClick={() => setWordWrap(!wordWrap())}
+            >
+              <i class="bi bi-text-wrap" /> Wrap
+            </button>
+            <button class="daw-btn daw-btn-xs daw-btn-danger-ghost" title="Clear lyrics text" onClick={clearAll}>
+              <i class="bi bi-trash3" />
+            </button>
+          </div>
+        </header>
+
+        <div class="daw-cm-host" ref={editorContainer} />
       </div>
 
       <aside class="daw-wizard-check">
         <div class="daw-check-status" classList={{ "daw-check-ok": props.check?.ok === true, "daw-check-bad": props.check?.ok === false }}>
-          <i class={`bi bi-${props.checking ? "hourglass-split" : props.check?.ok ? "check-circle-fill" : props.check ? "exclamation-triangle-fill" : "pencil"}`} />
-          {props.checking
-            ? "Checking…"
-            : !props.check
-              ? "Type or paste the lyrics."
-              : props.check.ok
-                ? "Lyrics are ready."
-                : `${props.check.issues.length || 1} problem${props.check.issues.length === 1 ? "" : "s"} to fix`}
+          <i class={`bi bi-${!props.check && props.checking ? "hourglass-split" : props.check?.ok ? "check-circle-fill" : props.check ? "exclamation-triangle-fill" : "pencil"}`} />
+          {checkStatusText()}
         </div>
 
         <Show when={props.check && !props.check.ok && props.check.error}>
-          <div class="daw-wizard-error">{props.check && !props.check.ok ? props.check.error : ""}</div>
+          <div class="daw-wizard-error">{props.check?.error ?? ""}</div>
         </Show>
 
         <Show when={unknownWords().length > 0}>
@@ -218,7 +913,7 @@ export function LyricsStep(props: LyricsStepProps) {
           </For>
         </Show>
 
-        <Show when={props.check?.ok ? props.check : null}>
+        <Show when={props.check}>
           {(c) => (
             <>
               <header class="daw-section-title">Summary</header>
@@ -240,10 +935,23 @@ export function LyricsStep(props: LyricsStepProps) {
               </div>
               <Show when={c().autoSplit.length > 0}>
                 <p class="daw-wizard-note">
-                  Split automatically. If one is wrong, write it with bars (<code>loo|king</code>):
+                  Split automatically. Click a pill to apply the split:
                 </p>
                 <div class="daw-chip-row daw-chip-row-flush">
-                  <For each={c().autoSplit}>{(a) => <span class="daw-chip" title={`line ${a.line + 1}`}>{a.syllables.join("|")}</span>}</For>
+                  <For each={c().autoSplit}>
+                    {(a) => (
+                      <button
+                        type="button"
+                        class="daw-chip daw-chip-clickable"
+                        title={`Click to split "${a.word}" on line ${a.line + 1} into "${a.syllables.join("|")}"`}
+                        onClick={() => applyAutoSplit(a)}
+                        onMouseEnter={() => setHoveredAutoSplit({ line: a.line, word: a.word })}
+                        onMouseLeave={() => setHoveredAutoSplit(null)}
+                      >
+                        {a.syllables.join("|")}
+                      </button>
+                    )}
+                  </For>
                 </div>
               </Show>
             </>

@@ -232,6 +232,21 @@ export class Session {
     this.evidence = null;
   }
 
+  /**
+   * Replaces the workspace lyrics definition with a new one (e.g. after editing lyrics in the editor).
+   * Invalidates evidenceKey so prepare will generate new alignments and boundary queries.
+   */
+  setLyrics(definition: LyricsDefinition, anchors?: Anchors): void {
+    const a = anchors ?? emptyAnchors();
+    validateAnchors(a, definition);
+    fs.writeFileSync(this.paths.definition, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');
+    saveAnchors(this.paths.anchors, a);
+    this.#definition = definition;
+    this.evidence = null;
+    this.manifest.evidenceKey = null;
+    writeManifest(this.paths.manifest, this.manifest);
+  }
+
   /** Creates a workspace: validates and resolves the lyrics, records the inputs. Fails if the directory is already a workspace. */
   static init(options: InitOptions): { session: Session; autoSplit: AutoSplitNote[] } {
     const paths = workspacePaths(options.dir);

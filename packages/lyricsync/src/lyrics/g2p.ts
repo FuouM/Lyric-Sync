@@ -14,10 +14,12 @@ export class HubertG2P {
   private language: string | null = 'en';
   /** Keep dictionary phone case (e.g. Japanese moraic 'N' vs 'n'); HuBERT-FA vocabularies expect lowercase. */
   private preservePhoneCase: boolean;
+  private prefixLanguage: boolean;
 
-  constructor(language: string | null = 'en', dictPath?: string, options: { preservePhoneCase?: boolean } = {}) {
-    this.language = language;
+  constructor(language: string | null = 'en', dictPath?: string, options: { preservePhoneCase?: boolean; prefixLanguage?: boolean } = {}) {
+    this.language = language ?? 'en';
     this.preservePhoneCase = options.preservePhoneCase ?? false;
+    this.prefixLanguage = options.prefixLanguage ?? (language !== null && options.prefixLanguage !== false);
     if (dictPath) {
       this.loadDictionary(dictPath);
     }
@@ -203,17 +205,103 @@ export class HubertG2P {
     return out.length > 0 ? out : null;
   }
 
-  /** Phones of a lyric word: dictionary entry (punctuation-trimmed on a miss), or strict mora decomposition for Japanese; null when unknown. */
+  /**
+   * Structural decomposition for English words:
+   * 1. Smart quotes / curly apostrophes normalization.
+   * 2. Hyphenated compound words ("super-dense", "pre-training").
+   * 3. Possessive 's ("word's" -> word + s).
+   * 4. All-caps initialisms ("AGI", "GPU", "NVDA", "MLP").
+   * 5. Inflection suffixes (-ing, -ed, -s) when root is in dictionary.
+   * 6. Compound words (e.g. paper + clips, kill + switch) when both halves are in dictionary.
+   */
+  public approximateEnglish(cleaned: string, raw: string): string[] | null {
+    if (cleaned.includes("(") && cleaned.includes(")")) {
+      const parts = cleaned.split(/[()]/).filter((p) => p.length > 0);
+      const sub = parts.map((p) => this.phonesForWord(p));
+      if (sub.every((s): s is string[] => s !== null)) return sub.flat();
+    }
+
+    if (cleaned.includes("-")) {
+      const parts = cleaned.split("-").filter((p) => p.length > 0);
+      const sub = parts.map((p) => this.phonesForWord(p));
+      if (sub.every((s): s is string[] => s !== null)) return sub.flat();
+    }
+
+    if (cleaned.endsWith("'s")) {
+      const base = cleaned.slice(0, -2);
+      const basePhones = this.phonesForWord(base);
+      if (basePhones) {
+        const last = basePhones[basePhones.length - 1];
+        const sPh = last && ["p", "t", "k", "f", "th"].includes(last) ? "s" : "z";
+        return [...basePhones, sPh];
+      }
+    }
+
+    const isUpper = /^[A-Z0-9]+$/.test(raw.replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, ""));
+    if (isUpper && cleaned.length >= 2 && cleaned.length <= 6) {
+      const letters = cleaned.split("");
+      const letterPhones: string[] = [];
+      let allOk = true;
+      for (const ch of letters) {
+        const lp = this.dictionary.get(ch);
+        if (lp) letterPhones.push(...lp);
+        else { allOk = false; break; }
+      }
+      if (allOk && letterPhones.length > 0) return letterPhones;
+    }
+
+    if (cleaned.endsWith("ing") && cleaned.length > 4) {
+      const base = cleaned.slice(0, -3);
+      const withE = `${base}e`;
+      const rootPhones = this.dictionary.get(base) ?? this.dictionary.get(withE);
+      if (rootPhones) return [...rootPhones, "ih", "ng"];
+    }
+
+    if (cleaned.endsWith("ed") && cleaned.length > 4) {
+      const base = cleaned.slice(0, -2);
+      const withE = cleaned.slice(0, -1);
+      const rootPhones = this.dictionary.get(base) ?? this.dictionary.get(withE);
+      if (rootPhones) return [...rootPhones, "d"];
+    }
+
+    if (cleaned.endsWith("ity") && cleaned.length > 5) {
+      const base = cleaned.slice(0, -3);
+      const rootPhones = this.dictionary.get(base);
+      if (rootPhones) return [...rootPhones, "ih", "t", "iy"];
+    }
+
+    if (cleaned.endsWith("s") && cleaned.length > 3) {
+      const base = cleaned.slice(0, -1);
+      const rootPhones = this.dictionary.get(base);
+      if (rootPhones) return [...rootPhones, "z"];
+    }
+
+    for (let i = 3; i <= cleaned.length - 3; i++) {
+      const left = cleaned.slice(0, i);
+      const right = cleaned.slice(i);
+      const lp = this.dictionary.get(left);
+      const rp = this.dictionary.get(right);
+      if (lp && rp) {
+        return [...lp, ...rp];
+      }
+    }
+
+    return null;
+  }
+
+  /** Phones of a lyric word: dictionary entry, strict Japanese mora decomposition, or smart English phonetic approximation; null when unknown. */
   public phonesForWord(raw: string): string[] | null {
-    const lower = raw.toLowerCase();
-    const cleaned = lower.replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, '');
+    const lower = raw.toLowerCase()
+      .replace(/[‘’]/g, "'")
+      .replace(/[“”]/g, '"');
+    const cleaned = lower.replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, "");
     const direct = this.dictionary.get(lower) ?? this.dictionary.get(cleaned);
     if (direct && direct.length > 0) return direct;
-    if (this.language === 'ja') {
+    if (this.language === "ja") {
       const morae = this.splitMoraeStrict(cleaned);
       return morae ? morae.flatMap((m) => m.phones) : null;
     }
-    return null;
+    return this.approximateEnglish(cleaned, raw);
   }
 
   /**
@@ -238,7 +326,7 @@ export class HubertG2P {
       phIdxToWordIdx.push(-1);
     });
     const finalPhSeq = phSeq.map((ph) => {
-      if (this.language !== null && ph !== 'SP' && ph !== 'cl' && ph !== 'CL' && ph !== 'AP' && !ph.includes('/')) {
+      if (this.prefixLanguage && this.language !== null && ph !== 'SP' && ph !== 'cl' && ph !== 'CL' && ph !== 'AP' && !ph.includes('/')) {
         return `${this.language}/${ph}`;
       }
       return ph;

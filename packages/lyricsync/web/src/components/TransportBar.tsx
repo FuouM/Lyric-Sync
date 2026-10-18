@@ -40,6 +40,7 @@ export interface TransportBarProps {
   analysisStale: boolean;
   analysing: boolean;
   onReanalyze: () => void;
+  onEditLyrics?: () => void;
 }
 
 export function TransportBar(props: TransportBarProps) {
@@ -125,6 +126,15 @@ export function TransportBar(props: TransportBarProps) {
           {props.analysing ? "Re-analysing…" : props.resplitWords > 0 ? `Re-analyze (${props.resplitWords} re-split)` : "Re-analyze"}
         </button>
       </Show>
+      <button
+        type="button"
+        class="daw-btn"
+        disabled={!props.canSolve || props.solving || props.analysing}
+        title="Edit lyrics in full text editor, add or delete words/syllables, and re-time"
+        onClick={() => props.onEditLyrics?.()}
+      >
+        <i class="bi bi-pencil" /> Edit Lyrics
+      </button>
       <button
         class="daw-btn daw-btn-accent"
         disabled={!props.canSolve || props.solving || props.analysing || props.resplitWords > 0 || props.analysisStale}

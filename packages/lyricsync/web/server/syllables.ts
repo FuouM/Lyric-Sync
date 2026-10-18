@@ -6,9 +6,19 @@
 //                    `prepare` as a background job: the evidence depends on the syllables
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Session, type SyllableChange } from "../../src/index.ts";
+import {
+  emptyAnchors,
+  lyricsSectionOutline,
+  parseLyricsText,
+  Session,
+  syllableCount,
+  type LineAnchor,
+  type Pronunciations,
+  type SyllableChange,
+} from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
-import { findSongDir, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, songInputs, type SongsRoots } from "./song-inputs.ts";
+import { calibrationFromSolve, checkLyrics } from "./wizard.ts";
 
 export interface ReanalyzeJob {
   project: string;
@@ -136,5 +146,193 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
       current.error = e instanceof Error ? e.message : String(e);
     }
   );
+  return current;
+}
+
+export interface UpdateLyricsInput {
+  text: string;
+  pronunciations?: Pronunciations;
+}
+
+export function updateLyrics(
+  roots: SongsRoots,
+  id: string,
+  input: UpdateLyricsInput,
+  busy: string | null
+): ReanalyzeJob {
+  if (job?.state === "running") throw new Error(`A job is already running for ${job.project}.`);
+  if (busy) throw new Error(busy);
+
+  const dir = findSongDir(roots, id);
+  if (!dir) throw new Error(`Song "${id}" not found.`);
+  const inputs = songInputs(roots, id);
+
+  const check = checkLyrics(input.text, inputs.language, input.pronunciations ?? {});
+  if (!check.ok) {
+    throw new Error(check.error ?? `Lyrics have ${check.issues.length} issue(s).`);
+  }
+  const parsed = parseLyricsText(input.text, inputs.language, input.pronunciations ?? {});
+  const def = parsed.definition;
+  if (def.lines.length === 0) throw new Error("Lyrics cannot be empty.");
+
+  const calFile = path.join(dir, "user_input", "lyrics.calibrated.json");
+  interface RawCalWord {
+    w?: string;
+    sylText?: string[];
+    syl?: Array<[number, number]>;
+    sylCalibrated?: boolean[];
+    calibrated?: boolean;
+  }
+  interface RawCalLine {
+    text?: string;
+    calibrated?: boolean;
+    start?: number;
+    end?: number;
+    words?: RawCalWord[];
+  }
+  interface RawCalDoc {
+    lines?: RawCalLine[];
+  }
+  let oldCal: RawCalDoc | null = null;
+  if (fs.existsSync(calFile)) {
+    try {
+      oldCal = JSON.parse(fs.readFileSync(calFile, "utf8")) as RawCalDoc;
+    } catch {}
+  }
+
+  // Write user_input/lyrics.txt
+  fs.writeFileSync(path.join(dir, "user_input", "lyrics.txt"), input.text.endsWith("\n") ? input.text : `${input.text}\n`, "utf8");
+
+  // Write user_input/lyrics.sync.json
+  const syncFile = path.join(dir, "user_input", "lyrics.sync.json");
+  const syncData = {
+    language: def.language,
+    lines: def.lines.map((l) => ({
+      ...(l.section ? { section: l.section } : {}),
+      text: l.text,
+      words: l.words.map((w) => ({ w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}) })),
+    })),
+  };
+  fs.writeFileSync(syncFile, `${JSON.stringify(syncData, null, 2)}\n`, "utf8");
+
+  // Derive preserved anchors from oldCal
+  const anchors = emptyAnchors();
+  if (oldCal && Array.isArray(oldCal.lines)) {
+    for (let li = 0; li < def.lines.length; li++) {
+      const newLine = def.lines[li]!;
+      const oldLine = oldCal.lines.find(
+        (ol) => ol.text === newLine.text && Array.isArray(ol.words) && ol.words.length === newLine.words.length
+      );
+      if (oldLine) {
+        let sylsMatch = true;
+        for (let wi = 0; wi < newLine.words.length; wi++) {
+          const nw = newLine.words[wi]!;
+          const ow = oldLine.words![wi]!;
+          const owSylLen = Array.isArray(ow.sylText) ? ow.sylText.length : Array.isArray(ow.syl) ? ow.syl.length : 0;
+          if (nw.syllables.length !== owSylLen) {
+            sylsMatch = false;
+            break;
+          }
+        }
+        if (sylsMatch) {
+          const m = syllableCount(newLine);
+          const lineAnchor: LineAnchor = {};
+          if (oldLine.calibrated === true) {
+            if (typeof oldLine.start === "number") lineAnchor.start = oldLine.start;
+            if (typeof oldLine.end === "number") lineAnchor.end = oldLine.end;
+          }
+          let boundaryIdx = 0;
+          const boundaries: Record<string, number> = {};
+          for (let wi = 0; wi < newLine.words.length; wi++) {
+            const ow = oldLine.words![wi]!;
+            const sylCount = newLine.words[wi]!.syllables.length;
+            for (let si = 0; si < sylCount; si++) {
+              if (boundaryIdx > 0 && boundaryIdx < m) {
+                if (ow.sylCalibrated?.[si] === true && Array.isArray(ow.syl?.[si]) && typeof ow.syl[si]![0] === "number") {
+                  boundaries[String(boundaryIdx)] = ow.syl[si]![0];
+                }
+              }
+              boundaryIdx++;
+            }
+          }
+          if (Object.keys(boundaries).length > 0) lineAnchor.boundaries = boundaries;
+          if (lineAnchor.start !== undefined || lineAnchor.end !== undefined || lineAnchor.boundaries !== undefined) {
+            anchors.lines[String(li)] = lineAnchor;
+          }
+        }
+      }
+    }
+  }
+
+  // Update workspace session
+  const session = Session.open(inputs.workspaceDir);
+  session.setLyrics(def, anchors);
+
+  const current: ReanalyzeJob = { project: id, state: "running", log: [] };
+  job = current;
+  const say = (m: string) => current.log.push(m);
+  say(`Saved updated lyrics: ${def.lines.length} lines, ${def.lines.reduce((n, l) => n + syllableCount(l), 0)} syllables.`);
+  say("Updating audio evidence (alignments, boundary queries)…");
+  const t0 = Date.now();
+
+  session.prepare({ onProgress: (m) => say(`  ${m}`) }).then(
+    async () => {
+      say("Solving timing around preserved pins…");
+      const result = await session.solve({ anchors });
+      fs.mkdirSync(path.join(dir, "generated"), { recursive: true });
+      fs.copyFileSync(session.paths.lyricsOut, path.join(dir, "generated", "lyrics.json"));
+      const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));
+      const songEnd =
+        typeof beats === "object" && beats !== null && "duration" in beats && typeof beats.duration === "number"
+          ? beats.duration
+          : result.lyrics.lines.at(-1)!.end;
+      const outline = lyricsSectionOutline(input.text);
+      const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd) as Record<string, unknown> & {
+        lines: Array<{
+          i: number;
+          text: string;
+          start: number;
+          end: number;
+          calibrated?: boolean;
+          words: Array<{
+            w: string;
+            start: number;
+            end: number;
+            syl: Array<[number, number]>;
+            sylText: string[];
+            sylCalibrated?: boolean[];
+            calibrated?: boolean;
+          }>;
+        }>;
+      };
+      // Carry forward sylCalibrated flags from oldCal
+      if (oldCal && Array.isArray(oldCal.lines)) {
+        for (const nl of newCal.lines) {
+          const ol = oldCal.lines.find((o) => o.text === nl.text && o.words?.length === nl.words?.length);
+          if (ol) {
+            for (let wi = 0; wi < nl.words.length; wi++) {
+              const nw = nl.words[wi]!;
+              const ow = ol.words![wi]!;
+              if (ow && nw.w === ow.w && nw.sylText?.length === ow.sylText?.length) {
+                if (Array.isArray(ow.sylCalibrated)) nw.sylCalibrated = [...ow.sylCalibrated];
+                if (ow.calibrated) nw.calibrated = true;
+              }
+            }
+            if (ol.calibrated) nl.calibrated = true;
+          }
+        }
+      }
+
+      fs.writeFileSync(calFile, `${JSON.stringify(newCal, null, 2)}\n`, "utf8");
+      say(`Done in ${((Date.now() - t0) / 1000).toFixed(1)} s (${result.lyrics.lines.length} lines timed).`);
+      current.state = "done";
+    },
+    (e: unknown) => {
+      current.state = "error";
+      current.error = e instanceof Error ? e.message : String(e);
+      say(`Failed: ${current.error}`);
+    }
+  );
+
   return current;
 }

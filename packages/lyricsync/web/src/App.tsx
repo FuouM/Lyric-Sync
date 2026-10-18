@@ -9,6 +9,7 @@ import { ProgramMonitor } from "./components/ProgramMonitor";
 import { Inspector } from "./components/Inspector";
 import { TimelineCanvas, type MonitorTrack } from "./components/TimelineCanvas";
 import { NewSongWizard } from "./components/NewSongWizard";
+import { EditLyricsModal } from "./components/EditLyricsModal";
 import type { LineReview } from "../../src/types";
 import { isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
@@ -103,10 +104,12 @@ export function App() {
   const [status, setStatus] = createSignal("Open a song folder to start.");
   const [solving, setSolving] = createSignal(false);
   const [showWizard, setShowWizard] = createSignal(false);
+  const [showEditLyrics, setShowEditLyrics] = createSignal(false);
+  const [editLyricsText, setEditLyricsText] = createSignal("");
+  const [editLyricsInitialLine, setEditLyricsInitialLine] = createSignal<number | null>(null);
   // Syllables per editor line and word that the song's analysis (lyricsync workspace) was made for; null until known.
   const [analysed, setAnalysed] = createSignal<{ lines: string[][][]; fresh: boolean } | null>(null);
   const [analysing, setAnalysing] = createSignal(false);
-
   let player: AudioPlayer | null = null;
   let stopAt: number | null = null;
   let lastMtime = 0;
@@ -334,6 +337,59 @@ export function App() {
       await loadAnalysed(s.name);
     } finally {
       setAnalysing(false);
+    }
+  };
+
+  const reconstructLyricsText = (doc: CalibrationDoc): string => {
+    const out: string[] = [];
+    let curSection: string | null = null;
+    for (const l of doc.lines) {
+      const sec = doc.sections.find(
+        (s) => Math.abs(s.start - l.start) < 0.05 || (l.start >= s.start && l.start < s.end && s.name !== curSection)
+      );
+      if (sec && sec.name !== curSection) {
+        curSection = sec.name;
+        out.push(`[${sec.name}]`);
+      }
+      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? w.sylText.join("|") : w.w)).join(" ");
+      out.push(words);
+    }
+    return out.join("\n");
+  };
+
+  const openEditLyrics = async (lineIdx: number | null = null) => {
+    const s = song();
+    const doc = calDoc();
+    if (!s || !doc) return;
+    setEditLyricsInitialLine(lineIdx);
+    let text = "";
+    try {
+      const blob = await s.store.read("user_input/lyrics.txt");
+      if (blob) text = await blob.text();
+    } catch {}
+    if (!text.trim()) {
+      text = reconstructLyricsText(doc);
+    }
+    setEditLyricsText(text);
+    setShowEditLyrics(true);
+  };
+
+  const handleLyricsApplied = async () => {
+    const s = song();
+    if (!s) return;
+    try {
+      setStatus("Reloading updated song files…");
+      const files = await loadSongFiles(s.store);
+      setCalDoc(files.doc);
+      setReviewLines(sortReview(await loadReview(s.store)));
+      await loadAnalysed(s.name);
+      setDirty(false);
+      setHistory([]);
+      setFuture([]);
+      setStatus("Lyrics updated and re-timed successfully.");
+      setShowEditLyrics(false);
+    } catch (e: unknown) {
+      setStatus(`Failed to reload song files: ${errorMessage(e)}`);
     }
   };
 
@@ -718,13 +774,14 @@ export function App() {
   // ── Keyboard ─────────────────────────────────────────────────────────────
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (showWizard() || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+    if (showWizard() || showEditLyrics() || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key;
     const handled = () => e.preventDefault();
 
     if (ctrl) {
-      if (k === "z" || k === "Z") (e.shiftKey ? redo : undo)();
+      if (e.shiftKey && (k === "l" || k === "L")) void openEditLyrics();
+      else if (k === "z" || k === "Z") (e.shiftKey ? redo : undo)();
       else if (k === "y" || k === "Y") redo();
       else if (k === "s" || k === "S") void save();
       else if (k === "o" || k === "O") void pickSingleSong();
@@ -864,13 +921,14 @@ export function App() {
           { label: "Undo", shortcut: "Ctrl+Z", action: undo, disabled: history().length === 0 },
           { label: "Redo", shortcut: "Ctrl+Y", action: redo, disabled: future().length === 0 },
           "separator",
+          { label: "Edit Lyrics...", shortcut: "Ctrl+Shift+L", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
+          "separator",
           { label: "Set Start to Playhead", shortcut: "[", action: () => setEdge("start", currentTime()), disabled: !hasSel },
           { label: "Set End to Playhead", shortcut: "]", action: () => setEdge("end", currentTime()), disabled: !hasSel },
           { label: "Pin / Unpin Syllable", shortcut: "C", action: togglePin, disabled: !hasSel },
           { label: "Freeze / Unfreeze Line", shortcut: "Shift+C", action: toggleLinePin, disabled: !hasSel },
           { label: "Pin Line Edges", action: () => { const s = selectedSyl(); if (s) edit((d) => pinLineEdges(d, s.lineIdx), "Line edges pinned"); }, disabled: !hasSel },
           { label: "Edit Syllable Split", shortcut: "E", action: focusSplit, disabled: !hasSel },
-          "separator",
           { label: "Add Section Marker at Playhead", shortcut: "M", action: addSection, disabled: !hasDoc },
           { label: "Set Bar 1 at Playhead", shortcut: "B", action: () => void setBar1Here(), disabled: !beats() },
         ],
@@ -908,18 +966,18 @@ export function App() {
         items: [
           { label: "Auto-time Unpinned Syllables", action: solve, disabled: !hasDoc || solving() || analysing() || resplitWords().length > 0 || analysisStale() },
           { label: "Re-analyze (apply syllable splits)", action: () => void reanalyze(), disabled: !hasDoc || analysing() || solving() },
+          { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
           "separator",
           { label: "Snap Auto-timing to Beats", action: () => setSolveSnap(!solveSnap()), checked: solveSnap() },
         ],
       },
     ];
   };
-
   // ── Layout ───────────────────────────────────────────────────────────────
 
   const welcome = (
     <div class="daw-welcome">
-      <i class="bi bi-soundwave daw-welcome-icon" />
+      <img src="/logo.svg" width="80" height="80" class="daw-welcome-logo" alt="lyricsync logo" />
       <h1>lyricsync</h1>
       <p>Time lyrics to the syllable, like editing clips in a video editor.</p>
       <div class="daw-welcome-actions">
@@ -994,6 +1052,7 @@ export function App() {
         analysisStale={analysisStale()}
         analysing={analysing()}
         onReanalyze={() => void reanalyze()}
+        onEditLyrics={() => void openEditLyrics()}
       />
 
       <div class="daw-upper">
@@ -1015,6 +1074,7 @@ export function App() {
             currentTime={currentTime()}
             onRemoveSection={(i) => edit((d) => removeSection(d, i), "Section removed")}
             onAddSection={addSection}
+            onEditLyrics={(lineIdx) => void openEditLyrics(lineIdx ?? null)}
           />
         </div>
 
@@ -1109,6 +1169,15 @@ export function App() {
 
       <Show when={showWizard()}>
         <NewSongWizard onClose={() => setShowWizard(false)} onOpen={(id) => void openCreated(id)} />
+      </Show>
+      <Show when={showEditLyrics()}>
+        <EditLyricsModal
+          songName={song()?.name ?? ""}
+          initialText={editLyricsText()}
+          initialLine={editLyricsInitialLine()}
+          onClose={() => setShowEditLyrics(false)}
+          onApplied={() => void handleLyricsApplied()}
+        />
       </Show>
 
       <div class="daw-statusbar">

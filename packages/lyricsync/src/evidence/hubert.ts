@@ -154,7 +154,7 @@ export class HubertAligner {
       throw new Error(`HuBERT G2P dictionary not found: ${dictPath}`);
     }
 
-    this.g2p = new HubertG2P(vocabData.language_prefix === false ? null : lang, dictPath);
+    this.g2p = new HubertG2P(lang, dictPath, { prefixLanguage: vocabData.language_prefix !== false });
 
     if (!this.decoder) {
       this.decoder = new AlignmentDecoder({

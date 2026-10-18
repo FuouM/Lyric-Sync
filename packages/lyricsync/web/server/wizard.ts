@@ -48,28 +48,58 @@ export function currentJob(): WizardJob | null {
   return job;
 }
 
-export type LyricsCheckResult =
-  | { ok: true; issues: []; lines: number; syllables: number; sections: SectionOutline[]; autoSplit: AutoSplitNote[] }
-  | { ok: false; issues: LyricsIssue[]; error?: string };
+export interface LyricsCheckResult {
+  ok: boolean;
+  issues: LyricsIssue[];
+  lines: number;
+  syllables: number;
+  sections: SectionOutline[];
+  autoSplit: AutoSplitNote[];
+  error?: string;
+}
 
-/** Lints the lyrics (every unknown word at once); counts and automatic splits once there is no issue left. */
+/** Lints the lyrics (every unknown word at once); counts lines, syllables and sections live. */
 export function checkLyrics(text: string, language: Language, pronunciations: Pronunciations): LyricsCheckResult {
-  let issues: LyricsIssue[];
+  let issues: LyricsIssue[] = [];
   try {
     issues = lintLyricsText(text, language, pronunciations);
   } catch (e: unknown) {
-    return { ok: false, issues: [], error: e instanceof Error ? e.message : String(e) };
+    issues = [{ line: 0, word: "", message: e instanceof Error ? e.message : String(e), unknown: false }];
   }
-  if (issues.length > 0) return { ok: false, issues };
-  const parsed = parseLyricsText(text, language, pronunciations);
+
   const sections = lyricsSectionOutline(text);
+  let linesCount = 0;
+  let syllablesCount = 0;
+  let autoSplit: AutoSplitNote[] = [];
+
+  try {
+    const parsed = parseLyricsText(text, language, pronunciations);
+    linesCount = parsed.definition.lines.length;
+    syllablesCount = parsed.definition.lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.syllables.length, 0), 0);
+    autoSplit = parsed.autoSplit;
+  } catch {
+    const rawLines = text.split(/\r?\n/);
+    for (const raw of rawLines) {
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed)) continue;
+      linesCount++;
+      const norm = trimmed.replace(/(\S+)\s+\{([^}]+)\}/g, "$1{$2}");
+      const words = norm.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
+      for (const w of words) {
+        const clean = w.replace(/\{[^}]*\}/g, "");
+        syllablesCount += clean.includes("|") ? clean.split("|").length : 1;
+      }
+    }
+  }
+
   return {
-    ok: true,
-    issues: [],
-    lines: parsed.definition.lines.length,
-    syllables: parsed.definition.lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.syllables.length, 0), 0),
+    ok: issues.length === 0,
+    issues,
+    lines: linesCount,
+    syllables: syllablesCount,
     sections,
-    autoSplit: parsed.autoSplit,
+    autoSplit,
+    error: issues.length > 0 && issues[0] && !issues[0].unknown ? issues[0].message : undefined,
   };
 }
 
@@ -250,7 +280,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
 }
 
 /** The project calibration file for a free solve: solver times, no pins, sections from the lyrics' headers (sectionsFromOutline). */
-function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number) {
+export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number) {
   if (solved.length !== def.lines.length) throw new Error(`The solver returned ${solved.length} lines for ${def.lines.length} lyric lines.`);
   const lines = def.lines.map((l, i) => {
     const s = solved[i]!;

@@ -31,10 +31,19 @@ import { createServer, type Plugin } from "vite";
 import { handleRealign } from "./server/realign.ts";
 import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
-import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze } from "./server/syllables.ts";
+import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
 import { findSongDir } from "./server/song-inputs.ts";
 import { isRecord } from "../src/guards.ts";
-import { pronounceAs } from "../src/index.ts";
+import {
+  approximateEnglishPhonemes,
+  dictionaryG2P,
+  EN_VOWEL_PHONES,
+  formatPhonemeSuggestion,
+  pronounceAs,
+  resolveSyllables,
+  syllabifyEnglish,
+  type Pronunciations,
+} from "../src/index.ts";
 
 const WEB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(WEB_DIR, "../../..");
@@ -90,6 +99,17 @@ const fail = (res: ServerResponse, status: number, e: unknown) =>
   send(res, status, { error: "FAILED", message: e instanceof Error ? e.message : String(e) });
 
 const isLanguage = (v: unknown): v is "en" | "ja" => v === "en" || v === "ja";
+const sortedDictCache: Partial<Record<"en" | "ja", string[]>> = {};
+function getSortedWords(lang: "en" | "ja"): string[] {
+  let list = sortedDictCache[lang];
+  if (!list) {
+    const g2p = dictionaryG2P(lang);
+    const dictMap = (g2p as unknown as { dictionary: Map<string, string[]> }).dictionary;
+    list = dictMap ? Array.from(dictMap.keys()).filter((w) => !w.includes("(")).sort() : [];
+    sortedDictCache[lang] = list;
+  }
+  return list;
+}
 
 const localApi: Plugin = {
   name: "lyricsync-local-api",
@@ -159,9 +179,27 @@ const localApi: Plugin = {
       try {
         if (route === "GET /job") return send(res, 200, { job: currentJob() });
         if (route === "POST /check") {
-          const body: unknown = await (await toRequest(req)).json();
-          if (!isRecord(body) || typeof body.text !== "string" || !isLanguage(body.language)) return send(res, 400, { error: "BAD_REQUEST", message: "Needs text and language." });
-          return send(res, 200, checkLyrics(body.text, body.language, parsePronunciations(body.pronunciations ?? {}, body.language)));
+          try {
+            const body: unknown = await (await toRequest(req)).json();
+            if (!isRecord(body) || typeof body.text !== "string" || !isLanguage(body.language)) {
+              return send(res, 400, { error: "BAD_REQUEST", message: "Needs text and language." });
+            }
+            let prons: Pronunciations = {};
+            try {
+              prons = parsePronunciations(body.pronunciations ?? {}, body.language);
+            } catch {}
+            return send(res, 200, checkLyrics(body.text, body.language, prons));
+          } catch (e: unknown) {
+            return send(res, 200, {
+              ok: false,
+              issues: [],
+              lines: 0,
+              syllables: 0,
+              sections: [],
+              autoSplit: [],
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
         if (route === "POST /pronounce") {
           const body: unknown = await (await toRequest(req)).json();
@@ -171,6 +209,61 @@ const localApi: Plugin = {
           } catch (e: unknown) {
             return send(res, 200, { ok: false, error: e instanceof Error ? e.message : String(e) });
           }
+        }
+        if (route === "GET /suggest") {
+          const url = new URL(`http://localhost${req.url ?? "/"}`);
+          const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+          const lang = url.searchParams.get("lang") ?? "en";
+          if (!q) return send(res, 200, { query: q, suggestions: [] });
+          const suggestions: Array<{ word: string; split: string; detail?: string }> = [];
+          if (isLanguage(lang)) {
+            let isDictWord = false;
+            try {
+              const exact = resolveSyllables({ w: q }, null, lang);
+              isDictWord = true;
+              if (exact.length > 1) suggestions.push({ word: q, split: exact.join("|") });
+            } catch {}
+
+            // If word is not in the dictionary, suggest the phoneme syntax automatically!
+            if (!isDictWord && lang === "en") {
+              const approxPhones = approximateEnglishPhonemes(q);
+              if (approxPhones && approxPhones.length > 0) {
+                // 1. Unsplit suggestion: word{phones} (no pipes in phonemes!)
+                const unsplit = formatPhonemeSuggestion(q, approxPhones);
+                suggestions.unshift({ word: q, split: unsplit, detail: "add phonemes" });
+
+                // 2. Syllabled suggestion with matching pipes: syl|la|ble{ph1 | ph2}
+                const vowels = approxPhones.filter((p) => EN_VOWEL_PHONES[p]);
+                if (vowels.length > 1) {
+                  try {
+                    const syls = syllabifyEnglish(q, vowels);
+                    if (syls.length > 1) {
+                      const piped = formatPhonemeSuggestion(syls.join("|"), approxPhones);
+                      suggestions.push({ word: q, split: piped, detail: "add syllables & phonemes" });
+                    }
+                  } catch {}
+                }
+              }
+            }
+            // Fast binary search on pre-sorted dictionary words
+            const sortedWords = getSortedWords(lang);
+            let low = 0, high = sortedWords.length;
+            while (low < high) {
+              const mid = (low + high) >> 1;
+              if (sortedWords[mid]! < q) low = mid + 1;
+              else high = mid;
+            }
+            for (let i = low; i < sortedWords.length && sortedWords[i]!.startsWith(q) && suggestions.length < 30; i++) {
+              const w = sortedWords[i]!;
+              if (w !== q && w.length <= q.length + 14) {
+                try {
+                  const syl = resolveSyllables({ w }, null, lang);
+                  if (syl.length > 1) suggestions.push({ word: w, split: syl.join("|") });
+                } catch {}
+              }
+            }
+          }
+          return send(res, 200, { query: q, suggestions });
         }
         if (route === "POST /create") {
           const form = await (await toRequest(req)).formData();
@@ -244,7 +337,7 @@ const localApi: Plugin = {
 
     server.middlewares.use("/api/lyrics", async (req, res) => {
       const route = `${req.method} ${(req.url ?? "/").split("?")[0]}`;
-      const m = /^(GET|POST) \/([^/]+)\/(splits|reanalyze)$/.exec(route);
+      const m = /^(GET|POST) \/([^/]+)\/(splits|reanalyze|update)$/.exec(route);
       try {
         if (route === "GET /job") return send(res, 200, { job: currentReanalyzeJob() });
         if (m?.[1] === "GET" && m[3] === "splits") {
@@ -265,7 +358,25 @@ const localApi: Plugin = {
             return fail(res, 422, e);
           }
         }
-        send(res, 404, { error: "NOT_FOUND", message: route });
+        if (m?.[1] === "POST" && m[3] === "update") {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body) || typeof body.text !== "string") {
+            return send(res, 400, { error: "BAD_REQUEST", message: "Needs text." });
+          }
+          const build = currentJob();
+          try {
+            const prons = isRecord(body.pronunciations) ? parsePronunciations(body.pronunciations, "en") : undefined;
+            const job = updateLyrics(
+              ROOT_LIST,
+              decodeURIComponent(m[2]!),
+              { text: body.text, pronunciations: prons },
+              build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null
+            );
+            return send(res, 202, { job });
+          } catch (e: unknown) {
+            return fail(res, 422, e);
+          }
+        }
       } catch (e: unknown) {
         fail(res, 500, e);
       }

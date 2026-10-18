@@ -23,14 +23,21 @@ interface Job {
 
 const STEPS = ["Song", "Audio", "Lyrics", "Tempo", "Build"] as const;
 const ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
-const CHECK_DELAY_MS = 400;
+const CHECK_DELAY_MS = 160;
 
 function isJob(v: unknown): v is Job {
   return isRecord(v) && typeof v.project === "string" && (v.state === "running" || v.state === "done" || v.state === "error") && Array.isArray(v.log);
 }
 
 function isLyricsCheck(v: unknown): v is LyricsCheck {
-  return isRecord(v) && typeof v.ok === "boolean" && Array.isArray(v.issues);
+  return (
+    isRecord(v) &&
+    typeof v.ok === "boolean" &&
+    Array.isArray(v.issues) &&
+    typeof v.lines === "number" &&
+    typeof v.syllables === "number" &&
+    Array.isArray(v.sections)
+  );
 }
 
 async function postJson(url: string, body: unknown): Promise<unknown> {
@@ -61,7 +68,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
   let checkTimer = 0;
 
   const checkKey = () => JSON.stringify([language(), lyrics(), pronunciations()]);
-  const currentCheck = () => (check()?.key === checkKey() ? check()!.result : null);
+  const currentCheck = () => check()?.result ?? null;
   const readyLyrics = () => {
     const c = currentCheck();
     return c?.ok ? c : null;
@@ -84,7 +91,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
           if (!isLyricsCheck(r)) throw new Error("Unexpected answer from /api/wizard/check.");
           if (key === checkKey()) setCheck({ key, result: r });
         } catch (e: unknown) {
-          if (key === checkKey()) setCheck({ key, result: { ok: false, issues: [], error: errorMessage(e) } });
+          if (key === checkKey()) setCheck({ key, result: { ok: false, issues: [], lines: 0, syllables: 0, sections: [], autoSplit: [], error: errorMessage(e) } });
         } finally {
           if (key === checkKey()) setChecking(false);
         }
@@ -182,6 +189,10 @@ export function NewSongWizard(props: NewSongWizardProps) {
     return null;
   };
 
+  const isStepDone = (s: number): boolean => {
+    if (s < 4) return valid(s) === null;
+    return job()?.state === "done";
+  };
   const submit = async () => {
     setSubmitError(null);
     const form = new FormData();
@@ -216,14 +227,39 @@ export function NewSongWizard(props: NewSongWizardProps) {
 
   const busy = () => job()?.state === "running";
 
+  const hasUnsavedWork = () =>
+    step() > 0 ||
+    id().trim().length > 0 ||
+    mix() !== null ||
+    vocal() !== null ||
+    lyrics().trim().length > 0 ||
+    Object.keys(pronunciations()).length > 0;
+
+  const requestClose = () => {
+    if (busy()) return;
+    if (hasUnsavedWork()) {
+      if (!window.confirm("Discard unsaved song setup?")) return;
+    }
+    props.onClose();
+  };
+
   return (
-    <div class="daw-wizard-backdrop" onKeyDown={(e) => e.key === "Escape" && !busy() && props.onClose()}>
-      <div class="daw-wizard" classList={{ "daw-wizard--wide": step() === 2 || step() === 3 }} role="dialog" aria-modal="true">
+    <div
+      class="daw-wizard-backdrop"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || busy()) return;
+        if (e.target instanceof HTMLElement && e.target.closest(".cm-editor, .cm-tooltip, input, textarea, select")) {
+          return;
+        }
+        requestClose();
+      }}
+    >
+      <div class="daw-wizard" role="dialog" aria-modal="true">
         <header class="daw-wizard-head">
           <span>
-            <i class="bi bi-magic" /> New Song
+            <img src="/favicon.svg" class="daw-wizard-head-icon" alt="" /> New Song
           </span>
-          <button class="daw-icon-btn" title="Close" disabled={busy()} onClick={() => props.onClose()}>
+          <button class="daw-icon-btn" title="Close" disabled={busy()} onClick={requestClose}>
             <i class="bi bi-x-lg" />
           </button>
         </header>
@@ -231,16 +267,34 @@ export function NewSongWizard(props: NewSongWizardProps) {
         <div class="daw-wizard-main">
           <nav class="daw-wizard-steps">
             <For each={STEPS}>
-              {(name, i) => (
-                <div class="daw-wizard-step" classList={{ "daw-wizard-step--active": step() === i(), "daw-wizard-step--done": step() > i() }}>
-                  <span class="daw-wizard-step-num">{step() > i() ? <i class="bi bi-check2" /> : i() + 1}</span>
-                  {name}
-                </div>
-              )}
+              {(name, i) => {
+                const done = () => isStepDone(i());
+                return (
+                  <button
+                    type="button"
+                    class="daw-wizard-step"
+                    classList={{
+                      "daw-wizard-step--active": step() === i(),
+                      "daw-wizard-step--done": done(),
+                      "daw-wizard-step--clickable": !busy(),
+                    }}
+                    disabled={busy()}
+                    onClick={() => {
+                      if (!busy()) {
+                        if (job()?.state === "error") setJob(null);
+                        setStep(i());
+                      }
+                    }}
+                  >
+                    <span class="daw-wizard-step-num">{done() ? <i class="bi bi-check2" /> : i() + 1}</span>
+                    {name}
+                  </button>
+                );
+              }}
             </For>
           </nav>
 
-          <section class="daw-wizard-body">
+          <section class="daw-wizard-body" classList={{ "daw-wizard-body--no-overflow": step() === 2 }}>
             <Show when={step() === 0}>
               <h2>Name the song</h2>
               <p class="daw-wizard-note">The id is the folder name: the song is created in <code>{songFolder("<id>")}</code>.</p>
@@ -281,6 +335,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
               <p class="daw-wizard-note">Every sung line, in order, as sung (repeat choruses in full). Words the dictionary does not know turn red.</p>
               <LyricsStep
                 text={lyrics()}
+                language={language()}
                 onText={setLyrics}
                 check={currentCheck()}
                 checking={checking()}
@@ -337,7 +392,14 @@ export function NewSongWizard(props: NewSongWizardProps) {
 
         <footer class="daw-wizard-foot">
           <span class="daw-wizard-error-inline">{step() < 4 ? (valid(step()) ?? "") : ""}</span>
-          <button class="daw-btn" disabled={step() === 0 || busy() || job() !== null} onClick={() => setStep(step() - 1)}>
+          <button
+            class="daw-btn"
+            disabled={step() === 0 || busy() || job()?.state === "done"}
+            onClick={() => {
+              if (job()?.state === "error") setJob(null);
+              setStep(step() - 1);
+            }}
+          >
             <i class="bi bi-chevron-left" /> Back
           </button>
           <Show when={step() < 4}>
@@ -351,6 +413,15 @@ export function NewSongWizard(props: NewSongWizardProps) {
             </button>
           </Show>
           <Show when={job()?.state === "error"}>
+            <button
+              class="daw-btn"
+              onClick={() => {
+                setJob(null);
+                setStep(2);
+              }}
+            >
+              <i class="bi bi-pencil" /> Edit Lyrics
+            </button>
             <button class="daw-btn daw-btn-accent" onClick={() => void resume()}>
               <i class="bi bi-arrow-repeat" /> Resume build
             </button>

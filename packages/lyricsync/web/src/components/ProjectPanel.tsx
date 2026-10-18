@@ -25,6 +25,7 @@ export interface ProjectPanelProps {
   currentTime: number;
   onRemoveSection: (idx: number) => void;
   onAddSection: () => void;
+  onEditLyrics?: (lineIdx?: number) => void;
 }
 
 export function ProjectPanel(props: ProjectPanelProps) {
@@ -72,6 +73,17 @@ export function ProjectPanel(props: ProjectPanelProps) {
 
         <Show when={props.tab === "lines"}>
           <Show when={props.doc} fallback={<div class="daw-empty-note">No lyrics loaded.</div>}>
+            <div class="daw-lines-toolbar">
+              <span class="daw-lines-count">{props.doc!.lines.length} lines</span>
+              <button
+                type="button"
+                class="daw-btn daw-btn-sm"
+                onClick={() => props.onEditLyrics?.()}
+                title="Edit lyrics in full text editor"
+              >
+                <i class="bi bi-pencil" /> Edit Lyrics
+              </button>
+            </div>
             <For each={props.doc!.lines}>
               {(l, idx) => {
                 const pinned = () => l.words.reduce((n, w) => n + w.syl.filter((_, si) => isSylPinned(l, w, si)).length, 0);
@@ -85,7 +97,8 @@ export function ProjectPanel(props: ProjectPanelProps) {
                       "daw-row--playing": props.playingLine === idx(),
                     }}
                     onClick={() => props.onSelectLine(idx())}
-                    title={l.text}
+                    onDblClick={() => props.onEditLyrics?.(idx())}
+                    title={`${l.text} (double-click to edit)`}
                   >
                     <span class="daw-line-num">{l.i}</span>
                     <span class="daw-line-tc">{formatTimecode(l.start)}</span>

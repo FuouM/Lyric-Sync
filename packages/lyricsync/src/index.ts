@@ -31,6 +31,10 @@ export {
 export type { AnchorSummary, ImportLevel, ImportOptions, ImportSummary } from './workspace/anchors.ts';
 
 export {
+  approximateEnglishPhonemes,
+  dictionaryG2P,
+  EN_VOWEL_PHONES,
+  formatPhonemeSuggestion,
   lintLyricsText,
   lyricsSectionOutline,
   parseLyricsJson,
