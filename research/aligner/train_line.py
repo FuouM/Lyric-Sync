@@ -3,11 +3,18 @@
 # Each training crop (10 s): every sung run lying wholly inside it becomes one line. Every boundary gets a candidate window around
 # (truth + random shift) like the solver's spans. Loss per head (onset, vowel): the chain's negative log-likelihood of the true path per
 # boundary + the window cross entropy of each boundary alone (keeps the unary scores usable on their own).
+# --ev: the model also gets per-frame evidence (line_model.ev_features): RMVPE pitch from research/aligner/extract_pitch.ts (.cache/line_ev),
+# beats from the GTSinger score grids (quality "good" only) and the Ritsu UST scores. Beats are jittered and dropped at random (the GTSinger
+# grids were fitted to the sung notes, real beat trackers are not); the pitch channels are dropped at random too.
+# Checkpoint selection: the vowel head's chain nll (the labelling convention lyricsync targets).
 # usage: python research/aligner/train_line.py --out .cache/line_model/l1 --init .cache/boundary_model/ft_ritsu1/best.pt
+#        python research/aligner/train_line.py --out .cache/line_model/l2 --init-line .cache/line_model/l1/best.pt --ev
 #        [--data .cache/gtsinger_ds_full,.cache/ritsu_ds@0.3]
 import argparse
+import glob
 import hashlib
 import json
+import math
 import os
 import queue
 import sys
@@ -20,13 +27,47 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "boundary"))
-from line_model import FPS, HEADS, MAX_DUR, MIN_DUR, NEG, SR, LineAligner, chain, load_ssl, path_score, query_inputs, unary  # noqa: E402
+from line_model import EV_DIM, FPS, HEADS, MAX_DUR, MIN_DUR, NEG, SR, LineAligner, chain, ev_features, load_ssl, path_score, query_inputs, unary  # noqa: E402
 from train_boundary import AUG_PARTS, augment, is_val  # noqa: E402
 
 CROP_S = 10.0
 MAX_SYL = 40
 WMAX = 161  # frames per boundary window (half-width <= 80)
 CFG = {"context": True}
+EV_DIR = ".cache/line_ev"
+GRIDS = ".cache/research/beats/grids.json"
+RITSU_PROJECTS = ".cache/ritsu/projects"
+
+
+def load_pitch(ds_path):
+    """{segment id: (f0 Hz array at 100 fps, [(start, end)])} from extract_pitch.ts output of one dataset."""
+    out = {}
+    for f in glob.glob(os.path.join(EV_DIR, os.path.basename(os.path.normpath(ds_path)), "*.jsonl")):
+        for line in open(f, encoding="utf-8"):
+            if line.strip():
+                x = json.loads(line)
+                out[x["id"]] = (np.asarray(x["f0"], dtype=np.float32), [tuple(n) for n in x["notes"]])
+    return out
+
+
+def grid_beats(grid, dur):
+    """Beat times inside [0, dur] s of a GTSinger score grid; [] unless its fit quality is good."""
+    if grid is None or grid["quality"] != "good":
+        return np.zeros(0)
+    p, f = grid["beat_period_s"], grid["first_beat_s"]
+    k0, k1 = math.ceil(-f / p) - 1, math.floor((dur - f) / p) + 1
+    return f + p * np.arange(k0, k1 + 1)
+
+
+def ritsu_offset(seg_runs, song_runs):
+    """Song time of a Ritsu dataset segment's t = 0: the shift that puts every segment syllable start on a song syllable start."""
+    song = sorted(s["start"] for r in song_runs for s in r)
+    seg = [s["start"] for r in seg_runs for s in r]
+    for t in song:
+        t0 = t - seg[0]
+        if all(min(abs(x + t0 - y) for y in song[max(0, np.searchsorted(song, x + t0) - 1): np.searchsorted(song, x + t0) + 1]) < 0.002 for x in seg):
+            return t0
+    raise ValueError("Ritsu segment does not match its song's runs")
 
 
 def line_of(lang, run):
@@ -47,15 +88,33 @@ def line_of(lang, run):
 
 
 class Data:
-    def __init__(self, ds):
+    def __init__(self, ds, ev=False):
+        grids = json.load(open(GRIDS, encoding="utf-8")) if ev else {}
+        ritsu_songs = {}
         self.paths, shares, index = [], [], []
         for k, spec in enumerate(ds.split(",")):
             path, _, share = spec.partition("@")
             self.paths.append(os.path.join(path, "audio.int16"))
             shares.append(float(share) if share else None)
+            pitch = load_pitch(path) if ev else {}
             for e in json.load(open(os.path.join(path, "index.json"), encoding="utf-8")):
                 e["src"] = k
                 e["lines"] = []
+                if ev:
+                    if e["id"] not in pitch:
+                        raise ValueError("no pitch evidence for %s: run research/aligner/extract_pitch.ts on %s" % (e["id"], path))
+                    e["pitch"] = pitch[e["id"]]
+                    dur = e["length"] / SR
+                    if e["id"].startswith("ritsu/"):
+                        if e["song"] not in ritsu_songs:
+                            proj = os.path.join(RITSU_PROJECTS, e["song"])
+                            ritsu_songs[e["song"]] = (json.load(open(os.path.join(proj, "runs.json"), encoding="utf-8")),
+                                                      np.asarray(json.load(open(os.path.join(proj, "beats.json"), encoding="utf-8"))["beats"]))
+                        song_runs, song_beats = ritsu_songs[e["song"]]
+                        b = song_beats - ritsu_offset(e["runs"], song_runs)
+                        e["beats"] = b[(b > -2) & (b < dur + 2)]
+                    else:
+                        e["beats"] = grid_beats(grids.get(e["id"]), dur)
                 for run in e["runs"]:
                     if not 1 <= len(run) <= MAX_SYL:
                         continue
@@ -125,15 +184,35 @@ def line_item(bi, line, t0, T, rng, fixed):
     return {"b": bi, "ctx": ctx, "kind": kind, "lang": lang, "win": win, "tidx": tidx, "tf": tf, "mean_dur": mean_dur}
 
 
-def make_batch(data, wav_of, rng, batch):
+def segment_ev(e, start, T, rng=None):
+    """Evidence features of T frames of segment e from sample `start`. rng: training augmentation (beat jitter / drop, pitch drop)."""
+    f0, notes = e["pitch"]
+    t0 = start / SR
+    s0 = int(round(start / 160))
+    f = f0[s0: s0 + T]
+    nt = [(a - t0, b - t0) for a, b in notes if b > t0 and a < t0 + T / FPS]
+    beats = e["beats"] - t0
+    if rng is not None:
+        if rng.random() < 0.25:
+            beats = np.zeros(0)
+        elif len(beats):
+            beats = np.sort(beats + rng.normal(0, 0.015) + rng.normal(0, 0.008, len(beats)))
+        if rng.random() < 0.1:
+            f, nt = np.zeros(0), []
+    return ev_features(T, f, nt, beats)
+
+
+def make_batch(data, wav_of, rng, batch, ev):
     crop = int(CROP_S * SR)
     T = crop // 160
-    wavs, others, items = [], [], []
+    wavs, others, evs, items = [], [], [], []
     for bi in range(batch):
         e = data.train[rng.choice(len(data.train), p=data.weights)]
         start = 0 if e["length"] <= crop else int(rng.integers(0, e["length"] - crop))
         x = wav_of(e, start, min(crop, e["length"]))
         wavs.append(np.pad(x, (0, crop - len(x))))
+        if ev:
+            evs.append(segment_ev(e, start, T, rng))
         o = data.train[rng.choice(len(data.train), p=data.weights)]
         ostart = 0 if o["length"] <= crop else int(rng.integers(0, o["length"] - crop))
         y = wav_of(o, ostart, min(crop, o["length"]))
@@ -142,7 +221,7 @@ def make_batch(data, wav_of, rng, batch):
             it = line_item(bi, line, start / SR, T, rng, fixed=False)
             if it is not None:
                 items.append(it)
-    return np.stack(wavs), np.stack(others), items
+    return np.stack(wavs), np.stack(others), (np.stack(evs) if ev else None), items
 
 
 def collate(items, dev):
@@ -201,7 +280,7 @@ def line_losses(model, fr, lb, sigma=1.5):
 
 
 class Prefetcher:
-    def __init__(self, data, batch, seed, depth=6):
+    def __init__(self, data, batch, seed, ev, depth=6):
         self.q = queue.Queue(maxsize=depth)
         self.stop = threading.Event()
         rng = np.random.default_rng(seed)
@@ -209,10 +288,10 @@ class Prefetcher:
 
         def work():
             while not self.stop.is_set():
-                wav, oth, items = make_batch(data, wav_of, rng, batch)
+                wav, oth, evs, items = make_batch(data, wav_of, rng, batch, ev)
                 if not items:
                     continue
-                item = (torch.from_numpy(wav).pin_memory(), torch.from_numpy(oth).pin_memory(), items)
+                item = (torch.from_numpy(wav).pin_memory(), torch.from_numpy(oth).pin_memory(), torch.from_numpy(evs).pin_memory() if ev else None, items)
                 while not self.stop.is_set():
                     try:
                         self.q.put(item, timeout=0.5)
@@ -233,7 +312,7 @@ class Prefetcher:
 class ValCache:
     """Validation segments, clean and peak-normalised on the GPU in length-sorted batches, with fixed (seeded) windows."""
 
-    def __init__(self, data, dev, max_batch_s=120.0):
+    def __init__(self, data, dev, ev, max_batch_s=120.0):
         rng = np.random.default_rng(123)
         wav_of = data.reader()
         self.batches = []
@@ -242,16 +321,19 @@ class ValCache:
         def flush():
             if not cur:
                 return
-            Lw = max(len(w) for w, _, _ in cur)
+            Lw = max(len(w) for w, _, _, _ in cur)
             audio = torch.zeros(len(cur), Lw, dtype=torch.float16)
+            evs = torch.zeros(len(cur), Lw // 160, EV_DIM, dtype=torch.float32) if ev else None
             items, langs = [], []
-            for bi, (w, its, lg) in enumerate(cur):
+            for bi, (w, its, lg, x) in enumerate(cur):
                 audio[bi, : len(w)] = torch.from_numpy(w)
+                if ev:
+                    evs[bi, : len(x)] = torch.from_numpy(x)
                 for it in its:
                     it["b"] = bi
                 items += its
                 langs += lg
-            self.batches.append((audio.to(dev), collate(items, dev), langs))
+            self.batches.append((audio.to(dev), evs.to(dev) if ev else None, collate(items, dev), langs))
             cur.clear()
 
         for e in sorted(data.val, key=lambda e: e["length"]):
@@ -263,9 +345,9 @@ class ValCache:
                 continue
             if cur and (len(cur) + 1) * max(len(w), max(len(c[0]) for c in cur)) > max_batch_s * SR:
                 flush()
-            cur.append((w, its, [(e["lang"], e["src"])] * len(its)))
+            cur.append((w, its, [(e["lang"], e["src"])] * len(its), segment_ev(e, 0, T) if ev else None))
         flush()
-        self.n_lines = sum(len(b[2]) for b in self.batches)
+        self.n_lines = sum(len(b[3]) for b in self.batches)
 
 
 @torch.no_grad()
@@ -273,9 +355,9 @@ def evaluate(model, val):
     """Per head: chain nll per boundary, window-argmax and Viterbi error (ms) over all boundaries, by language."""
     model.eval()
     acc = {h: {"nll": [], "win": [], "vit": [], "lang": []} for h in HEADS}
-    for audio, lb, langs in val.batches:
+    for audio, evs, lb, langs in val.batches:
         with torch.autocast("cuda", dtype=torch.float16):
-            fr = {k: v.float() for k, v in model.frames2(audio.float()).items()}
+            fr = {k: v.float() for k, v in model.frames2(audio.float(), evs).items()}
         nll, _, preds = line_losses(model, fr, lb)
         mask = lb["mask"]
         for h in HEADS:
@@ -301,13 +383,18 @@ def evaluate(model, val):
             for L in ("en", "ja"):
                 if (lg == L).any():
                     res["%s_%s_%s_mae" % (h, kind, L)] = float(e[lg == L].mean())
-    res["nll"] = total
+    res["total_nll"] = total
+    res["nll"] = res["vowel_nll"]
     return res
 
 
-def build(dev, init):
-    model = LineAligner(load_ssl()).to(dev)
-    model.init_from_boundary(torch.load(init, map_location=dev))
+def build(dev, init, init_line, ev):
+    """A line aligner from a boundary-model checkpoint (init) or a line-aligner checkpoint (init_line; evidence inputs start at zero)."""
+    model = LineAligner(load_ssl(), ev_dim=EV_DIM if ev else 0).to(dev)
+    if init_line:
+        model.init_from_line(torch.load(init_line, map_location=dev))
+    else:
+        model.init_from_boundary(torch.load(init, map_location=dev))
     return model
 
 
@@ -319,7 +406,9 @@ def trainable_state(model):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--init", required=True, help="boundary-model checkpoint to start from")
+    ap.add_argument("--init", default=None, help="boundary-model checkpoint to start from")
+    ap.add_argument("--init-line", default=None, help="line-aligner checkpoint to start from (instead of --init)")
+    ap.add_argument("--ev", action="store_true", help="per-frame evidence inputs (pitch, beats)")
     ap.add_argument("--data", default=".cache/gtsinger_ds_full,.cache/ritsu_ds@0.3")
     ap.add_argument("--max-steps", type=int, default=30000)
     ap.add_argument("--batch", type=int, default=12)
@@ -330,7 +419,13 @@ def main():
     ap.add_argument("--patience", type=int, default=5)
     ap.add_argument("--decay-patience", type=int, default=2)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--loss-heads", default="onset,vowel", help="heads whose losses train the model (comma list of %s)" % ",".join(HEADS))
     args = ap.parse_args()
+    if (args.init is None) == (args.init_line is None):
+        raise ValueError("give exactly one of --init and --init-line")
+    loss_heads = args.loss_heads.split(",")
+    if not loss_heads or any(h not in HEADS for h in loss_heads):
+        raise ValueError("--loss-heads must name heads from %s" % ",".join(HEADS))
     os.makedirs(args.out, exist_ok=True)
     json.dump({"model": "line_aligner", "args": vars(args)}, open(os.path.join(args.out, "config.json"), "w"), indent=1)
     torch.manual_seed(args.seed)
@@ -342,21 +437,22 @@ def main():
     gen.manual_seed(args.seed)
 
     t_setup = time.time()
-    data = Data(args.data)
+    data = Data(args.data, args.ev)
     print("data: %d train segments (%d lines), %d val segments (%d lines)" % (
         len(data.train), sum(len(e["lines"]) for e in data.train), len(data.val), sum(len(e["lines"]) for e in data.val)), flush=True)
-    val = ValCache(data, dev)
-    model = build(dev, args.init)
+    val = ValCache(data, dev, args.ev)
+    model = build(dev, args.init, args.init_line, args.ev)
     res = evaluate(model, val)
-    print("EVAL step 0 (init %s): %s" % (args.init, json.dumps({k: round(v, 3) for k, v in res.items()})), flush=True)
-    old = {n for n in torch.load(args.init, map_location="cpu")}
+    print("EVAL step 0 (init %s): %s" % (args.init or args.init_line, json.dumps({k: round(v, 3) for k, v in res.items()})), flush=True)
+    # Parts the start checkpoint trained learn at trunk-lr; new parts (and the input layer, whose evidence columns are new) at lr.
+    old = {n for n in torch.load(args.init or args.init_line, map_location="cpu")} - ({"inp.weight", "inp.bias"} if args.ev else set())
     new_params = [p for n, p in model.named_parameters() if p.requires_grad and n not in old and not n.startswith("ssl.")]
     old_params = [p for n, p in model.named_parameters() if p.requires_grad and n in old]
     params = new_params + old_params
     opt = torch.optim.AdamW([{"params": new_params, "lr": args.lr}, {"params": old_params, "lr": args.trunk_lr}], weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / 300))
     scaler = torch.amp.GradScaler("cuda")
-    feed = Prefetcher(data, args.batch, args.seed)
+    feed = Prefetcher(data, args.batch, args.seed, args.ev)
     print("model: %.2fM new + %.2fM checkpoint parameters training; setup %.0fs; %d val lines" % (
         sum(p.numel() for p in new_params) / 1e6, sum(p.numel() for p in old_params) / 1e6, time.time() - t_setup, val.n_lines), flush=True)
 
@@ -366,14 +462,14 @@ def main():
     curve = open(os.path.join(args.out, "curve.jsonl"), "a")
     try:
         for step in range(1, args.max_steps + 1):
-            wav, oth, items = feed.next()
+            wav, oth, evs, items = feed.next()
             wav = augment(wav.to(dev, non_blocking=True), oth.to(dev, non_blocking=True), gen, AUG_PARTS)
             with torch.autocast("cuda", dtype=torch.float16):
-                fr = model.frames2(wav)
+                fr = model.frames2(wav, evs.to(dev, non_blocking=True) if args.ev else None)
             fr = {k: v.float() for k, v in fr.items()}
             lb = collate(items, dev)
             nll, wce, _ = line_losses(model, fr, lb)
-            loss = sum(nll[h].mean() + wce[h] for h in HEADS)
+            loss = sum(nll[h].mean() + wce[h] for h in loss_heads)
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)

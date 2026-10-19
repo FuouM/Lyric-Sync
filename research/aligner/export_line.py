@@ -16,15 +16,18 @@ import torch
 from scipy.signal import resample_poly
 
 sys.path.insert(0, os.path.dirname(__file__))
-from line_model import FPS, HEADS, SR, LineAligner, load_ssl, query_inputs  # noqa: E402
+from line_model import EV_DIM, FPS, HEADS, SR, LineAligner, ev_features, load_ssl, query_inputs  # noqa: E402
 
 CHUNK_S = 20.0
 PAD_S = 3.0
 CFG = {"context": True}
 
 
-def frames_of(model, audio, dev, delay):
-    """Frames of `audio` delayed by `delay` samples (< 160), read back on the original 10 ms grid by linear interpolation."""
+def frames_of(model, audio, dev, delay, ev=None):
+    """Frames of `audio` delayed by `delay` samples (< 160), read back on the original 10 ms grid by linear interpolation.
+    ev: (T, EV_DIM) evidence features of the undelayed audio (evidence models only; those take no delay)."""
+    if ev is not None and delay:
+        raise ValueError("sub-frame shifts are not defined for evidence models")
     x_all = np.concatenate([np.zeros(delay, dtype=np.float32), audio])
     T = len(audio) // 160
     Tx = len(x_all) // 160
@@ -33,8 +36,9 @@ def frames_of(model, audio, dev, delay):
     for f0 in range(0, Tx, step):
         a, b = max(0, f0 - pad), min(Tx, f0 + step + pad)
         x = torch.from_numpy(x_all[a * 160: b * 160]).to(dev)[None]
+        e = torch.from_numpy(ev[a:b]).to(dev)[None] if ev is not None else None
         with torch.autocast("cuda", dtype=torch.float16):
-            fr = model.frames2(x)
+            fr = model.frames2(x, e)
         for h in HEADS:
             raw[h][f0: min(Tx, f0 + step)] = fr[h].float()[0].cpu().numpy()[f0 - a: f0 - a + min(Tx, f0 + step) - f0]
     # grid frame f (time f / FPS) sits at fractional frame f + delay / 160 of the delayed signal
@@ -43,6 +47,13 @@ def frames_of(model, audio, dev, delay):
     i1 = np.clip(i0 + 1, 0, Tx - 1)
     w = (pos - np.floor(pos))[:, None].astype(np.float32)
     return {h: raw[h][i0] * (1 - w) + raw[h][i1] * w for h in HEADS}
+
+
+def workspace_ev(ws, T):
+    """Evidence features from the workspace's prepared evidence (the same RMVPE pitch and beats the solver uses)."""
+    meta = json.load(open(os.path.join(ws, "evidence", "meta.json"), encoding="utf-8"))
+    notes = json.load(open(os.path.join(ws, "evidence", "notes.json"), encoding="utf-8"))["rmvpeNotes"]
+    return ev_features(T, meta["f0Hz"], [(n["start"], n["end"]) for n in notes], sorted(meta["beats"]))
 
 
 def export(ws, model, dev, out, mc=1, shifts=1):
@@ -57,6 +68,7 @@ def export(ws, model, dev, out, mc=1, shifts=1):
     audio = audio / (np.abs(audio).max() + 1e-6) * 0.9
     T = len(audio) // 160
     frames = {h: np.zeros((T, model.d + 1), dtype=np.float32) for h in HEADS}
+    ev = workspace_ev(ws, T) if model.ev_dim else None
     lines = []
     with torch.no_grad():
         # Monte Carlo: mc passes with dropout on (the frozen backbone stays in eval mode) x `shifts` sub-frame delays; the unary score is
@@ -67,7 +79,7 @@ def export(ws, model, dev, out, mc=1, shifts=1):
         n = 0
         for _ in range(mc):
             for k in range(shifts):
-                fr = frames_of(model, audio, dev, int(round(k * 160 / shifts)))
+                fr = frames_of(model, audio, dev, int(round(k * 160 / shifts)), ev)
                 for h in HEADS:
                     frames[h] += fr[h]
                 n += 1
@@ -120,7 +132,8 @@ def main():
     ap.add_argument("--shifts", type=int, default=1, help="sub-frame audio delays averaged (k * 10 ms / shifts, k = 0..shifts-1)")
     args = ap.parse_args()
     dev = torch.device("cuda")
-    model = LineAligner(load_ssl()).to(dev).eval()
+    run_cfg = json.load(open(os.path.join(args.run, "config.json"), encoding="utf-8"))["args"]
+    model = LineAligner(load_ssl(), ev_dim=EV_DIM if run_cfg.get("ev") else 0).to(dev).eval()
     missing, unexpected = model.load_state_dict(torch.load(os.path.join(args.run, "best.pt"), map_location=dev), strict=False)
     assert not unexpected and all(k.startswith("ssl.") for k in missing), (missing, unexpected)
     for ws in args.workspaces:

@@ -620,18 +620,18 @@ export async function runHarmoF0(
 // -------------------------------------------------------------
 // RMVPE Tracker Execution
 // -------------------------------------------------------------
+// CPU only: the song is one input sequence, and DirectML's GRU kernel rejects long ones (a 220 s vocal fails with 0x80070057).
+// One session per process: loading the model costs more than running it on a short input.
+let rmvpeSession: Promise<ort.InferenceSession> | undefined;
+
 export async function runRmvpe(
   audio44k: Float32Array,
   sampleRate = 44100
 ): Promise<{ f0Hz: number[]; rmvpeNotes: ConsensusNote[] }> {
   const signal = sampleRate === RMVPE_SAMPLE_RATE ? audio44k : resample(audio44k, sampleRate, RMVPE_SAMPLE_RATE);
   const melFb = loadRmvpeMelFilterbank(modelFile('rmvpe', 'rmvpe_mel_fb.bin'));
-  const modelPath = modelFile('rmvpe', 'rmvpe.onnx');
-  // CPU only: the song is one input sequence, and DirectML's GRU kernel rejects long ones (a 220 s vocal fails with 0x80070057).
-  const session = await ort.InferenceSession.create(modelPath, {
-    executionProviders: ['cpu'],
-    graphOptimizationLevel: 'all',
-  });
+  rmvpeSession ??= ort.InferenceSession.create(modelFile('rmvpe', 'rmvpe.onnx'), { executionProviders: ['cpu'], graphOptimizationLevel: 'all' });
+  const session = await rmvpeSession;
 
   const { data: melData, numFrames } = computeRmvpeMelSpectrogram(signal, melFb);
   if (numFrames === 0) {

@@ -24,11 +24,57 @@ HEADS = ("onset", "vowel")
 MIN_DUR = 3  # frames: shortest syllable the chain allows (30 ms; Japanese "cl" and fast English syllables go below the solver's 80 ms)
 MAX_DUR = 400  # frames: durations past this score like MAX_DUR
 SYL_DIM = 8
+# Per-frame evidence (ev_features): voiced, log2(f0 / 220), its frame difference, RMVPE note start / end impulses, beat / eighth / sixteenth
+# impulses, beat phase (sin, cos).
+EV_DIM = 10
+
+
+def ev_features(T, f0, notes, beats):
+    """T frames at 100 fps from t = 0. f0: Hz per frame (0 = unvoiced; any length, cut / zero-padded to T); notes: [(start, end)] s;
+    beats: sorted beat times s ([] = no beat channel). -> (T, EV_DIM) float32 numpy array."""
+    import numpy as np
+    out = np.zeros((T, EV_DIM), dtype=np.float32)
+    f = np.zeros(T, dtype=np.float32)
+    f0 = np.asarray(f0, dtype=np.float32)[:T]
+    f[: len(f0)] = f0
+    voiced = f > 0
+    out[:, 0] = voiced
+    lf = np.where(voiced, np.log2(np.maximum(f, 1.0) / 220.0), 0.0)
+    out[:, 1] = lf
+    d = np.zeros(T, dtype=np.float32)
+    both = voiced[1:] & voiced[:-1]
+    d[1:] = np.where(both, np.clip(lf[1:] - lf[:-1], -1.0, 1.0), 0.0)
+    out[:, 2] = d
+    t = np.arange(T, dtype=np.float32) / FPS
+
+    def impulses(times, ch, sigma):
+        for x in times:
+            c = int(round(x * FPS))
+            if -4 * sigma <= c < T + 4 * sigma:
+                lo, hi = max(0, c - int(4 * sigma)), min(T, c + int(4 * sigma) + 1)
+                out[lo:hi, ch] = np.maximum(out[lo:hi, ch], np.exp(-0.5 * ((t[lo:hi] - x) * FPS / sigma) ** 2))
+
+    impulses([n[0] for n in notes], 3, 1.5)
+    impulses([n[1] for n in notes], 4, 1.5)
+    if len(beats) >= 2:
+        b = np.asarray(beats, dtype=np.float64)
+        mids = (b[1:] + b[:-1]) / 2
+        quarters = np.concatenate([b[:-1] + (b[1:] - b[:-1]) * 0.25, b[:-1] + (b[1:] - b[:-1]) * 0.75])
+        impulses(b, 5, 2.0)
+        impulses(mids, 6, 2.0)
+        impulses(quarters, 7, 2.0)
+        k = np.clip(np.searchsorted(b, t, side="right") - 1, 0, len(b) - 2)
+        phase = (t - b[k]) / (b[k + 1] - b[k])
+        inside = (t >= b[0]) & (t <= b[-1])
+        out[:, 8] = np.where(inside, np.sin(2 * np.pi * phase), 0.0)
+        out[:, 9] = np.where(inside, np.cos(2 * np.pi * phase), 0.0)
+    return out
 
 
 class LineAligner(BoundaryModel):
-    def __init__(self, ssl, d=64, hidden=256, text=128):
-        super().__init__(ssl, finetune=0, d=d, hidden=hidden)
+    def __init__(self, ssl, d=64, hidden=256, text=128, ev_dim=0):
+        super().__init__(ssl, finetune=0, d=d, hidden=hidden, ev_dim=ev_dim)
+        self.ev_dim = ev_dim
         # Two frame heads; the inherited frame_out / query are the vowel head (the checkpoint's own target).
         self.frame_out_onset = nn.Linear(2 * hidden, d + 1)
         self.query_onset = copy.deepcopy(self.query)
@@ -50,9 +96,21 @@ class LineAligner(BoundaryModel):
         self.frame_out_onset.load_state_dict(self.frame_out.state_dict())
         self.query_onset.load_state_dict(self.query.state_dict())
 
-    def frames2(self, wav):
-        """wav (B, S) -> {head: (B, T, d+1)} at 100 fps."""
-        z = self.head_forward(*self.features(wav))
+    def init_from_line(self, state):
+        """Loads a line-aligner checkpoint trained without evidence; the evidence columns of the input layer start at zero, so the model
+        scores exactly like that checkpoint until it learns to use them."""
+        w = state["inp.weight"]
+        if w.shape[1] != self.inp.weight.shape[1]:
+            grown = torch.zeros_like(self.inp.weight)
+            grown[:, : w.shape[1]] = w
+            state = {**state, "inp.weight": grown}
+        missing, unexpected = self.load_state_dict(state, strict=False)
+        assert not unexpected and all(k.startswith("ssl.") for k in missing), (missing, unexpected)
+
+    def frames2(self, wav, ev=None):
+        """wav (B, S), ev (B, T, ev_dim) when ev_dim > 0 -> {head: (B, T, d+1)} at 100 fps."""
+        h, m = self.features(wav)
+        z = self.head_forward(h, m, ev[:, : m.shape[1]] if ev is not None else None)
         return {"vowel": self.frame_out(z), "onset": self.frame_out_onset(z)}
 
     def line_tokens(self, ctx, kind, lang, mask):
