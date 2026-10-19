@@ -2,6 +2,7 @@
 // DAW transport: playback controls, timecode + bar/beat counter, monitor source, snap/click/follow, zoom, save and solve.
 import { Show } from "solid-js";
 import { formatTimecode } from "../lib/doc-edit";
+import { LcdDigits } from "./LcdDigits";
 import type { MonitorTrack } from "./TimelineCanvas";
 
 export interface TransportBarProps {
@@ -9,7 +10,10 @@ export interface TransportBarProps {
   currentTime: number;
   duration: number;
   barBeat: { bar: number; beat: number } | null;
+  /** Whole-song tempo (median beat interval). */
   bpm: number | null;
+  /** Average tempo of the bar under the playhead. */
+  barBpm: number | null;
   /** Time of bar 1 of the beat grid, or null without a grid. */
   bar1Time: number | null;
   onSetBar1: () => void;
@@ -62,11 +66,21 @@ export function TransportBar(props: TransportBarProps) {
       </div>
 
       <div class="daw-lcd" title="Position">
-        <div class="daw-lcd-main">{formatTimecode(props.currentTime)}</div>
-        <div class="daw-lcd-sub">
-          <span>{props.barBeat ? `${props.barBeat.bar}.${props.barBeat.beat}` : "—.—"}</span>
-          <span>{props.bpm ? `${props.bpm.toFixed(1)} BPM` : "— BPM"}</span>
-          <span>/ {formatTimecode(props.duration)}</span>
+        <div class="daw-lcd-glass">
+          <i class="bi bi-play-fill daw-lcd-ann" classList={{ "daw-lcd-ann--on": props.isPlaying }} />
+          <LcdDigits class="daw-lcd-main" text={formatTimecode(props.currentTime)} />
+          <div class="daw-lcd-sub">
+            <span class="daw-lcd-label">BAR</span>
+            <LcdDigits text={props.barBeat ? `${String(props.barBeat.bar).padStart(3, " ")}.${props.barBeat.beat}` : "---.-"} />
+            <span class="daw-lcd-label">BPM</span>
+            <span class="daw-lcd-bpm" title="Tempo of this bar / whole-song tempo">
+              <LcdDigits text={props.barBpm ? props.barBpm.toFixed(1).padStart(5, " ") : "---.-"} />
+              <span class="daw-lcd-slash" />
+              <LcdDigits class="daw-lcd-clean" text={props.bpm ? props.bpm.toFixed(1).padStart(5, " ") : "---.-"} />
+            </span>
+            <span class="daw-lcd-label">TOT</span>
+            <LcdDigits text={formatTimecode(props.duration)} />
+          </div>
         </div>
       </div>
 

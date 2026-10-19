@@ -36,6 +36,7 @@ import {
   setPinned,
   sylPair,
   tempoBpm,
+  barTempoBpm,
   type SylRef,
 } from "./lib/doc-edit";
 
@@ -116,6 +117,7 @@ export function App() {
 
   const duration = createMemo(() => Math.max(audioDuration(), calDoc()?.lines.at(-1)?.end ?? 0));
   const bpm = createMemo(() => tempoBpm(beats()));
+  const barBpm = createMemo(() => barTempoBpm(currentTime(), beats(), downbeats()));
   const barBeat = createMemo(() => barBeatAt(currentTime(), beats(), downbeats(), bar1Index()));
   const bar1Time = () => downbeats()?.[bar1Index()] ?? null;
   const playingLine = createMemo(() => {
@@ -1024,6 +1026,7 @@ export function App() {
         duration={duration()}
         barBeat={barBeat()}
         bpm={bpm()}
+        barBpm={barBpm()}
         bar1Time={bar1Time()}
         onSetBar1={() => void setBar1Here()}
         onPlayPause={togglePlay}

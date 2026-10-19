@@ -225,32 +225,131 @@
   color: #b7ffd0;
 }
 
+/* Transport display: a VCR-style fluorescent panel behind a smoked glass window, with ghost segments and annunciators. */
 .daw-lcd {
+  --lcd-on: #7dfcf0;
+  --lcd-glow: rgba(90, 250, 235, 0.55);
+  --lcd-ghost: rgba(125, 252, 240, 0.09);
+  --lcd-dim: rgba(125, 252, 240, 0.16);
+  --lcd-amber: #ffb648;
+
+  height: 42px;
+  padding: 3px;
+  border-radius: 6px;
+  background: linear-gradient(#0a0b0d, #26292f);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.daw-lcd-glass {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 190px;
-  height: 40px;
-  padding: 0 12px;
-  background: #07090b;
-  border: 1px solid #000;
-  border-radius: 5px;
-  box-shadow: inset 0 0 10px rgba(61, 139, 253, 0.12);
-  font-family: var(--daw-mono);
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 8px 0 7px;
+  overflow: hidden;
+  border-radius: 3px;
+  background:
+    radial-gradient(ellipse at 50% 120%, rgba(40, 120, 130, 0.18), transparent 70%),
+    linear-gradient(#030607, #071012);
+  box-shadow:
+    inset 0 0 0 1px #000,
+    inset 0 2px 6px rgba(0, 0, 0, 0.9);
+}
+
+/* Phosphor grid and the glass reflection, over the segments. */
+.daw-lcd-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(168deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 38%, transparent 40%),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.28) 0 1px, transparent 1px 3px);
+}
+
+.daw-lcd-ann {
+  font-size: 9px;
+  color: var(--lcd-ghost);
+}
+
+.daw-lcd-ann--on {
+  color: var(--lcd-amber);
+  text-shadow: 0 0 4px rgba(255, 170, 60, 0.7);
+}
+
+/* `font-size: inherit` beats reset.css's `* { font-size: 12px }`, so the em-based cell sizes follow the readout's size. */
+.daw-seg7-row {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.08em;
+  height: 1em;
+  font-size: inherit;
+  transform: skewX(-7deg);
+  color: var(--lcd-on);
+}
+
+.daw-seg7 {
+  height: 100%;
+  width: 0.6em;
+  font-size: inherit;
+  overflow: visible;
+  fill: var(--lcd-ghost);
+}
+
+.daw-seg7-narrow {
+  width: 0.2em;
+}
+
+.daw-seg7 .daw-seg7-on {
+  fill: currentColor;
+  filter: drop-shadow(0 0 1.5px var(--lcd-glow));
+}
+
+.daw-seg7-text {
+  font: 700 0.7em/1 var(--daw-mono);
 }
 
 .daw-lcd-main {
-  font-size: 20px;
-  line-height: 22px;
-  color: #8fd3ff;
-  letter-spacing: 0.04em;
+  font-size: 24px;
 }
 
 .daw-lcd-sub {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 5px;
+  row-gap: 2px;
+  align-items: center;
   font-size: 10px;
-  color: #6c8aa6;
+}
+
+.daw-lcd-label {
+  font: 700 7px/1 var(--daw-mono);
+  letter-spacing: 0.1em;
+  color: var(--lcd-dim);
+}
+
+.daw-lcd-bpm {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: inherit;
+}
+
+.daw-lcd-slash {
+  width: 1px;
+  height: 0.9em;
+  transform: skewX(-20deg);
+  background: var(--lcd-dim);
+}
+
+/* Whole-song tempo in amber, so it reads apart from the live tempo beside it. */
+.daw-lcd-clean {
+  --lcd-on: var(--lcd-amber);
+  --lcd-glow: rgba(255, 170, 60, 0.55);
+  --lcd-ghost: rgba(255, 182, 72, 0.09);
 }
 
 .daw-bar1 {
@@ -1895,8 +1994,8 @@
 }
 
 .daw-wizard-time {
-  min-width: 110px;
-  font-family: var(--daw-mono);
+  display: inline-block;
+  height: 40px;
 }
 
 /* Tempo step */

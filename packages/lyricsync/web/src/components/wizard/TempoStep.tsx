@@ -3,6 +3,7 @@
 // pad (Space) that measures the tempo, and the first downbeat ("1" of the first bar) set by double-click, drag or the D key.
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { formatTimecode } from "../../lib/doc-edit";
+import { LcdDigits } from "../LcdDigits";
 import { persistedSignal } from "../../lib/persisted-signal";
 
 export interface TempoStepProps {
@@ -279,7 +280,11 @@ export function TempoStep(props: TempoStepProps) {
         <button class="daw-tbtn daw-tbtn-play" classList={{ "daw-on": playing() }} title="Play / pause (P)" onClick={(e) => { togglePlay(); e.currentTarget.blur(); }}>
           <i class={`bi bi-${playing() ? "pause-fill" : "play-fill"}`} />
         </button>
-        <span class="daw-lcd-main daw-wizard-time">{formatTimecode(time())}</span>
+        <span class="daw-lcd daw-wizard-time">
+          <span class="daw-lcd-glass">
+            <LcdDigits class="daw-lcd-main" text={formatTimecode(time())} />
+          </span>
+        </span>
         <div class="daw-beat-lights">
           <For each={[0, 1, 2, 3]}>{(i) => <span class="daw-beat-light" classList={{ "daw-beat-light--on": lightBeat() === i, "daw-beat-light--one": i === 0 }}>{i + 1}</span>}</For>
         </div>

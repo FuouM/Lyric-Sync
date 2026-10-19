@@ -259,6 +259,17 @@ export function tempoBpm(beats?: readonly number[]): number | null {
   return med > 0 ? 60 / med : null;
 }
 
+/** Average tempo of the bar that contains t (its downbeat to the next one), or null outside a complete bar. */
+export function barTempoBpm(t: number, beats?: readonly number[], downbeats?: readonly number[]): number | null {
+  if (!beats || !downbeats) return null;
+  const di = floorIndex(downbeats, t);
+  if (di < 0 || di + 1 >= downbeats.length) return null;
+  const b0 = floorIndex(beats, downbeats[di]! + 1e-4);
+  const b1 = floorIndex(beats, downbeats[di + 1]! + 1e-4);
+  if (b0 < 0 || b1 <= b0) return null;
+  return (60 * (b1 - b0)) / (beats[b1]! - beats[b0]!);
+}
+
 /** mm:ss.mmm */
 export function formatTimecode(t: number): string {
   const s = Math.max(0, t);
