@@ -82,8 +82,9 @@ function nearestBeat(beats: number[], t: number): number | undefined {
 }
 
 /** votes > 0: the guided solver's evidence votes and prior term (unaryRows, no guide) are added to the model's unary, times `votes`.
- *  pairVotes > 0: its syllable terms (pairTables: duration, 16th phase, notes inside, nucleus posterior) are added to the pair, times `pairVotes`. */
-export function solveLineModel(input: Omit<SolveInput, 'weights'> & { model: LineModelExport; head: Head; design?: Partial<GuidedDesign>; votes?: number; pairVotes?: number }): { lines: ConsensusLine[] } {
+ *  pairVotes > 0: its syllable terms (pairTables: duration, 16th phase, notes inside, nucleus posterior) are added to the pair, times `pairVotes`.
+ *  modelWeight / modelPairWeight (default 1): scale of the model's own unary and learned duration score. */
+export function solveLineModel(input: Omit<SolveInput, 'weights'> & { model: LineModelExport; head: Head; design?: Partial<GuidedDesign>; votes?: number; pairVotes?: number; modelWeight?: number; modelPairWeight?: number }): { lines: ConsensusLine[] } {
   const D: GuidedDesign = { ...GUIDED_DESIGN, ...input.design };
   const M = input.model;
   const fr = M.frames[input.head];
@@ -91,6 +92,8 @@ export function solveLineModel(input: Omit<SolveInput, 'weights'> & { model: Lin
   const scale = 1 / Math.sqrt(M.dim);
   const votes = input.votes ?? 0;
   const pairVotes = input.pairVotes ?? 0;
+  const modelWeight = input.modelWeight ?? 1;
+  const modelPairWeight = input.modelPairWeight ?? 1;
   const { consensus, linePins, ev } = prepareSolve(input);
   const lines: ConsensusLine[] = structuredClone(consensus);
   const order = linePins.map((_, i) => i).sort((a, b) => linePins[a]!.lineIndex - linePins[b]!.lineIndex);
@@ -131,7 +134,7 @@ export function solveLineModel(input: Omit<SolveInput, 'weights'> & { model: Lin
       un.push(Float64Array.from(w, (f) => {
         let s = fr[f * stride + M.dim]!;
         for (let k = 0; k < M.dim; k++) s += fr[f * stride + k]! * q[k]! * scale;
-        return s;
+        return modelWeight * s;
       }));
     }
     let handPairs: Float64Array[] | null = null;
@@ -159,7 +162,7 @@ export function solveLineModel(input: Omit<SolveInput, 'weights'> & { model: Lin
         for (let a = 0; a < A.length; a++) {
           const d = B[b]! - A[a]!;
           if (d < MIN_DUR || score[a]! <= NEG / 2) continue;
-          let s = score[a]! + P[Math.min(d, MAX_DUR)]!;
+          let s = score[a]! + modelPairWeight * P[Math.min(d, MAX_DUR)]!;
           if (H) s += pairVotes * H[a * B.length + b]!;
           if (s > next[b]!) { next[b] = s; arg[b] = a; }
         }
