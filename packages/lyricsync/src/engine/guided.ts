@@ -165,7 +165,7 @@ function shifted(times: number[], lag: number): number[] {
   return times.map((t) => t + lag);
 }
 
-interface LineEvents {
+export interface LineEvents {
   rmvpe: number[];
   harmo: number[];
   edges: number[];
@@ -182,7 +182,7 @@ function nearestTo(sorted: number[], t: number): number {
   return t - sorted[i - 1]! < sorted[i]! - t ? sorted[i - 1]! : sorted[i]!;
 }
 
-function eighthGrid(e: EvidenceEvents, D: GuidedDesign): number[] {
+export function eighthGrid(e: EvidenceEvents, D: GuidedDesign): number[] {
   const grid = e.beats.slice(1).map((b, i) => (e.beats[i]! + b) / 2);
   const rmvpe = shifted(e.rmvpeStarts, D.rmvpeLagSec);
   const harmo = shifted(e.harmoStarts, D.harmoLagSec);
@@ -200,7 +200,7 @@ function eighthGrid(e: EvidenceEvents, D: GuidedDesign): number[] {
   return grid.map((g) => g + lag);
 }
 
-function audioOnsets(audio: Float32Array, sampleRate: number, D: GuidedDesign): number[] {
+export function audioOnsets(audio: Float32Array, sampleRate: number, D: GuidedDesign): number[] {
   const hop = Math.round(sampleRate * 0.01);
   const win = Math.round(sampleRate * 0.025);
   const n = Math.floor((audio.length - win) / hop);
@@ -222,7 +222,7 @@ function audioOnsets(audio: Float32Array, sampleRate: number, D: GuidedDesign): 
   return out;
 }
 
-function lineEvents(sk: LineSkeleton, eighths: number[], audio: number[], D: GuidedDesign): LineEvents {
+export function lineEvents(sk: LineSkeleton, eighths: number[], audio: number[], D: GuidedDesign): LineEvents {
   const e = sk.ev.events;
   return {
     rmvpe: shifted(e.rmvpeStarts, D.rmvpeLagSec),
@@ -246,7 +246,7 @@ function addGuideCandidates(sk: LineSkeleton, pins: Array<number | undefined>, g
   });
 }
 
-function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefined>, guide: BoundaryGuide | null, D: GuidedDesign): Float64Array[] {
+export function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefined>, guide: BoundaryGuide | null, D: GuidedDesign): Float64Array[] {
   const { prior, s16 } = sk;
   const e = sk.ev.events;
   const m = sk.cands.length - 1;
@@ -273,7 +273,7 @@ function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefi
   });
 }
 
-function pairTables(sk: LineSkeleton, le: LineEvents, D: GuidedDesign): Float64Array[] {
+export function pairTables(sk: LineSkeleton, le: LineEvents, D: GuidedDesign): Float64Array[] {
   const meanDur = Math.max(sk.meanDur, 1e-3);
   const tables: Float64Array[] = [];
   for (let j = 1; j < sk.cands.length; j++) {
@@ -341,7 +341,7 @@ function voicedUntil(notes: Array<{ start: number; end: number }>, a: number, b:
 /** A line's last syllable either runs into the next line (labelled lines tile) or ends where the voice stops before a rest: with restMinSec > 0
  *  a rest is a voice stop (the pitch notes overlapping the syllable end) at least that long before the next line, and the syllable ends there;
  *  otherwise a gap shorter than joinGapSec closes. */
-function joinLineEnds(lines: ConsensusLine[], linePins: LinePins[], notes: Array<{ start: number; end: number }>, D: GuidedDesign): void {
+export function joinLineEnds(lines: ConsensusLine[], linePins: LinePins[], notes: Array<{ start: number; end: number }>, D: GuidedDesign): void {
   for (const lp of linePins) {
     if (lp.pins[lp.syllableCount] !== undefined) continue;
     const next = lines[lp.lineIndex + 1];
@@ -375,7 +375,7 @@ function keepAfter(sk: LineSkeleton, pins: Array<number | undefined>, bound: num
 }
 
 /** The last syllable of a line ends no later than the next line's first syllable starts, unless the user pinned that end. */
-function clipLineOverlaps(lines: ConsensusLine[], endPinned: Set<number>): void {
+export function clipLineOverlaps(lines: ConsensusLine[], endPinned: Set<number>): void {
   for (let k = 1; k < lines.length; k++) {
     if (endPinned.has(k - 1)) continue;
     const word = lines[k - 1]!.words[lines[k - 1]!.words.length - 1]!;
