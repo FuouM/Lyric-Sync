@@ -1,6 +1,6 @@
 # AGENTS.md: using lyricsync
 
-Terse operating guide for automated agents. Human-oriented docs: `README.md`, `docs/workflow.md`.
+Terse operating guide for automated agents. Human-oriented docs: `README.md`, `docs/workflow.md`. Repository branching and research model: see root `AGENTS.md`.
 
 ## What it does
 

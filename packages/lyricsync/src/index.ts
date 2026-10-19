@@ -9,6 +9,8 @@
 //   await session.solve();                                      // re-solve around it
 
 export * from './types.ts';
+export { isNumber, isRecord, isStringArray } from './guards.ts';
+
 
 export { Session } from './workspace/session.ts';
 export type { BeatsDocument, InitOptions, Progress, SolveResult, SyllableChange, WorkspaceStatus } from './workspace/session.ts';
@@ -54,3 +56,6 @@ export type { ExtractOptions } from './evidence/index.ts';
 export { loadWeights } from './engine/weights.ts';
 export { solve } from './engine/solve.ts';
 export { solveAnalytic, ANALYTIC_DESIGN } from './engine/analytic.ts';
+export { loadTrainingSongs, readTrainingManifest } from './train/songs.ts';
+export type { TrainingManifestSong } from './train/songs.ts';
+export type { TrainingSong } from './train/train.ts';

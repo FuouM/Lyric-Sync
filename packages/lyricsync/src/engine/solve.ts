@@ -228,6 +228,35 @@ export function prepareSolve(input: Omit<SolveInput, 'weights'>): PreparedSolve 
   }
   linePins = extractAndValidatePins(inputs, anchors, sliced);
   linePins.forEach((lp) => pinInputLine(inputs[lp.lineIndex]!, lp.pins));
+  // If unpinned lines sit past a follower line's pinned start, rescale them so they sit before the pin.
+  for (let i = inputs.length - 2; i >= 0; i--) {
+    const nextStart = inputs[i + 1]!.start;
+    const cur = inputs[i]!;
+    if (cur.end > nextStart) {
+      const prevEnd = i > 0 ? inputs[i - 1]!.end : 0;
+      const available = nextStart - prevEnd;
+      if (available > 0.05) {
+        const curDur = cur.end - cur.start;
+        const scale = Math.min(1, (available - 0.02) / Math.max(0.01, curDur));
+        const newStart = Math.max(prevEnd + 0.01, nextStart - curDur * scale - 0.01);
+        const newEnd = nextStart - 0.01;
+        const tOld = boundaryTimes(cur);
+        const t0 = tOld[0]!;
+        const span = Math.max(1e-4, tOld[tOld.length - 1]! - t0);
+        const tNew = tOld.map((t) => newStart + ((t - t0) / span) * (newEnd - newStart));
+        let flat = 0;
+        for (const w of cur.words) {
+          const syl = w.syl ?? [[w.start, w.end]];
+          for (let s = 0; s < syl.length; s++, flat++) syl[s] = [tNew[flat]!, tNew[flat + 1]!];
+          w.syl = syl;
+          w.start = syl[0]![0];
+          w.end = syl[syl.length - 1]![1];
+        }
+        cur.start = newStart;
+        cur.end = newEnd;
+      }
+    }
+  }
 
   const consensus = refineAlignment(inputs, {
     swiftNotes: evidence.swiftNotes,

@@ -9,3 +9,11 @@ packages/*/models/**/*.onnx
 songs/
 release/
 .known-roots.json
+
+# Research cache, datasets, and PyTorch model checkpoints
+.cache/
+*.pt
+*.f32
+*.bin
+__pycache__/
+*.pyc
