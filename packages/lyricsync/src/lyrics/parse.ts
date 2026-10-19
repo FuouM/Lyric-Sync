@@ -18,13 +18,14 @@ import { isRecord, isStringArray } from '../guards.ts';
 import type { Language, LyricLine, LyricsDefinition, LyricWord } from '../types.ts';
 import { dictionaryG2P, pronounceAs } from './dictionary.ts';
 import { resolveSyllables } from './syllabify.ts';
+import { normalizeBracedPhones, stripPunctuation } from './clean.ts';
 
 /** Hand-added pronunciations, keyed by pronunciationKey(word). */
 export type Pronunciations = Record<string, string[]>;
 
 /** The key a word's pronunciation is stored under: lowercase, surrounding punctuation trimmed (as the dictionary lookup does). */
 export function pronunciationKey(word: string): string {
-  return word.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
+  return stripPunctuation(word.toLowerCase());
 }
 
 export interface LyricsIssue {
@@ -147,7 +148,7 @@ function parseTextLines(text: string, language?: Language): { lines: RawLine[]; 
     }
 
     // Normalize optional space between word and {phones}: "foom {f uw m}" -> "foom{f uw m}"
-    const normalizedLine = line.replace(/([^\s{]+)\s+\{([^}]+)\}/g, '$1{$2}');
+    const normalizedLine = normalizeBracedPhones(line);
     const tokens = normalizedLine.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
     const words = tokens.map((tok) => tokenToRawWord(tok, `line ${i + 1}`, language));
     const section = outline.at(-1);

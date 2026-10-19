@@ -24,6 +24,7 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 import { isRecord } from "../../../../src/guards.ts";
+import { stripPunctuation } from "../../../../src/lyrics/clean.ts";
 
 export interface LyricsIssue {
   line: number;
@@ -57,7 +58,7 @@ export interface LyricsStepProps {
   onRemovePronunciation: (key: string) => void;
 }
 /** Same key the server uses (pronunciationKey): lowercase, surrounding punctuation trimmed. */
-export const pronunciationKey = (word: string) => word.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, "").replace(/[.,?!:;"'()[\]{}]+$/, "");
+export const pronunciationKey = (word: string) => stripPunctuation(word.toLowerCase());
 
 const PLACEHOLDER = `[Verse 1]
 one sung line per line, in order
