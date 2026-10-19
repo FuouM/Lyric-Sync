@@ -3,7 +3,7 @@
 // candidate times and adds a score to each candidate of a boundary. GUIDED_DESIGN holds the constants that go with the bundled model.
 
 import type { BoundaryModelEvidence, LineReview, SolveInput, SolveOutput } from '../types.ts';
-import { applyPath, buildLineSkeleton, chainMarginals, lowerBound, MIN_SYL_SEC, viterbiChain, type EvidenceEvents, type LineSkeleton } from './boundary_dp.ts';
+import { applyPath, buildLineSkeleton, chainMarginals, lowerBound, mbrPath, MIN_SYL_SEC, viterbiChain, type EvidenceEvents, type LineSkeleton } from './boundary_dp.ts';
 import type { ConsensusLine } from './consensus.ts';
 import type { LinePins } from './pins.ts';
 import { fitLineExtents, marginalError, prepareSolve, reviewLine } from './solve.ts';
@@ -151,6 +151,9 @@ export const GUIDED_DESIGN = {
   audioVote: 1.5,
   audioRiseDb: 5,
   audioLagSec: 0.011,
+  /** Decoding: each line takes the path with the least expected absolute error under the chain's posterior, its scores divided by this
+   *  temperature (see docs/guided.md); 0 = the single best path (Viterbi). */
+  mbrTemp: 0.25,
 } as const;
 
 /** The constants of one solve: GUIDED_DESIGN with any overrides (research sweeps). */
@@ -387,6 +390,13 @@ function clipLineOverlaps(lines: ConsensusLine[], endPinned: Set<number>): void 
   }
 }
 
+/** Best path (mbrTemp 0) or minimum-expected-error path at temperature mbrTemp. */
+function decodeChain(cands: number[][], u: Float64Array[], pair: Float64Array[], D: GuidedDesign): number[] {
+  if (D.mbrTemp <= 0) return viterbiChain(cands, u, pair);
+  const t = D.mbrTemp;
+  return mbrPath(cands, chainMarginals(cands, { u: u.map((r) => r.map((x) => x / t)), pair: pair.map((r) => r.map((x) => x / t)) }));
+}
+
 /** The whole timing solve with the guided model. Same inputs and output shape as `solveSimple`, plus the guide (null = votes only) and optional constant overrides. */
 export function solveGuided(input: Omit<SolveInput, 'weights'> & { guide: BoundaryGuide | null; design?: Partial<GuidedDesign> }): SolveOutput {
   const D: GuidedDesign = { ...GUIDED_DESIGN, ...input.design };
@@ -412,7 +422,7 @@ export function solveGuided(input: Omit<SolveInput, 'weights'> & { guide: Bounda
     const le = lineEvents(skeleton, eighths, audio, D);
     const u = unaryRows(skeleton, le, lp.pins, input.guide, D);
     const pair = pairTables(skeleton, le, D);
-    const path = viterbiChain(skeleton.cands, u, pair);
+    const path = decodeChain(skeleton.cands, u, pair, D);
     applyPath(line, skeleton, snapToBeats(skeleton, path, D));
     // The review's uncertainty: the chain's own posterior, its scores read as log-potentials (on the annotated songs the mean expected error
     // comes out close to the real one, and it ranks lines about as well as the trained method's CRF posterior).

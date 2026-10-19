@@ -31,6 +31,14 @@ int4 moves results by up to 1.7 ms per song in either direction (free mode got w
 - Every candidate gets `4.5 x` the probability mass of P within 35 ms of it, on top of the simple solver's votes and syllable terms.
 - Changes from the simple solver's constants, each kept because it helped on all three songs: Swift-F0 note starts and the silence posterior do not count; the second (combined) phoneme-boundary model votes (2) on lines whose start and end are pinned; a line followed by at least 1 s without voice ends where its pitch notes stop, instead of running on to the next line.
 - Lines are solved in time order and never overlap: each line starts at or after the previous line's last syllable start plus the minimum syllable length (and after its end when that end is pinned), and an unpinned line end past the next line's start is clipped.
+- Decoding: each line gets the path with the least expected absolute error under the chain's own posterior (`mbrPath`), not the single best path. The chain's scores are divided by a temperature (`mbrTemp`, 0.25) before the posterior is computed. `mbrTemp: 0` gives the best path (Viterbi). Mean error (ms), best path -> least expected error:
+
+  | | Annotated songs | Ritsu test songs |
+  |---|---|---|
+  | Snap (default), anchored / free | 15.60 / 23.43 -> 15.59 / 23.28 | 18.22 / 26.80 -> 18.09 / 26.74 |
+  | No snap, anchored / free | 18.74 / 26.92 -> 18.80 / 26.77 | 14.88 / 22.42 -> 14.62 / 21.95 |
+
+  The temperature was chosen from 0.25, 0.5, 0.75, 1, 2 and 4: 0.25 is the only value that is not worse on any of the annotated songs, the two partly calibrated hard-case songs (pdoom, breaked_jazzpop) and the Ritsu test songs. A solve takes about 30% longer (one more forward-backward pass per line).
 - `review`: each boundary's expected error comes from the chain's own posterior, its scores read as log-potentials. On the annotated songs (free mode) the mean expected error of the listed boundaries is 40 ms against 35 ms real, and it ranks lines about as well as the trained method's CRF posterior (Spearman 0.51 against 0.55). It ranks, it does not measure: treat it as "look here first".
 
 ## Accuracy
@@ -39,8 +47,8 @@ Mean syllable-edge error against the calibrated labels, in ms, on the three anno
 
 | | breaked | breaked_retro | suika_retro | mean |
 |---|---|---|---|---|
-| Anchored | 14.8 (15.4) | 16.1 (16.2) | 15.9 (17.8) | **15.6** (16.5) |
-| Free | 23.8 (22.7) | 23.1 (23.0) | 23.4 (24.6) | **23.4** (23.5) |
+| Anchored | 14.9 (15.4) | 16.0 (16.2) | 15.9 (17.8) | **15.6** (16.5) |
+| Free | 23.6 (22.7) | 23.0 (23.0) | 23.3 (24.6) | **23.3** (23.5) |
 
 How honest these numbers are: the model is held-out (never trained on these songs). The solver's constants, the guide weight and the vowel-onset convention were chosen on these same three songs with the previous model, so the solver side is in-sample. Re-tuning the constants leave-one-song-out gave 18.1 anchored and 26.5 free (previous model), worse than the fixed preset, so the preset was kept. For comparison the trained method is 14.2 / 23.6 in-sample and 22.9 / 33.3 held-out, and the simple method 21.3 / 30.3 (in-sample).
 
@@ -52,8 +60,8 @@ After the chain is decoded, a boundary within 55 ms of a beat moves onto the bea
 
 | | Annotated songs (snapped labels) | Ritsu test songs (acoustic labels) |
 |---|---|---|
-| Snap (default), anchored / free | **15.6** / **23.4** | 18.2 / 26.9 |
-| No snap, anchored / free | 18.7 / 26.9 | **14.9** / **22.5** |
+| Snap (default), anchored / free | **15.6** / **23.3** | 18.1 / 26.7 |
+| No snap, anchored / free | 18.8 / 26.8 | **14.6** / **22.0** |
 
 Use the snap when the timing must look like hand-calibrated lyrics. Use natural timing when it must follow the voice.
 
@@ -61,7 +69,7 @@ Use the snap when the timing must look like hand-calibrated lyrics. Use natural 
 
 The Namine Ritsu Normal singing database ("Namine Ritsu", by Canon) has 50 a cappella Japanese songs with phone labels made by hand. `scripts/ritsu/` converts it to 50 workspaces: 1,855 lines and 21,704 morae. A syllable starts at its vowel. Lines break at rests of 0.25 s or more. Beats come from the UST score. The vowel onsets are 15 ms from a score note start (median). The boundary model is fine-tuned on 40 of the songs; the other 10 (`.cache/ritsu/ritsu.test.json`: every 5th song in sorted order) are the test set. The solver constants were not set on this data.
 
-Test songs, guided, mean error (ms) with the previous model and with the fine-tuned model:
+Test songs, guided, mean error (ms) with the previous model and with the fine-tuned model (best-path decoding; with the default least-expected-error decoding the fine-tuned model gives 18.1 / 26.7 with the snap and 14.6 / 22.0 without):
 
 | | Previous | Fine-tuned |
 |---|---|---|
