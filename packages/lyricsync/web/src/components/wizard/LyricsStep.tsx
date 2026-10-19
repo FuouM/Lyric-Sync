@@ -57,7 +57,7 @@ export interface LyricsStepProps {
   onRemovePronunciation: (key: string) => void;
 }
 /** Same key the server uses (pronunciationKey): lowercase, surrounding punctuation trimmed. */
-export const pronunciationKey = (word: string) => word.toLowerCase().replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, "");
+export const pronunciationKey = (word: string) => word.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, "").replace(/[.,?!:;"'()[\]{}]+$/, "");
 
 const PLACEHOLDER = `[Verse 1]
 one sung line per line, in order

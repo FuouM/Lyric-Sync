@@ -24,7 +24,7 @@ export type Pronunciations = Record<string, string[]>;
 
 /** The key a word's pronunciation is stored under: lowercase, surrounding punctuation trimmed (as the dictionary lookup does). */
 export function pronunciationKey(word: string): string {
-  return word.toLowerCase().replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, '');
+  return word.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
 }
 
 export interface LyricsIssue {
@@ -119,17 +119,23 @@ function parseTextLines(text: string, language?: Language): { lines: RawLine[]; 
     if (line.length === 0) return;
 
     // Direct pronunciation directive: @pron word = p h o n e s   or   # @pron word = sounds like
-    const pronMatch = /^#?\s*@pron\s+([^\s=]+)\s*=\s*(.+)$/i.exec(line);
-    if (pronMatch) {
-      if (language) {
-        const key = pronunciationKey(pronMatch[1]!);
-        try {
-          pronunciations[key] = pronounceAs(pronMatch[2]!.trim(), language);
-        } catch (e: unknown) {
-          throw new Error(`line ${i + 1} (@pron ${pronMatch[1]}): ${e instanceof Error ? e.message : String(e)}`);
+    if (/^#?\s*@pron\b/i.test(line)) {
+      const eq = line.indexOf('=');
+      if (eq !== -1) {
+        const left = line.slice(0, eq).replace(/^#?\s*@pron\s+/i, '').trim();
+        const right = line.slice(eq + 1).trim();
+        if (left && !/\s/.test(left)) {
+          if (language) {
+            const key = pronunciationKey(left);
+            try {
+              pronunciations[key] = pronounceAs(right, language);
+            } catch (e: unknown) {
+              throw new Error(`line ${i + 1} (@pron ${left}): ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+          return;
         }
       }
-      return;
     }
 
     if (line.startsWith('#')) return;
@@ -141,7 +147,7 @@ function parseTextLines(text: string, language?: Language): { lines: RawLine[]; 
     }
 
     // Normalize optional space between word and {phones}: "foom {f uw m}" -> "foom{f uw m}"
-    const normalizedLine = line.replace(/(\S+)\s+\{([^}]+)\}/g, '$1{$2}');
+    const normalizedLine = line.replace(/([^\s{]+)\s+\{([^}]+)\}/g, '$1{$2}');
     const tokens = normalizedLine.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
     const words = tokens.map((tok) => tokenToRawWord(tok, `line ${i + 1}`, language));
     const section = outline.at(-1);

@@ -146,11 +146,16 @@ export async function computeQueries(cfg: BoundaryConfig, definition: LyricsDefi
   });
   await session.release();
   const q = out.q!.data as Float32Array;
-  const queries: Record<number, number[][]> = {};
+  const queryMap = new Map<number, number[][]>();
   owner.forEach((o, i) => {
-    (queries[o.line] ??= [])[o.j] = Array.from(q.subarray(i * cfg.dim, (i + 1) * cfg.dim));
+    let arr = queryMap.get(o.line);
+    if (!arr) {
+      arr = [];
+      queryMap.set(o.line, arr);
+    }
+    arr[o.j] = Array.from(q.subarray(i * cfg.dim, (i + 1) * cfg.dim));
   });
-  return queries;
+  return Object.fromEntries(queryMap);
 }
 
 /**

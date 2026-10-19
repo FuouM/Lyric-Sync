@@ -67,7 +67,7 @@ const RULES: Array<[RegExp, string]> = [
 export function approximateEnglishPhonemes(rawWord: string): string[] | null {
   const g2p = dictionaryG2P("en");
   const dict = (g2p as unknown as { dictionary: Map<string, string[]> }).dictionary;
-  const w = rawWord.toLowerCase().replace(/^[.,?!:;"'()\[\]{}]+|[.,?!:;"'()\[\]{}]+$/g, "");
+  const w = rawWord.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
   if (!w || !dict) return null;
 
   // 1. Direct dictionary match

@@ -102,13 +102,25 @@ function fitGroupCount(s: string, groups: VowelGroup[], target: number, word: st
   }
   return out;
 }
+function splitWordPunctuation(word: string): { lead: string; core: string; trail: string } {
+  let start = 0;
+  while (start < word.length && !/[A-Za-z']/.test(word[start]!)) start++;
+  if (start === word.length) {
+    return { lead: word, core: '', trail: '' };
+  }
+  let end = word.length - 1;
+  while (end > start && !/[A-Za-z']/.test(word[end]!)) end--;
+  return {
+    lead: word.slice(0, start),
+    core: word.slice(start, end + 1),
+    trail: word.slice(end + 1),
+  };
+}
+
 
 /** Splits an English word into `vowelPhones.length` syllables. `vowelPhones` are the dictionary vowel phones in order. */
 export function syllabifyEnglish(word: string, vowelPhones: string[]): string[] {
-  const match = /^([^A-Za-z']*)(.*?)([^A-Za-z']*)$/.exec(word)!;
-  const lead = match[1]!;
-  const core = match[2]!;
-  const trail = match[3]!;
+  const { lead, core, trail } = splitWordPunctuation(word);
   const n = vowelPhones.length;
   if (n <= 1 || core.length === 0) return [word];
   const s = core.toLowerCase();
@@ -133,12 +145,12 @@ export function syllabifyEnglish(word: string, vowelPhones: string[]): string[] 
 
 /** Splits a romaji word into morae (strict). */
 export function syllabifyJapanese(word: string): string[] {
-  const match = /^([^A-Za-z']*)(.*?)([^A-Za-z']*)$/.exec(word)!;
-  const morae = dictionaryG2P('ja').splitMoraeStrict(match[2]!);
+  const { lead, core, trail } = splitWordPunctuation(word);
+  const morae = dictionaryG2P('ja').splitMoraeStrict(core);
   if (!morae) throw new Error(`Cannot split "${word}" into morae: some characters are not romaji morae of the dictionary. Write it with explicit syllables ("ko|yo|i") or fix the spelling.`);
   const parts = morae.map((m) => m.text);
-  parts[0] = match[1]! + parts[0];
-  parts[parts.length - 1] = parts[parts.length - 1]! + match[3]!;
+  parts[0] = lead + parts[0];
+  parts[parts.length - 1] = parts[parts.length - 1]! + trail;
   return parts;
 }
 
@@ -157,7 +169,8 @@ export function resolveSyllables(word: Pick<LyricWord, 'w' | 'phones'>, explicit
   if (explicit) {
     if (language === 'ja') {
       const asPhones = explicit.flatMap((syl) => {
-        const morae = g2p.splitMoraeStrict(syl.replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, ''));
+        const core = splitWordPunctuation(syl).core;
+        const morae = g2p.splitMoraeStrict(core);
         if (!morae || morae.length !== 1) throw new Error(`Syllable "${syl}" of "${word.w}" is not a single mora of the Japanese dictionary.`);
         return morae[0]!.phones;
       });
