@@ -16,7 +16,7 @@ import { isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
 import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSongFiles, serverStore, type SongStore } from "./lib/song-files";
-import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "./lib/calibration-doc";
+import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "../../src/calibration-doc";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, writeFirstDownbeat } from "./lib/beat-grid";
 import { persistedSignal } from "./lib/persisted-signal";
 import { theme, setTheme } from "./stores/theme";

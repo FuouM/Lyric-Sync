@@ -71,8 +71,22 @@ await tracker.init();
 const result = await tracker.trackFile('path/to/audio.wav', 0.32);
 ```
 
+## Audio features (`features.json` v1)
+
+```bash
+# Envelopes at 100 fps, each peak-normalized to 0..1: rms, low, mid, high from the mix; vocal, drums, bass, other from the stems
+beatsync features song.wav --vocal vocal.wav --drums drums.wav --out generated/features.json
+```
+
+```typescript
+import { computeFeatures } from 'beatsync';
+const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'], drums: ['drums.wav'] });
+```
+
+Envelope length is `ceil(mix samples * 100 / mix sample rate)`. Stem keys without files are not written. `onsets` is `{}` (no detector yet). The method is in `README.md`.
+
 ## Running Tests
 ```bash
-bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess)
+bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess, feature envelopes)
 bun test tests/e2e      # E2E inference test on a synthesized click track
 ```

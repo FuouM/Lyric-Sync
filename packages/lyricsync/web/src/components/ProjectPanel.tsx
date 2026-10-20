@@ -1,7 +1,7 @@
 // packages/lyricsync/web/src/components/ProjectPanel.tsx
 // Left dock: song browser (library mode), line list, review queue and section markers.
 import { createEffect, For, Show } from "solid-js";
-import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
+import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import type { LineReview } from "../../../src/types";
 import { formatTimecode } from "../lib/doc-edit";
 

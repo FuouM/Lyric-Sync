@@ -1,6 +1,6 @@
 // packages/lyricsync/web/server/wizard.ts
 // New-song wizard backend (local dev server): turns raw inputs into a song folder the editor opens, in the song-folder layout
-// (server/song-inputs.ts; the same as probable-video-editor projects, so its project scripts work on it too).
+// (src/song-folder.ts; the same as probable-video-editor projects, so its project scripts work on it too).
 //
 // <songs>/<id>/
 //   project.json                       video project with only the song asset (assets.song.src = the mix)
@@ -8,6 +8,7 @@
 //   user_input/<mix>, user_input/stems/<vocal>
 //   user_input/lyrics.txt              the lyrics as typed;  user_input/lyrics.sync.json  the parsed lyrics contract
 //   generated/timing.ai.json           beat grid (beatsync)
+//   generated/features.json            audio feature envelopes (beatsync features), the input of the pve video editor
 //   lyricsync/                         workspace: init + prepare (evidence), free solve -> out/lyrics.json
 //   generated/lyrics.json              copy of the solver's out/lyrics.json (system generated)
 //   user_input/lyrics.calibrated.json  start of the human calibration: the free solve, nothing pinned
@@ -15,7 +16,7 @@
 // The build is a pipeline of stages; a stage whose result exists is skipped, so a failed build resumes where it stopped.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { trackBeats } from "../../../beatsync/src/index.ts";
+import { computeFeatures, trackBeats } from "../../../beatsync/src/index.ts";
 import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
@@ -34,7 +35,7 @@ import {
 import type { BeatsDocument, ConsensusLine } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { dictionaryG2P } from "../../src/lyrics/index.ts";
-import { findSongDir, ID_RE, readPromptManifest, songDir, songInputs, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, readPromptManifest, readSongPrompt, SONG_ID_RE, songDir, songFolderPaths, songInputs, type SongsRoots } from "../../src/song-folder.ts";
 
 export interface WizardJob {
   project: string;
@@ -139,7 +140,7 @@ const safeName = (name: string, what: string) => {
 /** Validates everything that can be checked up front, writes the inputs, then starts the build. */
 export async function createSong(songsRoot: string, input: CreateInput): Promise<void> {
   if (job?.state === "running") throw new Error(`A build is already running (${job.project}). Wait for it to finish.`);
-  if (!ID_RE.test(input.id)) throw new Error("The song id must be lowercase letters, digits, - or _, starting with a letter or digit.");
+  if (!SONG_ID_RE.test(input.id)) throw new Error("The song id must be lowercase letters, digits, - or _, starting with a letter or digit.");
   if (!Number.isFinite(input.bpm) || input.bpm < 40 || input.bpm > 260) throw new Error("The tempo must be between 40 and 260 BPM.");
   if (input.firstDownbeat !== null && !(input.firstDownbeat >= 0)) throw new Error("The first downbeat must be a time in seconds, 0 or more.");
   const dir = songDir(songsRoot, input.id);
@@ -242,6 +243,16 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     };
     writeJson(beatsFile, doc);
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);
+  }
+
+  const featuresFile = songFolderPaths(dir).featuresFile;
+  if (fs.existsSync(featuresFile)) say("Audio features: generated/features.json exists, kept.");
+  else {
+    const prompt = readSongPrompt(dir);
+    say(`Computing audio features (envelopes at 100 fps) from ${path.basename(prompt.mixPath)} and the stems…`);
+    // Compact JSON: each envelope has 100 values per second of audio.
+    fs.writeFileSync(featuresFile, JSON.stringify(await computeFeatures(prompt.mixPath, prompt.stems)), "utf8");
+    say("  Wrote generated/features.json.");
   }
 
   const inputs = songInputs(roots, id);

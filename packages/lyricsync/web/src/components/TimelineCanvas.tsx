@@ -3,7 +3,7 @@
 // mix and vocal waveforms with pitch, lyric clips with editable syllable edges, overview scrollbar.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { theme } from "../stores/theme";
-import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
+import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
 
 export type MonitorTrack = "vocal" | "mix";

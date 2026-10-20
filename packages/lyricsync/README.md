@@ -78,6 +78,21 @@ session.setSyllables([{ line: 3, word: 2, syllables: ['wa', 'alls'] }]);  // re-
 await session.prepare();                                    // the evidence depends on the syllables
 ```
 
+### Song folder reader
+
+`lyricsync/song-folder` reads a song folder (the layout the New Song wizard writes). It does not load the models, so other tools (for example the pve video editor) can import it. It needs Bun: `prompt.yaml` is parsed with `Bun.YAML`. The same functions are also in the main entry.
+
+```ts
+import { readCalibratedLyrics, readFeatures, readSongPrompt, readTimingAi, songFolderPaths } from 'lyricsync/song-folder';
+
+const prompt = readSongPrompt(dir);      // mixPath, stems { vocal, mainVocal, drums, bass, other }, nearestBpm, firstDownbeat
+const timing = readTimingAi(dir);        // generated/timing.ai.json: duration, bpm, beat_period, beats, downbeats
+const lyrics = readCalibratedLyrics(dir); // user_input/lyrics.calibrated.json: sections, lines[].words[].syl / sylText
+const features = readFeatures(dir);      // generated/features.json v1 (beatsync features)
+```
+
+Each reader checks the file. A missing file gives an error with the full path of the file.
+
 ## Accuracy
 
 Syllable-boundary error (mean of start and end error against hand-annotated timings, ms; lower is better) on three annotated songs (two English, one Japanese), 389 + 389 + 342 syllables. **Anchored** = every line's start and end pinned; **free** = nothing known.

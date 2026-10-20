@@ -57,3 +57,24 @@ export interface SpectrogramResult {
   durationSec: number;
   fps: number;
 }
+
+/** Envelope keys computed from the full mix. */
+export type MixEnvelopeKey = 'rms' | 'low' | 'mid' | 'high';
+/** Envelope keys computed from the stems. */
+export type StemEnvelopeKey = 'vocal' | 'drums' | 'bass' | 'other';
+/** Onset keys of the features.json contract. */
+export type OnsetKey = 'kick' | 'snare' | 'hat' | 'vocal';
+
+/** Stem files per stem envelope. Each envelope is the sum of the RMS envelopes of its files. A key without files is not in the output. */
+export type FeatureStems = Partial<Record<StemEnvelopeKey, string[]>>;
+
+/**
+ * The features.json v1 contract: envelopes at `fps` frames per second, each peak-normalized to 0..1 (max 1, or all 0 for silence).
+ * Envelope length is ceil(mix samples * fps / mix sample rate). `onsets` hold only the keys that a detector computed: [time s, strength 0..1].
+ */
+export interface FeaturesDocument {
+  v: 1;
+  fps: number;
+  envelopes: Record<MixEnvelopeKey, number[]> & Partial<Record<StemEnvelopeKey, number[]>>;
+  onsets: Partial<Record<OnsetKey, Array<[number, number]>>>;
+}

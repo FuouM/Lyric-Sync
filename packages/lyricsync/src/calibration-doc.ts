@@ -1,9 +1,10 @@
-// packages/lyricsync/web/src/lib/calibration-doc.ts
+// src/calibration-doc.ts
 // user_input/lyrics.calibrated.json: the project "words" lyrics format plus the human pin flags.
 // A line flagged `calibrated` is frozen (every syllable pinned); otherwise a syllable is pinned when its word is flagged
 // `calibrated` or its `sylCalibrated` entry is true. Missing flags mean "not pinned": the solver may move those syllables.
 // Unknown fields (format, fps, method, conf, sourceFile, ...) are kept as read and written back unchanged.
-import { isNumber, isRecord, isStringArray } from "../../../src/guards";
+// No Node or Bun imports: the editor's browser code uses this module too.
+import { isNumber, isRecord, isStringArray } from "./guards.ts";
 
 export interface CalSection {
   id: string;

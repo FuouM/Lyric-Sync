@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { emptyAnchors, importCalibrated, Session } from "../../src/index.ts";
 import type { ConsensusLine } from "../../src/index.ts";
-import { findSongDir, toRoots, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, toRoots, type SongsRoots } from "../../src/song-folder.ts";
 import { inferenceDevice } from "./device.ts";
 
 export interface EditorWord {

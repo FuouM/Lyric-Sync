@@ -85,6 +85,30 @@ await tracker.init();
 const result = await tracker.trackFile('song.wav', 0.32);
 ```
 
+## Audio features (`features.json` v1)
+
+`beatsync features` writes envelopes for video tools. No model runs: it is plain signal processing.
+
+```bash
+beatsync features song.wav --vocal vocal.wav [--drums drums.wav] [--bass bass.wav] [--other other.wav] --out features.json
+```
+
+```typescript
+import { computeFeatures } from 'beatsync';
+const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] });
+```
+
+```json
+{ "v": 1, "fps": 100, "envelopes": { "rms": [], "low": [], "mid": [], "high": [], "vocal": [] }, "onsets": {} }
+```
+
+- **Frames:** 100 per second. Frame `f` covers the samples `[floor(f * sr / 100), floor((f + 1) * sr / 100))` of each file at its own sample rate `sr`. The length of every envelope is `ceil(mix samples * 100 / mix sample rate)`. The last frame can be partial. A frame after the end of a stem is 0.
+- **`rms`:** RMS of the mono mix (mean of the channels) in each frame.
+- **`low`, `mid`, `high`:** band magnitude of the mix. The mix is resampled to 22050 Hz. A 1024-point Hann-window FFT is centred on each frame centre. Band magnitude is `sqrt(sum |X(k)|^2)` over the bins of the band: low 20-250 Hz, mid 250-4000 Hz, high 4000-11025 Hz (`BAND_EDGES_HZ`).
+- **`vocal`, `drums`, `bass`, `other`:** RMS of each stem file, as for `rms`. Several files of one stem key are added. A stem key without files is not in the output.
+- **Normalization:** each envelope is divided by its own maximum and rounded to 4 decimals. The maximum is 1. A silent input gives zeros.
+- **`onsets`:** empty. beatsync has no onset detector yet, so no key is written.
+
 ## Model Details
 
 - **Model**: Beat This! (RoFormer architecture for music beat and downbeat tracking) developed by CPJKU.
@@ -103,6 +127,6 @@ const result = await tracker.trackFile('song.wav', 0.32);
 Against the reference implementation this package was extracted from, beat and downbeat counts are identical on three full songs (648, 357 and 457 beats) and every beat agrees within one tracker frame (20 ms); 2-5% of beats sit exactly one frame away. The difference is deliberate: WAV input is always decoded and resampled natively, so results never depend on which tools are installed (the reference resampled through ffmpeg when it happened to be present). Non-WAV input requires `ffmpeg` and fails with its own error message otherwise. Run the tests:
 
 ```bash
-bun test tests/unit     # WAV parsing, resample, spectrogram, postprocess
+bun test tests/unit     # WAV parsing, resample, spectrogram, postprocess, feature envelopes
 bun test tests/e2e      # real-model inference on a synthesized 120 BPM click track
 ```

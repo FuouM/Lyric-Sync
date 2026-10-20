@@ -26,7 +26,7 @@ bun run dev --device cpu                 # run the models on the CPU (Solve › 
 ```
 
 - **Standalone:** File › New Song… builds a song folder from a mix, a vocal stem and the lyrics (beats, analysis, a first timing), then you calibrate it.
-- **In your project:** point `--songs` at the folder that holds your song folders. Each song folder follows one layout (`project.json`, `user_input/`, `generated/timing.ai.json`, `lyricsync/`; see `packages/lyricsync/web/server/song-inputs.ts`). The editor reads and writes only inside it: `user_input/lyrics.calibrated.json` is your timing, `lyricsync/` the analysis cache.
+- **In your project:** point `--songs` at the folder that holds your song folders. Each song folder follows one layout (`project.json`, `user_input/`, `generated/timing.ai.json`, `generated/features.json`, `lyricsync/`; see `packages/lyricsync/src/song-folder.ts`). The editor reads and writes only inside it: `user_input/lyrics.calibrated.json` is your timing, `lyricsync/` the analysis cache.
 - **Sharing:** zip a song folder. It opens prepared on another machine with the same models (a different model version re-analyses it once).
 
 ## The CLI and library

@@ -36,7 +36,7 @@ import { handleRealign } from "./server/realign.ts";
 import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
-import { findSongDir } from "./server/song-inputs.ts";
+import { findSongDir } from "../src/song-folder.ts";
 import { deviceConfig, isInferenceDevice, setInferenceDevice } from "./server/device.ts";
 import { isRecord } from "../src/guards.ts";
 import {

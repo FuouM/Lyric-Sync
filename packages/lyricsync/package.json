@@ -16,10 +16,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./song-folder": {
+      "bun": "./src/song-folder.ts",
+      "types": "./dist/song-folder.d.ts",
+      "default": "./dist/song-folder.js"
     }
   },
   "files": [
     "dist",
+    "src",
     "models",
     "weights",
     "docs",

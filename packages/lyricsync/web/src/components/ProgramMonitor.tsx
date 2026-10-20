@@ -4,7 +4,7 @@
 // A pill names the word and syllable being sung; the next line is previewed. Timecode, section, bar and beat overlays,
 // and a metronome click.
 import { createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js";
-import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../lib/calibration-doc";
+import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
 import { barBeatAt, floorIndex, formatTimecode, lineAt } from "../lib/doc-edit";
 
 export interface ProgramMonitorProps {

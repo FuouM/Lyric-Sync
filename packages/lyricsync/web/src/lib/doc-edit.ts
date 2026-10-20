@@ -1,6 +1,6 @@
 // packages/lyricsync/web/src/lib/doc-edit.ts
 // Pure edit operations and musical-time helpers for the lyrics timing editor.
-import { isSylPinned, type CalibrationDoc, type CalLine } from "./calibration-doc";
+import { isSylPinned, type CalibrationDoc, type CalLine } from "../../../src/calibration-doc";
 
 export interface SylRef {
   lineIdx: number;

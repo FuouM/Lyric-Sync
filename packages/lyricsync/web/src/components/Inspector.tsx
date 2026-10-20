@@ -1,7 +1,7 @@
 // packages/lyricsync/web/src/components/Inspector.tsx
 // NLE-style inspector: properties of the selected syllable and its line, with nudge and pin controls.
 import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
+import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { calibrationStats, formatTimecode, type SylRef } from "../lib/doc-edit";
 import { GroupBox } from "./GroupBox";
 

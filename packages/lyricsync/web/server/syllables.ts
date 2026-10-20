@@ -17,7 +17,7 @@ import {
   type SyllableChange,
 } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
-import { findSongDir, songInputs, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, songInputs, type SongsRoots } from "../../src/song-folder.ts";
 import { calibrationFromSolve, checkLyrics } from "./wizard.ts";
 import { inferenceDevice } from "./device.ts";
 

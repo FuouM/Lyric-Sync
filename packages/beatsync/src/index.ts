@@ -8,3 +8,4 @@ export * from './spectrogram.ts';
 export * from './postprocess.ts';
 export * from './tracker.ts';
 export * from './device.ts';
+export * from './features.ts';

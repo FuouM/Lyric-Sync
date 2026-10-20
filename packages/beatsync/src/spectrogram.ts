@@ -40,16 +40,16 @@ for (let i = 0; i < N_FFT / 2; i++) {
   SIN_TABLE[i] = Math.sin(theta);
 }
 
-// Periodic Hann window: w[n] = 0.5 * (1 - cos(2*pi*n / N))
-const HANN_WINDOW = new Float32Array(N_FFT);
+/** Periodic Hann window of N_FFT samples: w[n] = 0.5 * (1 - cos(2*pi*n / N)). */
+export const HANN_WINDOW = new Float32Array(N_FFT);
 for (let n = 0; n < N_FFT; n++) {
   HANN_WINDOW[n] = 0.5 * (1.0 - Math.cos((2.0 * Math.PI * n) / N_FFT));
 }
 
 /**
- * In-place 1024-point Cooley-Tukey Radix-2 FFT.
+ * In-place 1024-point Cooley-Tukey Radix-2 FFT. `re` and `im` must hold N_FFT values.
  */
-function fft1024(re: Float32Array, im: Float32Array): void {
+export function fft1024(re: Float32Array, im: Float32Array): void {
   for (let i = 0; i < N_FFT; i++) {
     const j = BIT_REV[i]!;
     if (j > i) {

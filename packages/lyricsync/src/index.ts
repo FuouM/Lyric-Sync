@@ -54,3 +54,7 @@ export type { ExtractOptions } from './evidence/index.ts';
 export { loadWeights } from './engine/weights.ts';
 export { solve } from './engine/solve.ts';
 export { solveAnalytic, ANALYTIC_DESIGN } from './engine/analytic.ts';
+
+// The song folder (also importable alone, without the models: "lyricsync/song-folder").
+export * from './song-folder.ts';
+export { isSylPinned, parseCalibrationDoc } from './calibration-doc.ts';
