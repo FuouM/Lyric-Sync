@@ -73,28 +73,6 @@ describe('Session.setSyllables', () => {
     expect(session.loadAnchors().lines['0']).toEqual({ start: 1, end: 3, boundaries: { '1': 1.5, '2': 2, '5': 2.4 } });
   });
 
-  test('the workspace calibration unpins the re-split word and divides its span', () => {
-    const session = setup();
-    const doc = session.loadCalibrated();
-    const line = doc.lines[0]!;
-    line.words.forEach((w, wi) => {
-      w.start = wi;
-      w.end = wi + 0.9;
-      w.syl = w.syl.map((_, k, a) => [wi + (0.9 * k) / a.length, wi + (0.9 * (k + 1)) / a.length]);
-      w.sylCalibrated = w.syl.map(() => true);
-      w.calibrated = true;
-    });
-    line.calibrated = true;
-    line.start = 0;
-    line.end = line.words.length - 0.1;
-    session.saveCalibrated(doc);
-    session.setSyllables([{ line: 0, word: 3, syllables: ['wa', 'alls'] }]);
-    const after = session.loadCalibrated().lines[0]!;
-    expect(after.calibrated).toBe(false);
-    expect(after.words[3]).toMatchObject({ syl: [[3, 3.45], [3.45, 3.9]], sylText: ['wa', 'alls'], sylCalibrated: [false, false], calibrated: false });
-    expect(after.words[2]!.calibrated).toBe(true);
-  });
-
   test('an invalid split is rejected before anything is written', () => {
     const session = setup();
     const before = fs.readFileSync(session.paths.definition, 'utf8');

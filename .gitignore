@@ -17,3 +17,6 @@ release/
 *.bin
 __pycache__/
 *.pyc
+
+# Local archive of superseded code (history keeps it too)
+.deprecated/

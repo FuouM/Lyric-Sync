@@ -273,36 +273,6 @@ async function main(argv: string[]): Promise<number> {
       }
       if (changed === 0 && !values.clear) throw new UsageError('Nothing to do: give --line/--start/--end, --boundary, --import, --clear or --list.');
       session.saveAnchors(anchors);
-      // Also synchronize into lyrics.calibrated.json so human flags and anchors remain 1:1
-      if (fs.existsSync(session.calibratedPath())) {
-        const calDoc = session.loadCalibrated();
-        for (const [key, anchor] of Object.entries(anchors.lines)) {
-          const lineIdx = Number(key);
-          const line = calDoc.lines[lineIdx];
-          if (!line) continue;
-          const lyric = def.lines[lineIdx];
-          if (!lyric) continue;
-          const sylTotal = syllableCount(lyric);
-          if (anchor.start !== undefined && anchor.end !== undefined) {
-            line.calibrated = true;
-            line.start = anchor.start;
-            line.end = anchor.end;
-          }
-          let flatIdx = 0;
-          for (const w of line.words) {
-            for (let k = 0; k < w.syl.length; k++) {
-              const sBound = flatIdx === 0 ? anchor.start : anchor.boundaries?.[String(flatIdx)];
-              const eBound = flatIdx === sylTotal - 1 ? anchor.end : anchor.boundaries?.[String(flatIdx + 1)];
-              if (sBound !== undefined) w.syl[k]![0] = sBound;
-              if (eBound !== undefined) w.syl[k]![1] = eBound;
-              if (sBound !== undefined || eBound !== undefined) w.sylCalibrated[k] = true;
-              flatIdx++;
-            }
-            w.calibrated = w.sylCalibrated.some(Boolean);
-          }
-        }
-        fs.writeFileSync(session.calibratedPath(), `${JSON.stringify(calDoc, null, 2)}\n`, 'utf8');
-      }
       const s = summarizeAnchors(anchors, def);
       emit({ changed, anchors: s }, `Anchors saved: ${s.anchoredLines} anchored lines, ${s.partialLines} partial, ${s.pinnedBoundaries} pinned boundaries. Run "lyricsync solve" to apply.`);
       return 0;
