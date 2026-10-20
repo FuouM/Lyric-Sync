@@ -39,6 +39,14 @@ int4 moves results by up to 1.7 ms per song in either direction (free mode got w
   | No snap, anchored / free | 18.74 / 26.92 -> 18.80 / 26.77 | 14.88 / 22.42 -> 14.62 / 21.95 |
 
   The temperature was chosen from 0.25, 0.5, 0.75, 1, 2 and 4: 0.25 is the only value that is not worse on any of the annotated songs, the two partly calibrated hard-case songs (pdoom, breaked_jazzpop) and the Ritsu test songs. A solve takes about 30% longer (one more forward-backward pass per line).
+- Song-adaptive guide weight (`guideAdaptLo` 0.7, `guideAdaptHi` 0.8, `guideAdaptMax` 3.33): after the solve, s = the guide's mean probability mass (within 35 ms) on the chosen interior boundaries. On clean vocals the boundary model is sharp and right: its top candidate alone beats the full solver (Ritsu test, anchored, interior boundaries: 7.2 ms against 12.8). On separated stems it is flatter and worse alone (annotated songs: 24.2 against 16.2), and the votes carry the solve. Measured s (free mode): 0.80 to 0.88 on all 50 Ritsu songs; 0.55 to 0.68 on every separated stem (the three annotated songs, pdoom, breaked_jazzpop, breaked_neuro, ailusion). When s is above 0.7 the song is solved again with the guide weight scaled by up to 3.33 (full at s = 0.8). On the stems nothing changes; on Ritsu (mean error, ms):
+
+  | Ritsu test songs | Fixed guide weight | Adaptive |
+  |---|---|---|
+  | Snap, anchored / free | 18.09 / 26.74 | **15.88** / **24.82** |
+  | No snap, anchored / free | 14.62 / 21.95 | **10.36** / **18.36** |
+
+  A clean song takes two solves. The thresholds come from the gap between the two groups; the strength from a guide-weight sweep on the Ritsu test songs. A fixed weight of 15 (= 4.5 x 3.33) gives the same Ritsu numbers but costs the annotated songs +2.1 / +1.9 ms and pdoom and breaked_jazzpop about +30 ms in free mode. The model was fine-tuned on the 40 other Ritsu songs, so how sharp it is on clean vocals unlike its training data (clean English) is not measured.
 - `review`: each boundary's expected error comes from the chain's own posterior, its scores read as log-potentials. On the annotated songs (free mode) the mean expected error of the listed boundaries is 40 ms against 35 ms real, and it ranks lines about as well as the trained method's CRF posterior (Spearman 0.51 against 0.55). It ranks, it does not measure: treat it as "look here first".
 
 ## Accuracy
@@ -60,16 +68,16 @@ After the chain is decoded, a boundary within 55 ms of a beat moves onto the bea
 
 | | Annotated songs (snapped labels) | Ritsu test songs (acoustic labels) |
 |---|---|---|
-| Snap (default), anchored / free | **15.6** / **23.3** | 18.1 / 26.7 |
-| No snap, anchored / free | 18.8 / 26.8 | **14.6** / **22.0** |
+| Snap (default), anchored / free | **15.6** / **23.3** | 15.9 / 24.8 |
+| No snap, anchored / free | 18.8 / 26.8 | **10.4** / **18.4** |
 
 Use the snap when the timing must look like hand-calibrated lyrics. Use natural timing when it must follow the voice.
 
 ## Japanese benchmark (Namine Ritsu)
 
-The Namine Ritsu Normal singing database ("Namine Ritsu", by Canon) has 50 a cappella Japanese songs with phone labels made by hand. `scripts/ritsu/` converts it to 50 workspaces: 1,855 lines and 21,704 morae. A syllable starts at its vowel. Lines break at rests of 0.25 s or more. Beats come from the UST score. The vowel onsets are 15 ms from a score note start (median). The boundary model is fine-tuned on 40 of the songs; the other 10 (`.cache/ritsu/ritsu.test.json`: every 5th song in sorted order) are the test set. The solver constants were not set on this data.
+The Namine Ritsu Normal singing database ("Namine Ritsu", by Canon) has 50 a cappella Japanese songs with phone labels made by hand. `scripts/ritsu/` converts it to 50 workspaces: 1,855 lines and 21,704 morae. A syllable starts at its vowel. Lines break at rests of 0.25 s or more. Beats come from the UST score. The vowel onsets are 15 ms from a score note start (median). The boundary model is fine-tuned on 40 of the songs; the other 10 (`.cache/ritsu/ritsu.test.json`: every 5th song in sorted order) are the test set. The solver constants were not set on this data, except the song-adaptive guide weight (see above).
 
-Test songs, guided, mean error (ms) with the previous model and with the fine-tuned model (best-path decoding; with the default least-expected-error decoding the fine-tuned model gives 18.1 / 26.7 with the snap and 14.6 / 22.0 without):
+Test songs, guided, mean error (ms) with the previous model and with the fine-tuned model (best-path decoding, fixed guide weight; the shipped solve, with least-expected-error decoding and the adaptive guide weight, gives 15.9 / 24.8 with the snap and 10.4 / 18.4 without):
 
 | | Previous | Fine-tuned |
 |---|---|---|

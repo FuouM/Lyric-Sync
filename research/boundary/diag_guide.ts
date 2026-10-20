@@ -27,6 +27,7 @@ for (const song of songs) {
       return [];
     },
     score: (_sk, _j, cands) => new Float64Array(cands.length),
+    mass: (_sk, _j, cands) => new Float64Array(cands.length),
   };
   solveGuided({ evidence: song.evidence, anchors: song.anchors, sliced: song.sliced, guide: probe });
 }

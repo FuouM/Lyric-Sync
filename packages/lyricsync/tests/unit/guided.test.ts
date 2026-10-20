@@ -30,14 +30,21 @@ function model(unsure: Array<[number, number]>, at: (line: number, j: number, t:
 }
 
 describe('solveGuided', () => {
-  test('where the model and the other evidence disagree, the review reports that boundary as more uncertain', () => {
+  test('where the model and the other evidence disagree, the review reports that boundary as the most uncertain', () => {
     const review = (m: BoundaryModelEvidence) => solveGuided({ evidence: evidence({ boundary: m }), anchors: none, sliced: {}, guide: boundaryGuide(m) }).review;
     const agree = review(model([]));
     const disagree = review(model([], (line, j, t) => (line === 1 && j === 1 ? 4.62 : t)));
     const at = (r: typeof agree) => r.find((l) => l.line === 1)!.uncertain.find((b) => b.boundary === 1)!.expectedErrorMs;
     expect(at(agree)).toBeLessThan(1);
-    expect(at(disagree)).toBeGreaterThan(10);
+    expect(at(disagree)).toBeGreaterThan(100 * at(agree));
     expect(disagree.find((l) => l.line === 1)!.uncertain[0]!.boundary).toBe(1);
+  });
+
+  test('a sharp model (clean vocals) outweighs the other evidence where they disagree; with the fixed guide weight the votes win', () => {
+    const m = model([], (line, j, t) => (line === 1 && j === 1 ? 4.62 : t));
+    const solve = (design: { guideAdaptHi?: number }) => times(solveGuided({ evidence: evidence({ boundary: m }), anchors: none, sliced: {}, guide: boundaryGuide(m), design }).lines, 1)[1]!;
+    expect(solve({})).toBeCloseTo(4.62, 1);
+    expect(solve({ guideAdaptHi: 0 })).toBeCloseTo(4.5, 2);
   });
 
   test('lines never overlap, even when a pinned line end reaches past where the next line would start', () => {
