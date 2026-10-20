@@ -33,12 +33,12 @@ export function GroupBox(props: GroupBoxProps) {
           </span>
         </Show>
         <span class="group-box-title-text">{props.title}</span>
-        <Show when={props.actions}>
-          <div class="group-box-actions" onClick={(e) => e.stopPropagation()}>
-            {props.actions}
-          </div>
-        </Show>
       </div>
+      <Show when={props.actions}>
+        <div class="group-box-actions" onClick={(e) => e.stopPropagation()}>
+          {props.actions}
+        </div>
+      </Show>
       <Show when={!collapsed()}>
         <div class="group-box-body">{props.children}</div>
       </Show>

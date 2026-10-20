@@ -10,6 +10,7 @@ import { Inspector } from "./components/Inspector";
 import { TimelineCanvas, type MonitorTrack } from "./components/TimelineCanvas";
 import { NewSongWizard } from "./components/NewSongWizard";
 import { EditLyricsModal } from "./components/EditLyricsModal";
+import { Logo } from "./components/Logo";
 import type { LineReview } from "../../src/types";
 import { isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
@@ -18,6 +19,7 @@ import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSo
 import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "./lib/calibration-doc";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, writeFirstDownbeat } from "./lib/beat-grid";
 import { persistedSignal } from "./lib/persisted-signal";
+import { theme, setTheme } from "./stores/theme";
 import {
   addSectionAt,
   barBeatAt,
@@ -1025,6 +1027,10 @@ export function App() {
           { label: "Follow Playhead", shortcut: "F", action: () => setFollow(!follow()), checked: follow() },
           { label: "Snap", shortcut: "S", action: () => setSnap(!snap()), checked: snap() },
           { label: "Pitch Contour", action: () => setShowPitch(!showPitch()), checked: showPitch() },
+          "separator",
+          { label: "Theme: Light", action: () => setTheme("light"), checked: theme() === "light" },
+          { label: "Theme: Dark", action: () => setTheme("dark"), checked: theme() === "dark" },
+          { label: "Theme: High Contrast", action: () => setTheme("high-contrast"), checked: theme() === "high-contrast" },
         ],
       },
       {
@@ -1049,7 +1055,7 @@ export function App() {
 
   const welcome = (
     <div class="daw-welcome">
-      <img src="/logo.svg" width="80" height="80" class="daw-welcome-logo" alt="lyricsync logo" />
+      <Logo width={80} height={80} class="daw-welcome-logo" />
       <h1>lyricsync</h1>
       <p>Time lyrics to the syllable, like editing clips in a video editor.</p>
       <div class="daw-welcome-actions">
@@ -1253,8 +1259,15 @@ export function App() {
         />
       </Show>
 
-      <div class="daw-statusbar">
-        <div class="daw-status-left">
+      <footer class="status-strip">
+        <div class="status-cell" style={{ flex: "1", "min-width": "0" }}>
+          <div
+            class="status-dot"
+            classList={{
+              busy: solving() || analysing(),
+              offline: status().toLowerCase().includes("fail") || status().toLowerCase().includes("error"),
+            }}
+          />
           <button
             class="daw-status-copy-btn"
             classList={{ "daw-status-copy-btn--copied": copiedStatus() }}
@@ -1265,8 +1278,26 @@ export function App() {
           </button>
           <span class="daw-status-msg" title={status()}>{status()}</span>
         </div>
-        <span class="daw-status-hint">Drag empty space to scroll · drag clip edges to retime · double-click a syllable to hear it · Ctrl+wheel zooms</span>
-      </div>
+        <div class="status-cell">
+          <i class="bi bi-clock" />
+          <span>{formatTimecode(currentTime())} / {formatTimecode(duration())}</span>
+        </div>
+        <Show when={barBeat()}>
+          {(bb) => (
+            <div class="status-cell">
+              <i class="bi bi-music-note" />
+              <span>Bar {bb().bar}.{bb().beat}</span>
+            </div>
+          )}
+        </Show>
+        <div class="status-cell">
+          <i class="bi bi-cpu" />
+          <span>{modelDevice() ? `${modelDevice()!.device.toUpperCase()}: ${gpuName(modelDevice()!.gpuProvider)}` : "No server"}</span>
+        </div>
+        <div class="status-cell" style={{ "border-right": "none" }}>
+          <span class="daw-status-hint">Space: play · C: pin · [: start · ]: end · Ctrl+S: save</span>
+        </div>
+      </footer>
     </div>
   );
 }

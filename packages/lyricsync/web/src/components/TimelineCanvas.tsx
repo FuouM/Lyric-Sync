@@ -2,6 +2,7 @@
 // Multi-track NLE-style timeline: track headers, ruler (time + bars), section markers,
 // mix and vocal waveforms with pitch, lyric clips with editable syllable edges, overview scrollbar.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { theme } from "../stores/theme";
 import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
 
@@ -87,7 +88,7 @@ function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overvie
 
 const RULER_STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 
-const C = {
+const C_DARK = {
   bg: "#16181d",
   laneAlt: "#1a1d23",
   laneBorder: "#262a33",
@@ -109,7 +110,43 @@ const C = {
   snap: "#00e5ff",
   edgeHover: "#ffffff",
   hotspot: "#ff5d5d",
+  overviewBg: "#101216",
+  overviewBorder: "rgba(255,255,255,0.7)",
+  snapText: "#001318",
+  wordHeadText: "#cfd8e3",
 };
+
+const C_LIGHT = {
+  bg: "#ffffff",
+  laneAlt: "#f8f9fa",
+  laneBorder: "#e2e8f0",
+  ruler: "#f1f3f6",
+  rulerText: "#4b5563",
+  beat: "rgba(0,0,0,0.06)",
+  downbeat: "rgba(217,119,6,0.35)",
+  mixWave: "#475569",
+  vocalWave: "#0d9488",
+  pitch: "#b45309",
+  clipFree: "#3b82f6",
+  clipFreeAlt: "#2563eb",
+  clipFreeHead: "#1d4ed8",
+  clipPinned: "#16a34a",
+  clipPinnedHead: "#15803d",
+  clipSel: "#d97706",
+  clipText: "#ffffff",
+  playhead: "#dc2626",
+  snap: "#0284c7",
+  edgeHover: "#000000",
+  hotspot: "#ef4444",
+  overviewBg: "#f1f3f6",
+  overviewBorder: "rgba(0,0,0,0.6)",
+  snapText: "#ffffff",
+  wordHeadText: "#ffffff",
+};
+
+let isDarkCurrent = true;
+let C = C_DARK;
+
 
 export function TimelineCanvas(props: TimelineCanvasProps) {
   let container!: HTMLDivElement;
@@ -224,6 +261,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const dpr = window.devicePixelRatio || 1;
     const W = canvasW();
     const H = size().h;
+    isDarkCurrent = theme() !== "light";
+    C = isDarkCurrent ? C_DARK : C_LIGHT;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
@@ -250,8 +289,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
     // Song end shading
     const endX = tToX(total());
-    if (endX < W) {
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+    if (props.doc && endX < W) {
+      ctx.fillStyle = isDarkCurrent ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.06)";
       ctx.fillRect(Math.max(0, endX), contentTop, W - endX, contentBottom - contentTop);
     }
 
@@ -301,7 +340,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const tw = ctx.measureText(snapGuide.label).width + 8;
       ctx.fillStyle = C.snap;
       ctx.fillRect(sx + 3, contentTop + 2, tw, 13);
-      ctx.fillStyle = "#001318";
+      ctx.fillStyle = C.snapText;
       ctx.fillText(snapGuide.label, sx + 7, contentTop + 12);
     }
 
@@ -490,7 +529,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.fillStyle = allPinned ? C.clipPinnedHead : C.clipFreeHead;
         ctx.fillRect(wx1, top, ww, headH);
         if (ww > 16) {
-          ctx.fillStyle = "#cfd8e3";
+          ctx.fillStyle = C.wordHeadText;
           ctx.font = "10px 'Segoe UI', sans-serif";
           ctx.fillText(w.w, wx1 + 4, top + 10);
         }
@@ -576,7 +615,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       if (line.end < props.viewStart || line.start > props.viewStart + props.viewDuration) return;
       const x1 = tToX(line.start);
       const w = Math.max(2, tToX(line.end) - x1);
-      ctx.fillStyle = li === selLine ? "#8a5a22" : line.calibrated ? "#2a5a3c" : "#2a3a52";
+      ctx.fillStyle = li === selLine ? (isDarkCurrent ? "#8a5a22" : "#f59e0b") : line.calibrated ? (isDarkCurrent ? "#2a5a3c" : "#86efac") : (isDarkCurrent ? "#2a3a52" : "#bfdbfe");
       roundRect(ctx, x1, lane.y + 3, w, lane.h - 6, 2);
       ctx.fill();
       if (w > 22) {
@@ -584,7 +623,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.beginPath();
         ctx.rect(x1, lane.y, w, lane.h);
         ctx.clip();
-        ctx.fillStyle = "#d6dde7";
+        ctx.fillStyle = isDarkCurrent ? "#d6dde7" : "#1f2937";
         ctx.font = "10px 'Segoe UI', sans-serif";
         ctx.fillText(`L${line.i}  ${line.text}`, x1 + 4, lane.y + 14);
         ctx.restore();
@@ -593,19 +632,19 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   };
 
   const drawOverview = (ctx: CanvasRenderingContext2D, W: number, y: number) => {
-    ctx.fillStyle = "#101216";
+    ctx.fillStyle = C.overviewBg;
     ctx.fillRect(0, y, W, OVERVIEW_H);
     const T = total();
     const sx = (t: number) => (t / T) * W;
     for (const line of props.doc?.lines ?? []) {
-      ctx.fillStyle = line.calibrated ? "#3f9a62" : "#3b5f8f";
+      ctx.fillStyle = line.calibrated ? (isDarkCurrent ? "#3f9a62" : "#16a34a") : (isDarkCurrent ? "#3b5f8f" : "#2563eb");
       ctx.fillRect(sx(line.start), y + 6, Math.max(1, sx(line.end) - sx(line.start)), OVERVIEW_H - 12);
     }
     const vx = sx(props.viewStart);
     const vw = Math.max(6, sx(props.viewStart + props.viewDuration) - vx);
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillStyle = isDarkCurrent ? "rgba(255,255,255,0.10)" : "rgba(0,120,215,0.12)";
     ctx.fillRect(vx, y + 2, vw, OVERVIEW_H - 4);
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.strokeStyle = C.overviewBorder;
     ctx.strokeRect(vx + 0.5, y + 2.5, vw - 1, OVERVIEW_H - 5);
     ctx.fillStyle = C.playhead;
     ctx.fillRect(sx(props.currentTime), y, 1.5, OVERVIEW_H);
@@ -617,7 +656,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   createEffect(() => {
     // Track every prop that affects pixels.
-    void [props.doc, props.currentTime, props.viewStart, props.viewDuration, props.beats, props.downbeats, props.bar1Index,
+    void [theme(), props.doc, props.currentTime, props.viewStart, props.viewDuration, props.beats, props.downbeats, props.bar1Index,
       props.mixPeaks, props.vocalPeaks, props.pitchContour, props.showPitch, props.selectedSyl,
       props.hotspots, props.monitor, props.duration, size()];
     requestDraw();

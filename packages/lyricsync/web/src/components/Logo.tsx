@@ -1,0 +1,72 @@
+// packages/lyricsync/web/src/components/Logo.tsx
+// Responsive lyricsync constellation logo that adapts to light and dark desktop themes.
+export function Logo(props: { class?: string; width?: number | string; height?: number | string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="70 61 264 264"
+      width={props.width ?? "100%"}
+      height={props.height ?? "100%"}
+      class={props.class ?? ""}
+      aria-hidden="true"
+    >
+      <defs>
+        {/* Standard 5-pointed star */}
+        <polygon id="logo-star" points="0,-10 2.47,-3.4 9.51,-3.09 3.99,1.3 5.88,8.09 0,4.2 -5.88,8.09 -3.99,1.3 -9.51,-3.09 -2.47,-3.4" />
+        
+        {/* Sharper 5-pointed star for the prominent bottom-left star */}
+        <polygon id="logo-sharp-star" points="0,-10 2.2,-3.1 9.51,-3.09 3.6,1.1 5.88,8.09 0,3.8 -5.88,8.09 -3.6,1.1 -9.51,-3.09 -2.2,-3.1" />
+
+        {/* Clean 4-pointed sparkle */}
+        <polygon id="logo-sparkle" points="0,-4 1.1,-1.1 4,0 1.1,1.1 0,4 -1.1,1.1 -4,0 -1.1,-1.1" />
+      </defs>
+
+      {/* 1. Constellation lines */}
+      <g class="constellation-line" stroke-width="2.6" stroke-linecap="round" opacity="0.92">
+        <line x1="191" y1="126" x2="283" y2="92" />
+        <line x1="188" y1="138" x2="228" y2="164" />
+        <line x1="252" y1="168" x2="275" y2="162" />
+        <line x1="176" y1="143" x2="161" y2="252" />
+      </g>
+
+      {/* 2. Main constellation stars */}
+      <g class="constellation-star">
+        <use href="#logo-star" transform="translate(298, 86) rotate(-3) scale(1.45)" />
+        <use href="#logo-star" transform="translate(177, 130) rotate(2) scale(1.05)" />
+        <use href="#logo-star" transform="translate(239, 171) rotate(-3) scale(1.0)" />
+        <use href="#logo-star" transform="translate(286, 159) rotate(5) scale(0.95)" />
+        <use href="#logo-star" transform="translate(310, 154) rotate(8) scale(0.58)" />
+      </g>
+
+      {/* 3. Bottom-left celestial globe */}
+      <g id="star-cluster">
+        {/* Midnight disc with crisp border */}
+        <circle cx="141" cy="272" r="34" class="globe-disc" stroke-width="2.2" />
+
+        {/* Floating outer stars around the globe */}
+        <g class="globe-star">
+          <use href="#logo-star" transform="translate(116, 231) rotate(-8) scale(0.45)" />
+          <use href="#logo-star" transform="translate(95, 275) rotate(-15) scale(0.6)" />
+          <use href="#logo-star" transform="translate(183, 264) rotate(15) scale(0.45)" />
+          <use href="#logo-star" transform="translate(162, 311) rotate(10) scale(0.4)" />
+        </g>
+
+        {/* Prominent Bottom-Left Star crossing the rim */}
+        <use href="#logo-sharp-star" transform="translate(120, 297) rotate(2.15) scale(2.2)" class="globe-rim-star" stroke-width="1.0" />
+
+        {/* Inner Constellation & Stars inside the globe */}
+        <g class="globe-inner">
+          <line x1="120" y1="297" x2="153" y2="255" stroke-width="2.2" stroke-linecap="round" />
+          <use href="#logo-sharp-star" transform="translate(120, 297) rotate(2.15) scale(1.15)" stroke="none" />
+          <use href="#logo-star" transform="translate(153, 255) rotate(38.15) scale(0.78)" stroke="none" />
+          <use href="#logo-star" transform="translate(121, 259) rotate(6) scale(0.65)" stroke="none" />
+          <use href="#logo-sparkle" transform="translate(154, 289) scale(0.9)" stroke="none" />
+          <use href="#logo-sparkle" transform="translate(166, 280) scale(0.85)" stroke="none" />
+          <circle cx="145" cy="245" r="1.4" stroke="none" />
+          <circle cx="135" cy="268" r="1.3" stroke="none" />
+          <circle cx="159" cy="273" r="1.4" stroke="none" />
+        </g>
+      </g>
+    </svg>
+  );
+}

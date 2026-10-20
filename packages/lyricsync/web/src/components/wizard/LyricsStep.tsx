@@ -234,8 +234,8 @@ const wrapCompartment = new Compartment();
 const editorTheme = EditorView.theme({
   "&": {
     height: "100%",
-    backgroundColor: "#101216",
-    color: "#d4dbe6",
+    backgroundColor: "var(--sys-window-bg, #ffffff)",
+    color: "var(--sys-window-text, #000000)",
     fontSize: "13px",
   },
   ".cm-scroller": {
@@ -244,22 +244,22 @@ const editorTheme = EditorView.theme({
   },
   ".cm-content": {
     padding: "8px 0",
-    caretColor: "#ffffff",
+    caretColor: "var(--sys-window-text, #000000)",
   },
   ".cm-line": {
     padding: "0 10px",
     lineHeight: "1.45",
   },
   "&.cm-focused .cm-cursor": {
-    borderLeftColor: "#ffffff",
+    borderLeftColor: "var(--sys-window-text, #000000)",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-    backgroundColor: "rgba(61, 139, 253, 0.35)",
+    backgroundColor: "rgba(0, 120, 215, 0.25)",
   },
   ".cm-gutters": {
-    backgroundColor: "#0d0f13",
-    color: "#4e5969",
-    borderRight: "1px solid #1c212a",
+    backgroundColor: "var(--sys-control-bg, #f3f3f3)",
+    color: "var(--sys-text-secondary, #666666)",
+    borderRight: "1px solid var(--sys-border-medium, #cccccc)",
     paddingRight: "2px",
   },
   ".cm-gutterElement": {
@@ -269,15 +269,15 @@ const editorTheme = EditorView.theme({
     userSelect: "none",
   },
   ".cm-activeLine": {
-    backgroundColor: "rgba(255, 255, 255, 0.025)",
+    backgroundColor: "rgba(0, 120, 215, 0.05)",
   },
   ".cm-activeLineGutter": {
-    backgroundColor: "rgba(61, 139, 253, 0.12)",
-    color: "#9fc4ff",
+    backgroundColor: "rgba(0, 120, 215, 0.12)",
+    color: "var(--sys-highlight-bg, #0078d7)",
     fontWeight: "700",
   },
   ".cm-placeholder": {
-    color: "#4a5568",
+    color: "var(--sys-text-muted, #888888)",
     fontStyle: "italic",
     padding: "0 10px",
   },

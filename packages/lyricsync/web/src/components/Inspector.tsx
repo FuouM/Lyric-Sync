@@ -3,6 +3,7 @@
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
 import { calibrationStats, formatTimecode, type SylRef } from "../lib/doc-edit";
+import { GroupBox } from "./GroupBox";
 
 export interface InspectorProps {
   doc: CalibrationDoc | null;
@@ -56,7 +57,7 @@ function TimeField(p: { label: string; value: number; onChange: (t: number) => v
         <i class="bi bi-chevron-right" />
       </button>
       <button class="daw-btn daw-btn-sm" title={`Set ${p.label.toLowerCase()} to playhead (${p.hotkey})`} onClick={() => p.onPlayhead()}>
-        <i class="bi bi-cursor-text" /> {p.hotkey}
+        Set ({p.hotkey})
       </button>
     </div>
   );
@@ -152,8 +153,7 @@ export function Inspector(props: InspectorProps) {
           const stats = () => calibrationStats(doc());
           return (
             <>
-              <section class="daw-section">
-                <header class="daw-section-title">Song</header>
+              <GroupBox title="Song Details">
                 <div class="daw-progress" title="Pinned syllables">
                   <div class="daw-progress-fill" style={{ width: `${(stats().pinned / Math.max(1, stats().total)) * 100}%` }} />
                 </div>
@@ -169,7 +169,7 @@ export function Inspector(props: InspectorProps) {
                     </button>
                   </b>
                 </div>
-              </section>
+              </GroupBox>
 
               <Show
                 when={sel()}
@@ -177,18 +177,19 @@ export function Inspector(props: InspectorProps) {
               >
                 {(x) => (
                   <>
-                    <section class="daw-section">
-                      <header class="daw-section-title">
-                        Syllable
-                        <span class="daw-section-actions">
+                    <GroupBox
+                      title="Selected Syllable"
+                      actions={
+                        <>
                           <button class="daw-icon-btn" title="Previous syllable (,)" onClick={() => props.onStep(-1)}>
                             <i class="bi bi-skip-start-fill" />
                           </button>
                           <button class="daw-icon-btn" title="Next syllable (.)" onClick={() => props.onStep(1)}>
                             <i class="bi bi-skip-end-fill" />
                           </button>
-                        </span>
-                      </header>
+                        </>
+                      }
+                    >
                       <div class="daw-syl-name">
                         <span class="daw-syl-text">{x().word.sylText[x().s.sylIdx]}</span>
                         <span class="daw-syl-word">in “{x().word.w}”</span>
@@ -210,10 +211,9 @@ export function Inspector(props: InspectorProps) {
                           <i class="bi bi-play-fill" /> Play
                         </button>
                       </div>
-                    </section>
+                    </GroupBox>
 
-                    <section class="daw-section">
-                      <header class="daw-section-title">Line {x().line.i}</header>
+                    <GroupBox title={`Line ${x().line.i}`}>
                       <div class="daw-line-text">{x().line.text}</div>
                       <div class="daw-kv"><span>Span</span><b>{formatTimecode(x().line.start)} – {formatTimecode(x().line.end)}</b></div>
                       <div class="daw-kv"><span>Status</span><b class={x().line.calibrated ? "daw-ok" : ""}>{x().line.calibrated ? "Frozen (all pinned)" : "Solver may move it"}</b></div>
@@ -228,7 +228,7 @@ export function Inspector(props: InspectorProps) {
                           <i class="bi bi-lock" /> {x().line.calibrated ? "Unfreeze" : "Freeze"}
                         </button>
                       </div>
-                    </section>
+                    </GroupBox>
                   </>
                 )}
               </Show>
@@ -237,14 +237,13 @@ export function Inspector(props: InspectorProps) {
         }}
       </Show>
 
-      <section class="daw-section">
-        <header class="daw-section-title">Shortcuts</header>
+      <GroupBox title="Keyboard Shortcuts" collapsible defaultCollapsed={false}>
         <For each={SHORTCUTS}>
           {([k, v]) => (
             <div class="daw-kv daw-shortcut"><kbd>{k}</kbd><span>{v}</span></div>
           )}
         </For>
-      </section>
+      </GroupBox>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { formatTimecode } from "../../lib/doc-edit";
 import { LcdDigits } from "../LcdDigits";
 import { persistedSignal } from "../../lib/persisted-signal";
+import { theme } from "../../stores/theme";
 
 export interface TempoStepProps {
   mixUrl: string | null;
@@ -144,14 +145,15 @@ export function TempoStep(props: TempoStepProps) {
     }
 
     // Detail: VIEW_SEC around the play position
+    const isDark = theme() !== "light";
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#0d0f12";
+    ctx.fillStyle = isDark ? "#0d0f12" : "#ffffff";
     ctx.fillRect(0, 0, w, DETAIL_H);
     const v0 = t - VIEW_SEC / 2;
     const x = (s: number) => ((s - v0) / VIEW_SEC) * w;
     if (peaks) {
-      ctx.fillStyle = "#6b7a90";
+      ctx.fillStyle = isDark ? "#6b7a90" : "#475569";
       const mid = DETAIL_H / 2 + 8;
       for (let px = 0; px < w; px++) {
         const t0 = v0 + (px / w) * VIEW_SEC;
@@ -199,11 +201,11 @@ export function TempoStep(props: TempoStepProps) {
     // Overview: whole song, the detail window, the play position
     const o = overview.getContext("2d")!;
     o.setTransform(dpr, 0, 0, dpr, 0, 0);
-    o.fillStyle = "#101216";
+    o.fillStyle = isDark ? "#101216" : "#f1f3f6";
     o.fillRect(0, 0, w, OVER_H);
     const total = duration() || (peaks ? peaks.length / TEMPO_PEAKS_PER_SEC : 0);
     if (peaks && total > 0) {
-      o.fillStyle = "#3b4658";
+      o.fillStyle = isDark ? "#3b4658" : "#94a3b8";
       for (let px = 0; px < w; px++) {
         const a = Math.floor((px / w) * peaks.length);
         const b = Math.max(a + 1, Math.floor(((px + 1) / w) * peaks.length));
@@ -211,7 +213,7 @@ export function TempoStep(props: TempoStepProps) {
         for (let i = a; i < b; i++) if (peaks[i]! > m) m = peaks[i]!;
         o.fillRect(px, OVER_H / 2 - m * 11, 1, m * 22);
       }
-      o.fillStyle = "rgba(255,255,255,0.12)";
+      o.fillStyle = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,120,215,0.15)";
       o.fillRect((v0 / total) * w, 0, (VIEW_SEC / total) * w, OVER_H);
       o.fillStyle = "#ff3b30";
       o.fillRect((t / total) * w, 0, 1.5, OVER_H);

@@ -16,7 +16,6 @@ export const THEME_REGISTRY = {
   light: { meta: "#f5f5f5", bg: "#ececec", text: "#000000", colorScheme: "light" as const, label: "Light" },
   dark: { meta: "#181818", bg: "#1e1e1e", text: "#e0e0e0", colorScheme: "dark" as const, label: "Dark" },
   "high-contrast": { meta: "#000000", bg: "#000000", text: "#ffffff", colorScheme: "dark" as const, label: "High Contrast" },
-  windows7: { meta: "#3a8bdc", bg: "#d2e6f9", text: "#162030", colorScheme: "light" as const, label: "Windows 7" },
 } as const;
 
 export type AppTheme = keyof typeof THEME_REGISTRY;
@@ -110,7 +109,7 @@ function applyThemeToDom(t: AppTheme): void {
 
 const [themeSignal, setThemeSignal] = persistedSignal<AppTheme>(
   STORAGE_KEY,
-  "dark",
+  "light",
   { deserialize: deserializeTheme }
 );
 
