@@ -54,6 +54,7 @@ A standalone web app conforming to the **SoulWindow** design system (WinForms ae
   ```bash
   bun run dev                                  # songs in <repository>/songs
   bun run dev --songs path/to/my/song-folders  # or edit another project's song folders in place
+  bun run dev --device cpu                     # models on the CPU (Solve › Run Models on GPU switches it while running)
   ```
   The server ([docs/editor-spec.md](docs/editor-spec.md#6a-development-build-current-state)) adds Auto-time, the New Song wizard and re-analysis on top of the browser editor.
 Pinning both edges of every line is the most accurate mode (see below). `--level word|syllable|flagged` pins more of what your file knows.

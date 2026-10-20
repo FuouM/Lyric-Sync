@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { emptyAnchors, importCalibrated, Session } from "../../src/index.ts";
 import type { ConsensusLine } from "../../src/index.ts";
 import { findSongDir, toRoots, type SongsRoots } from "./song-inputs.ts";
+import { inferenceDevice } from "./device.ts";
 
 export interface EditorWord {
   w?: string;
@@ -116,7 +117,7 @@ async function realign(roots: SongsRoots, id: string, lines: EditorLine[], snapT
     throw new RealignError(422, "LINES_MISMATCH", `The editor's lines do not match the lyricsync lyrics: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const solved = (await session.solve({ anchors, snapToBeats })).lyrics.lines;
+  const solved = (await session.solve({ anchors, snapToBeats, device: inferenceDevice() })).lyrics.lines;
   return lines.map((line, k) => merge(line, solved[indices[k]!]!));
 }
 

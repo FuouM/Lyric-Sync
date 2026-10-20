@@ -201,6 +201,7 @@ lyricsync  File  Edit  Playback  View  Solve                     breaked — use
 | Re-analyze (transport, Solve menu) | shown when a word's split differs from the song's analysis (or the analysis is out of date): saves, writes the splits to the lyrics, and updates the analysis (incremental in < 100 ms on CPU when audio is unchanged, or full GPU prepare when audio changed). Auto-time stays off until then |
 | Auto-time unpinned | solves around the pins; unpinned syllables take the solver's times, pinned ones stay exactly; `out/lyrics.json` and `out/review.json` are regenerated |
 | Solve › Snap Auto-timing to Beats (on by default, remembered) | on: solved boundaries within 55 ms of a beat move onto it (sent as `snapToBeats` to `/api/realign`); off: the solver's acoustic times |
+| Solve › Run Models on GPU (on by default; the label names the GPU provider, e.g. DirectML) | where the dev server runs the models for New Song, Re-analyze, Edit Lyrics and Auto-time (`device` in `GET/POST /api/config`; `bun run dev --device cpu` starts with it off). Off: CPU only, about 4x slower, same results up to float rounding. The setting lasts until the server stops. Greyed out while a solve or an analysis runs |
 | Ctrl+S | writes `lyrics.calibrated.json` |
 
 - **Snapping** (`S`): within 8 px of a bar, beat, the playhead or another syllable edge. A snapped edit shows the snap guide and the target type.

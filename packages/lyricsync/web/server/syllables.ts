@@ -19,6 +19,7 @@ import {
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { findSongDir, songInputs, type SongsRoots } from "./song-inputs.ts";
 import { calibrationFromSolve, checkLyrics } from "./wizard.ts";
+import { inferenceDevice } from "./device.ts";
 
 export interface ReanalyzeJob {
   project: string;
@@ -130,7 +131,7 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
   say(changes.length > 0 ? `Re-split ${changes.length} word${changes.length === 1 ? "" : "s"}: ${changes.map((c) => c.syllables.join("|")).join(", ")}.` : "Splits unchanged.");
   say("Checking audio evidence and boundary model…");
   const t0 = Date.now();
-  session.prepare({ onProgress: (m) => say(`  ${m}`) }).then(
+  session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() }).then(
     (r) => {
       current.state = "done";
       say(
@@ -275,10 +276,10 @@ export function updateLyrics(
   say("Updating audio evidence (alignments, boundary queries)…");
   const t0 = Date.now();
 
-  session.prepare({ onProgress: (m) => say(`  ${m}`) }).then(
+  session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() }).then(
     async () => {
       say("Solving timing around preserved pins…");
-      const result = await session.solve({ anchors });
+      const result = await session.solve({ anchors, device: inferenceDevice() });
       fs.mkdirSync(path.join(dir, "generated"), { recursive: true });
       fs.copyFileSync(session.paths.lyricsOut, path.join(dir, "generated", "lyrics.json"));
       const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));

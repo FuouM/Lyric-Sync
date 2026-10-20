@@ -103,6 +103,39 @@ export function App() {
     },
   });
   const [status, setStatus] = createSignal("Open a song folder to start.");
+  /**
+   * Where the editor server runs the models (GET/POST /api/config, server/device.ts). "gpu" uses `gpuProvider`; when it is null the
+   * machine has no GPU provider and "gpu" runs on the CPU. null: no server answered (Solve features need it anyway).
+   */
+  const [modelDevice, setModelDevice] = createSignal<{ device: "gpu" | "cpu"; gpuProvider: string | null } | null>(null);
+  const applyDeviceConfig = (data: unknown): void => {
+    if (isRecord(data) && (data.device === "gpu" || data.device === "cpu")) {
+      setModelDevice({ device: data.device, gpuProvider: typeof data.gpuProvider === "string" ? data.gpuProvider : null });
+    }
+  };
+  void fetch("/api/config")
+    .then((r) => r.json())
+    .then(applyDeviceConfig)
+    .catch(() => setModelDevice(null));
+  const gpuName = (provider: string | null): string => (provider === "dml" ? "DirectML" : provider === "cuda" ? "CUDA" : "none found");
+  const toggleModelDevice = async () => {
+    const current = modelDevice();
+    if (!current) return;
+    const device = current.device === "gpu" ? "cpu" : "gpu";
+    try {
+      const res = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device }) });
+      const data: unknown = await res.json();
+      if (!res.ok) throw new Error(isRecord(data) && typeof data.message === "string" ? data.message : `HTTP ${res.status}`);
+      applyDeviceConfig(data);
+      setStatus(
+        device === "gpu"
+          ? `Models run on the GPU (${gpuName(current.gpuProvider)}).`
+          : "Models run on the CPU: analysis takes about 4x longer; the results are the same."
+      );
+    } catch (e: unknown) {
+      setStatus(`Could not change where the models run: ${errorMessage(e)}`);
+    }
+  };
   const [solving, setSolving] = createSignal(false);
   const [showWizard, setShowWizard] = createSignal(false);
   const [showEditLyrics, setShowEditLyrics] = createSignal(false);
@@ -971,6 +1004,12 @@ export function App() {
           { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
           "separator",
           { label: "Snap Auto-timing to Beats", action: () => setSolveSnap(!solveSnap()), checked: solveSnap() },
+          {
+            label: `Run Models on GPU (${modelDevice() ? gpuName(modelDevice()!.gpuProvider) : "no server"})`,
+            action: () => void toggleModelDevice(),
+            checked: modelDevice()?.device === "gpu",
+            disabled: !modelDevice() || solving() || analysing(),
+          },
         ],
       },
     ];

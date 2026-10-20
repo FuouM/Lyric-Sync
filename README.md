@@ -22,6 +22,7 @@ The model weights are not in git. `models.json` lists each file with its SHA-256
 ```bash
 bun run dev                              # http://localhost:3000, song folders in ./songs
 bun run dev --songs <folder> --port 3001 # work on song folders somewhere else, in place
+bun run dev --device cpu                 # run the models on the CPU (Solve › Run Models on GPU switches it while running)
 ```
 
 - **Standalone:** File › New Song… builds a song folder from a mix, a vocal stem and the lyrics (beats, analysis, a first timing), then you calibrate it.

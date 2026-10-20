@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { trackBeats } from "../../../beatsync/src/index.ts";
+import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
   lintLyricsText,
@@ -229,7 +230,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     const prompt = readPromptManifest(roots, id);
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
     say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${prompt.nearestBpm} BPM)…`);
-    const a = await trackBeats(prompt.songPath, { targetBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat ?? undefined });
+    const a = await trackBeats(prompt.songPath, { targetBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat ?? undefined, device: inferenceDevice() });
     const doc: BeatsDocument = {
       v: 1,
       model: "beat_this",
@@ -260,7 +261,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
 
   say("Preparing audio evidence (pitch, alignment, boundary model). This takes a few minutes…");
   const t0 = Date.now();
-  const prepared = await session.prepare({ onProgress: (m) => say(`  ${m}`) });
+  const prepared = await session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() });
   say(prepared.skipped ? "Evidence is up to date." : `Evidence ready in ${((Date.now() - t0) / 1000).toFixed(0)} s.`);
 
   const calibrated = path.join(dir, "user_input", "lyrics.calibrated.json");
@@ -269,7 +270,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     return;
   }
   say("Solving (nothing pinned yet)…");
-  const result = await session.solve({ anchors: emptyAnchors() });
+  const result = await session.solve({ anchors: emptyAnchors(), device: inferenceDevice() });
   fs.mkdirSync(path.join(dir, "generated"), { recursive: true });
   fs.copyFileSync(session.paths.lyricsOut, path.join(dir, "generated", "lyrics.json"));
   const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));
