@@ -35,14 +35,6 @@ import {
   validateAnchors,
 } from './anchors.ts';
 import {
-  type CalibratedLyricsDocument,
-  calibratedToAnchors,
-  createInitialCalibratedDocument,
-  divideSpan,
-  parseCalibratedDocument,
-  updateCalibratedFromSolve,
-} from './calibration.ts';
-import {
   type BeatSource,
   type WorkspaceManifest,
   type WorkspacePaths,
@@ -189,7 +181,7 @@ export class Session {
   /**
    * Re-splits words into other syllables (validated like lyrics input) and writes lyrics.def.json. The evidence depends on the
    * syllables, so the workspace needs `prepare` again. Pins move with the split: anchors.json keeps every pin outside the changed
-   * words (re-indexed) and drops those inside them; in lyrics.calibrated.json a changed word is unpinned and its span divided evenly.
+   * words (re-indexed) and drops those inside them.
    */
   setSyllables(changes: SyllableChange[]): void {
     const next = structuredClone(this.#definition);
@@ -212,24 +204,8 @@ export class Session {
       resplitLineAnchor(anchor, from, old.words[c.word]!.syllables.length, c.syllables.length);
     }
     validateAnchors(anchors, next);
-
-    const calibrated = fs.existsSync(this.calibratedPath()) ? this.loadCalibrated() : null;
-    if (calibrated) {
-      for (const c of changes) {
-        const line = calibrated.lines[c.line];
-        const word = line?.words[c.word];
-        if (!line || !word) throw new Error(`${this.calibratedPath()} has no word ${c.word} in line ${c.line}.`);
-        word.syl = divideSpan(word.start, word.end, c.syllables.length);
-        word.sylText = [...c.syllables];
-        word.sylCalibrated = c.syllables.map(() => false);
-        word.calibrated = false;
-        line.calibrated = false;
-      }
-    }
-
     fs.writeFileSync(this.paths.definition, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
     saveAnchors(this.paths.anchors, anchors);
-    if (calibrated) fs.writeFileSync(this.calibratedPath(), `${JSON.stringify(calibrated, null, 2)}\n`, 'utf8');
     this.#definition = next;
     this.evidence = null;
   }
@@ -280,24 +256,6 @@ export class Session {
     const definition = parseStoredDefinition(JSON.parse(fs.readFileSync(paths.definition, 'utf8')));
     if (definition.language !== manifest.language) throw new Error(`Workspace language mismatch between lyricsync.json and lyrics.def.json.`);
     return new Session(paths, manifest, definition);
-  }
-
-  calibratedPath(): string {
-    return path.join(this.paths.dir, 'lyrics.calibrated.json');
-  }
-
-  loadCalibrated(): CalibratedLyricsDocument {
-    const file = this.calibratedPath();
-    if (fs.existsSync(file)) {
-      return parseCalibratedDocument(JSON.parse(fs.readFileSync(file, 'utf8')));
-    }
-    return createInitialCalibratedDocument(this.definition);
-  }
-
-  saveCalibrated(doc: CalibratedLyricsDocument): void {
-    fs.writeFileSync(this.calibratedPath(), `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
-    // Mirror pins into anchors.json for CLI/agent backward compatibility
-    this.saveAnchors(calibratedToAnchors(doc));
   }
 
   private vocalPath(): string {
@@ -515,17 +473,8 @@ export class Session {
     const say = options.onProgress ?? (() => {});
     say('Loading evidence...');
     const evidence = await this.loadEvidence();
-    let anchors = options.anchors;
-    if (anchors === undefined) {
-      // If lyrics.calibrated.json exists, derive anchors from confirmed calibration flags
-      if (fs.existsSync(this.calibratedPath())) {
-        anchors = calibratedToAnchors(this.loadCalibrated());
-      } else {
-        anchors = this.loadAnchors();
-      }
-    } else {
-      validateAnchors(anchors, this.definition);
-    }
+    const anchors = options.anchors ?? this.loadAnchors();
+    if (options.anchors !== undefined) validateAnchors(anchors, this.definition);
     const sliced = await this.alignAnchored(anchors, evidence, say);
     say('Solving...');
     const input = { evidence, anchors, sliced };
@@ -547,11 +496,6 @@ export class Session {
     fs.writeFileSync(this.paths.reviewOut, `${JSON.stringify({ lines: output.review }, null, 2)}\n`, 'utf8');
     const unpinned = output.review.filter((r) => r.uncertain.length > 0);
     const meanExpectedErrorMs = unpinned.length === 0 ? 0 : unpinned.reduce((s, r) => s + r.meanExpectedErrorMs, 0) / unpinned.length;
-    // Update unconfirmed times in lyrics.calibrated.json while preserving human/agent flags
-    const calDoc = this.loadCalibrated();
-    updateCalibratedFromSolve(calDoc, output.lines);
-    fs.writeFileSync(this.calibratedPath(), `${JSON.stringify(calDoc, null, 2)}\n`, 'utf8');
-
     return { lyrics, review: output.review, anchors: summarizeAnchors(anchors, this.definition), meanExpectedErrorMs };
   }
 

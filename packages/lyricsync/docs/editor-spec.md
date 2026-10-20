@@ -51,7 +51,8 @@ flowchart LR
     vocal.wav               vocal extract
     lyrics.txt              same format as the CLI (see README)
     lyricsync.json          workspace manifest (paths relative to the workspace)
-    lyrics.calibrated.json  human-owned calibration (section 3a)
+    lyrics.calibrated.json  human-owned calibration (section 3a; the dev build keeps it in user_input/)
+    anchors.json            the CLI's pins (section 3a)
     lyrics.def.json, beats.json, evidence/, sliced/, out/   (out/lyrics.json is generated only)
 ```
 
@@ -98,14 +99,10 @@ The calibrated file is the important artefact: it is the only place human (or ag
 - Every other syllable shows `out/lyrics.json`.
 - After a solve the two agree on flagged syllables by construction (they are pins).
 
-**`anchors.json` goes away as a separate human file:**
-- The CLI's `anchor` commands edit `lyrics.calibrated.json` instead:
-  - `--line N --start --end` sets the line's edge syllables' outer edges and flags them;
-  - `--boundary L:J=S` sets that boundary and flags the syllables on both sides;
-  - `--confirm-line N` / `--unconfirm-line N` toggle a line;
-  - `--import` merges flags from another calibrated file.
-- `solve` always derives its pins from the calibrated file, so the editor and agents share one source of truth.
-- Migration: an existing `anchors.json` is converted once into flags and then removed by `lyricsync` with a message. Only the workspaces in this repository have one.
+**Pins outside the editor stay in `anchors.json` (decided; the earlier plan to fold them into the calibrated file is dropped):**
+- The workspace has one pin store, `anchors.json`, written by `lyricsync anchor` and `Session.saveAnchors` and read by `solve`. It keeps per-boundary pins (`--boundary L:J=S` pins one boundary only), which the per-syllable flags cannot express.
+- The editor does not write the workspace: it turns the calibrated file's flags into anchors (`importCalibrated`) and passes them to `solve({ anchors })`, which uses them for that solve only.
+- A half-finished copy of the plan (solve reading a workspace `lyrics.calibrated.json` ahead of `anchors.json`, and writing it after every solve) made `solve()` ignore pins saved with `saveAnchors` once a solve had run. It was removed.
 
 **Granularity limit:** flags are per syllable, as in the existing shape. Dragging one boundary moves the end of syllable k-1 and the start of syllable k, so both get flagged, and their other edges are pinned at their current times; this is the behaviour the video project's editor already has. Unflag a syllable to release its far edge. Per-edge flags would need a shape change and are left out.
 
@@ -238,7 +235,7 @@ Until the browser runtime exists (phase 2), the editor runs against a local serv
 
 ## 7. Agents and change detection
 
-- **Agents use the CLI** on the same song folder (`lyricsync anchor …` edits the calibrated file, `lyricsync solve …` regenerates). `AGENTS.md` documents the library layout, the two files and the CLI's library lookup.
+- **Agents use the CLI** on the same song folder (`lyricsync anchor …` edits `anchors.json`, `--import` takes pins from a calibrated file; `lyricsync solve …` regenerates). `AGENTS.md` documents the library layout, the two files and the CLI's library lookup.
 - **Detection:** the editor polls the open song every 2 s while the tab is visible. It reads `stat()` of `lyricsync.json`, `lyrics.calibrated.json`, `out/lyrics.json` and `evidence/meta.json`, and reloads what changed that it did not write itself. A **Refresh** button forces it.
 - **Conflict rule:** last writer wins per file. Before every write the editor re-reads `lyrics.calibrated.json`. If it changed on disk since the editor last read it, the editor merges flag by flag (a syllable flagged on disk and not touched in the editor keeps the disk value) and says so in the status bar: "lyrics.calibrated.json changed on disk; merged.". The undo history starts again from the merged file.
 - **Lock:** while the editor prepares a song, it writes `.lyricsync-busy` in that song's folder with what it is doing. The CLI refuses `prepare` on a busy song, and the editor refuses to prepare a song the CLI marked busy. A lock older than 30 minutes is treated as stale.
