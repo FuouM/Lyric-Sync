@@ -4,7 +4,8 @@
 //                                          runs the models (server/device.ts).
 //   POST /api/config { device: "gpu"|"cpu" }   sets where the models run, for the rest of this server's life.
 //   POST /api/realign { project, lines, snapToBeats? }   lyricsync's full solve around the pins in `lines` (server/realign.ts);
-//                                          returns the lines with every unpinned syllable re-timed, and writes
+//                                          returns the lines with every unpinned syllable re-timed (`lines`, the requested snap
+//                                          setting; `alternate`, the other one), and writes
 //                                          <songs>/<project>/lyricsync/out/lyrics.json and review.json.
 //   POST /api/wizard/check { text, language, pronunciations }   lints lyrics: every word problem (unknown words), or counts,
 //                                          sections and automatic syllable splits. Always 200; `ok` says whether they are usable.

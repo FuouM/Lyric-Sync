@@ -15,7 +15,7 @@ import { isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
 import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSongFiles, serverStore, type SongStore } from "./lib/song-files";
-import { isSylPinned, parseCalibrationDoc, type CalibrationDoc } from "./lib/calibration-doc";
+import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "./lib/calibration-doc";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, writeFirstDownbeat } from "./lib/beat-grid";
 import { persistedSignal } from "./lib/persisted-signal";
 import {
@@ -35,6 +35,7 @@ import {
   setLinePinned,
   setPinned,
   sylPair,
+  switchSolvedTimes,
   tempoBpm,
   barTempoBpm,
   type SylRef,
@@ -93,6 +94,8 @@ export function App() {
   const [showPitch, setShowPitch] = persistedSignal("lyricsync.editor.showPitch", true);
   /** Auto-time moves solved boundaries near a beat onto it (how hand-calibrated lyrics look); off keeps the acoustic times. */
   const [solveSnap, setSolveSnap] = persistedSignal("lyricsync.editor.solveSnap", true);
+  /** The last Auto-time of the open song in both snap settings, so switching the setting re-times unpinned syllables at once. */
+  const [solvedModes, setSolvedModes] = createSignal<{ song: string; snapped: CalLine[]; natural: CalLine[] } | null>(null);
   const [panelTab, setPanelTab] = persistedSignal<ProjectTab>("lyricsync.editor.panelTab", "lines", {
     deserialize: (raw) => (raw === '"sections"' || raw === '"review"' || raw === '"songs"' ? JSON.parse(raw) : "lines"),
   });
@@ -791,10 +794,14 @@ export function App() {
       if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
       // Re-validate: the solved lines replace the document's lines.
       const solved = parseCalibrationDoc({ ...doc, lines: body.lines });
+      const alternate = parseCalibrationDoc({ ...doc, lines: body.alternate });
       if (calDoc() !== doc) {
         setStatus("Auto-timing finished, but you edited meanwhile; result discarded. Run it again.");
         return;
       }
+      const snapped = body.snapToBeats !== false;
+      const [snappedLines, naturalLines] = snapped ? [solved.lines, alternate.lines] : [alternate.lines, solved.lines];
+      setSolvedModes({ song: s.name, snapped: structuredClone(snappedLines), natural: structuredClone(naturalLines) });
       edit((d) => {
         d.lines = solved.lines;
       }, "Auto-timing done: unpinned syllables follow the solver. Save (Ctrl+S) to keep it.");
@@ -804,6 +811,30 @@ export function App() {
     } finally {
       setSolving(false);
     }
+  };
+
+  /**
+   * Switches "Snap Auto-timing to Beats". After an Auto-time of this song the unpinned syllables move to the other setting's times
+   * right away (one undoable edit); pinned syllables and syllables moved by hand since then stay.
+   */
+  const toggleSolveSnap = () => {
+    const on = !solveSnap();
+    setSolveSnap(on);
+    const modes = solvedModes();
+    const s = song();
+    const doc = calDoc();
+    const label = `Snap Auto-timing to Beats ${on ? "on" : "off"}`;
+    if (!modes || !s || !doc || modes.song !== s.name) {
+      setStatus(`${label}: applies from the next Auto-time.`);
+      return;
+    }
+    const [from, to] = on ? [modes.natural, modes.snapped] : [modes.snapped, modes.natural];
+    const moved = switchSolvedTimes(structuredClone(doc), from, to);
+    if (moved === 0) {
+      setStatus(`${label}: no unpinned syllable changes.`);
+      return;
+    }
+    edit((d) => void switchSolvedTimes(d, from, to), `${label}: ${moved} unpinned syllable${moved === 1 ? "" : "s"} re-timed; pinned ones stay.`);
   };
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
@@ -1003,7 +1034,7 @@ export function App() {
           { label: "Re-analyze (apply syllable splits)", action: () => void reanalyze(), disabled: !hasDoc || analysing() || solving() },
           { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
           "separator",
-          { label: "Snap Auto-timing to Beats", action: () => setSolveSnap(!solveSnap()), checked: solveSnap() },
+          { label: "Snap Auto-timing to Beats", action: toggleSolveSnap, checked: solveSnap(), disabled: solving() },
           {
             label: `Run Models on GPU (${modelDevice() ? gpuName(modelDevice()!.gpuProvider) : "no server"})`,
             action: () => void toggleModelDevice(),

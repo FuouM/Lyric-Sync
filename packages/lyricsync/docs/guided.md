@@ -64,7 +64,7 @@ Where the error is left, in free mode (previous model): 58-60% of the error beyo
 
 ## Beat snap and natural timing
 
-After the chain is decoded, a boundary within 55 ms of a beat moves onto the beat (`beatSnapSec`). The hand-calibrated songs were made with a tool that snaps labels to the beat grid, and snapped lyrics look tidier in a video. The snap is the default. `--no-snap` (`session.solve({ snapToBeats: false })`, the editor's Solve › Snap Auto-timing to Beats) keeps the acoustic times. Only the guided method has this option.
+After the chain is decoded, a boundary within 55 ms of a beat moves onto the beat (`beatSnapSec`). The hand-calibrated songs were made with a tool that snaps labels to the beat grid, and snapped lyrics look tidier in a video. The snap is the default. `--no-snap` (`session.solve({ snapToBeats: false })`, the editor's Solve › Snap Auto-timing to Beats, which switches the unpinned syllables of the last Auto-time at once) keeps the acoustic times. Only the guided method has this option.
 
 | | Annotated songs (snapped labels) | Ritsu test songs (acoustic labels) |
 |---|---|---|

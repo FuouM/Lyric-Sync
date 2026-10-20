@@ -125,6 +125,40 @@ export function pinLineEdges(doc: CalibrationDoc, lineIdx: number): void {
   });
 }
 
+/**
+ * Moves the auto-timed parts of `doc` from one solve result (`from`) to another (`to`): the same Auto-time with the other "snap to
+ * beats" setting. Pinned syllables never move. An unpinned syllable moves only while it still has `from`'s time, so one moved by hand
+ * since the solve stays; word and line spans follow the same rule. Returns the number of syllables whose time changed.
+ */
+export function switchSolvedTimes(doc: CalibrationDoc, from: readonly CalLine[], to: readonly CalLine[]): number {
+  const same = (a: readonly number[], b: readonly number[]) => a[0] === b[0] && a[1] === b[1];
+  let moved = 0;
+  doc.lines.forEach((line, li) => {
+    const f = from[li];
+    const t = to[li];
+    if (!f || !t || line.calibrated === true || f.words.length !== line.words.length || t.words.length !== line.words.length) return;
+    line.words.forEach((word, wi) => {
+      const fw = f.words[wi]!;
+      const tw = t.words[wi]!;
+      if (word.calibrated === true || fw.syl.length !== word.syl.length || tw.syl.length !== word.syl.length) return;
+      word.syl.forEach((pair, si) => {
+        if (isSylPinned(line, word, si) || !same(pair, fw.syl[si]!)) return;
+        if (!same(pair, tw.syl[si]!)) moved++;
+        word.syl[si] = [tw.syl[si]![0], tw.syl[si]![1]];
+      });
+      if (same([word.start, word.end], [fw.start, fw.end])) {
+        word.start = tw.start;
+        word.end = tw.end;
+      }
+    });
+    if (same([line.start, line.end], [f.start, f.end])) {
+      line.start = t.start;
+      line.end = t.end;
+    }
+  });
+  return moved;
+}
+
 /** "re|con|cile" -> its syllables; throws a message for the user when a syllable is empty or has spaces. */
 export function parseSplit(text: string): string[] {
   const parts = text.trim().split("|").map((p) => p.trim());
