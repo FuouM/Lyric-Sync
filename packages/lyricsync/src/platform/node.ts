@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as ort from 'onnxruntime-node';
+import { executionProviders } from 'beatsync';
 import type { FileStat, FileStore, ModelStore, OnnxBackend, OnnxSession, PlatformRuntime, TensorDescriptor } from './types.ts';
 import { loadAudioFile, parseWav, toMono, resample } from '../audio/audio.ts';
 
@@ -138,7 +139,7 @@ export class NodeOnnxBackend implements OnnxBackend {
     modelPathOrBytes: string | Uint8Array,
     options: { preferredDevice?: 'gpu' | 'cpu'; intraThreads?: number } = {}
   ): Promise<OnnxSession> {
-    const eps = options.preferredDevice === 'cpu' ? ['cpu'] : ['dml', 'cpu'];
+    const eps = executionProviders(options.preferredDevice ?? 'gpu');
     const sessOpts: ort.InferenceSession.SessionOptions = {
       executionProviders: eps,
       graphOptimizationLevel: 'all',

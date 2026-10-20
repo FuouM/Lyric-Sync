@@ -16,6 +16,7 @@ Usage:
 Options:
   --bpm <n>             Target BPM prior (e.g. 120, 200). Helps regularize beat tracking.
   --first-downbeat <s>  First downbeat timestamp hint in seconds (aligns 4/4 downbeat phase).
+  --device gpu|cpu      Where the model runs (default gpu; falls back to the CPU without a GPU provider). Same beats on both.
   --out <file.json>     Write output JSON to specified file path.
   --json                Print pure JSON contract to stdout.
   -h, --help            Show this help documentation.
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
   let firstDownbeat: number | undefined = undefined;
   let outPath: string | null = null;
   let isJson = false;
+  let device: 'gpu' | 'cpu' = 'gpu';
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -63,6 +65,13 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       firstDownbeat = parseFloat(val);
+    } else if (arg === '--device') {
+      const val = args[++i];
+      if (val !== 'gpu' && val !== 'cpu') {
+        console.error('Error: --device must be gpu or cpu');
+        process.exit(1);
+      }
+      device = val;
     } else if (arg === '--out') {
       const val = args[++i];
       if (!val) {
@@ -103,6 +112,7 @@ async function main(): Promise<void> {
     const analysis = await trackBeats(resolvedAudio, {
       targetBpm,
       firstDownbeat,
+      device,
     });
 
     const outputPayload = {

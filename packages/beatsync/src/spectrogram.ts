@@ -88,12 +88,33 @@ export function createSlaneyMelFilterbank(): Float32Array {
   return fb;
 }
 
-let cachedFilterbank: Float32Array | null = null;
-function getMelFilterbank(): Float32Array {
-  if (!cachedFilterbank) {
-    cachedFilterbank = createSlaneyMelFilterbank();
+/** Positive entries of each mel band, in frequency order (the only weights the sum uses). */
+interface SparseBands {
+  start: Int32Array;
+  bins: Int32Array;
+  weights: Float32Array;
+}
+let cachedBands: SparseBands | null = null;
+function getMelBands(): SparseBands {
+  if (!cachedBands) {
+    const fb = createSlaneyMelFilterbank();
+    const bins: number[] = [];
+    const weights: number[] = [];
+    const start = new Int32Array(N_MELS + 1);
+    for (let m = 0; m < N_MELS; m++) {
+      start[m] = bins.length;
+      for (let k = 0; k < N_FREQS; k++) {
+        const weight = fb[k * N_MELS + m]!;
+        if (weight > 0.0) {
+          bins.push(k);
+          weights.push(weight);
+        }
+      }
+    }
+    start[N_MELS] = bins.length;
+    cachedBands = { start, bins: Int32Array.from(bins), weights: Float32Array.from(weights) };
   }
-  return cachedFilterbank;
+  return cachedBands;
 }
 
 /**
@@ -105,7 +126,7 @@ export function computeLogMelSpectrogram(signal: Float32Array): SpectrogramResul
     return { data: new Float32Array(0), numFrames: 0, nMels: N_MELS, durationSec: 0, fps: 50 };
   }
 
-  const filterbank = getMelFilterbank();
+  const bands = getMelBands();
 
   // 1. Reflect padding (512 samples on left and right)
   const paddedLen = signalLen + 2 * PAD_AMOUNT;
@@ -153,11 +174,8 @@ export function computeLogMelSpectrogram(signal: Float32Array): SpectrogramResul
     const outFrameOffset = f * N_MELS;
     for (let m = 0; m < N_MELS; m++) {
       let melVal = 0.0;
-      for (let k = 0; k < N_FREQS; k++) {
-        const weight = filterbank[k * N_MELS + m]!;
-        if (weight > 0.0) {
-          melVal += mag[k]! * weight;
-        }
+      for (let j = bands.start[m]!, end = bands.start[m + 1]!; j < end; j++) {
+        melVal += mag[bands.bins[j]!]! * bands.weights[j]!;
       }
       outSpectrogram[outFrameOffset + m] = Math.log1p(LOG_MULTIPLIER * melVal);
     }

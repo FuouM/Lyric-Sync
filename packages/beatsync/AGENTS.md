@@ -65,7 +65,7 @@ const analysisFromPcm = await trackBeats({
 // 3. Stateful reusable class instance
 const tracker = new BeatTracker({
   targetBpm: 120,
-  executionProvider: 'cpu', // 'cpu' | 'cuda' | 'webgpu'
+  device: 'gpu', // 'gpu' (default, CPU fallback when the platform has no GPU provider) | 'cpu'; same beats on both
 });
 await tracker.init();
 const result = await tracker.trackFile('path/to/audio.wav', 0.32);

@@ -1,6 +1,10 @@
 # Evidence: what `prepare` computes and from which model
 
-`lyricsync prepare` turns the vocal stem into everything the solver needs. All of it runs locally with ONNX Runtime (DirectML on Windows where it can, otherwise CPU), using the model files shipped inside the package (`models/`). Nothing is downloaded and nothing needs Python.
+`lyricsync prepare` turns the vocal stem into everything the solver needs. All of it runs locally with ONNX Runtime, using the model files shipped inside the package (`models/`). Nothing is downloaded and nothing needs Python.
+
+**Device.** `--device gpu` (the default; `prepare({ device })` in the library) runs the models on the GPU provider of the platform's onnxruntime-node build: DirectML on Windows. Without a GPU provider, `gpu` runs on the CPU. `--device cpu` runs everything on the CPU. The GRUs of RMVPE and of the boundary model always run on the CPU: each of these models ships in two parts (`*.encoder.onnx`, `*.recurrent.onnx`, cut by `scripts/split_gru.py`), and only the encoder runs on the GPU. DirectML is slow to set up a GRU (about 2.7 ms per time step on the first run) and fails on long sequences.
+
+The two devices give the same evidence up to float rounding (f0 within 0.0001 Hz, boundary frames within 0.001). On the three annotated songs every note, edge, breath and full-song alignment, and every solved syllable time, is the same on both.
 
 | Evidence | Model / method | Used for |
 |---|---|---|
@@ -10,7 +14,7 @@
 | edge peaks (second opinion) | HuBERT forced aligner, **combined** model (`models/hubert-combined`, ~203 MB) | a second, independently trained set of boundary candidates |
 | full-song forced alignment | base (and, for English, combined) | the starting point for lines that are not anchored (the base alignment; the combined alignment when the base one collapsed on the line, see below); DP features |
 | per-line forced alignment | base (and, for English, combined), run on the audio cut to an anchored line | the starting point and features for anchored lines (computed on demand, cached; same collapse rule) |
-| f0 contour + notes | RMVPE (`models/rmvpe`, ~181 MB), despiked and segmented | pitch-change boundaries, voicing |
+| f0 contour + notes | RMVPE (`models/rmvpe`, ~181 MB in two parts), despiked and segmented | pitch-change boundaries, voicing |
 | onset notes | Swift-F0 (`models/swift-f0`, ~0.1 MB) | note onsets |
 | sustained notes | HarmoF0 (`models/harmof0`, ~5.5 MB), smoothed | sustained-note segmentation |
 | boundary frames + queries | the syllable-boundary model (`models/boundary`, ~117 MB; mHuBERT-147 backbone; head trained on GTSinger, fine-tuned on the Namine Ritsu database), see [guided.md](guided.md) | the guided solver's score for every boundary candidate |
@@ -34,7 +38,15 @@ int8 HuBERT weights would save another 160 MB, but the forced alignments move en
 
 ## Cost
 
-About a minute for a 3.5-minute song for `prepare` with DirectML (more on CPU), plus a few seconds per anchored line the first time it is solved (cached in `sliced/`). `solve` itself is seconds.
+For a 194 s song on an RTX 3060 and a 6-core Ryzen 5 3600, `prepare` takes about 20 s with `--device gpu` and about 90 s with `--device cpu` (both include beat tracking on the mix). Each anchored line adds about 0.5 s the first time it is solved (cached in `sliced/`). `solve` itself is seconds.
+
+| Stage (194 s song) | gpu | cpu |
+|---|---|---|
+| beats (Beat This!) | 2.5 s | 7.3 s |
+| RMVPE | 2.6 s | 6.8 s |
+| Swift-F0 + HarmoF0 | 2.6 s | 24.6 s |
+| HuBERT base + combined (one pass each) | 7.5 s | 28.8 s |
+| boundary model | 5.1 s | 20.4 s |
 
 ## Input audio
 

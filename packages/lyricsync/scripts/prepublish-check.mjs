@@ -14,7 +14,7 @@ for (const [name, spec] of Object.entries({ ...pkg.dependencies, ...pkg.optional
     problems.push(`dependency "${name}" is "${spec}": publish it first and replace the spec with its version range (docs/publishing.md).`);
   }
 }
-for (const required of ['dist/cli.js', 'dist/index.js', 'models/hubert-base/model.onnx', 'models/hubert-combined/model.onnx', 'models/rmvpe/rmvpe.onnx', 'models/boundary/frames.onnx', 'models/boundary/queries.onnx', 'models/boundary/config.json', 'weights/index.json']) {
+for (const required of ['dist/cli.js', 'dist/index.js', 'models/hubert-base/model.onnx', 'models/hubert-combined/model.onnx', 'models/rmvpe/rmvpe.encoder.onnx', 'models/rmvpe/rmvpe.recurrent.onnx', 'models/boundary/frames.encoder.onnx', 'models/boundary/frames.recurrent.onnx', 'models/boundary/queries.onnx', 'models/boundary/config.json', 'weights/index.json']) {
   if (!fs.existsSync(path.join(root, required))) problems.push(`missing ${required}${required.startsWith('dist') ? ' (run "npm run build")' : ''}`);
 }
 

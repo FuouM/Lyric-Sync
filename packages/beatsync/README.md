@@ -79,7 +79,7 @@ const analysisFromPcm = await trackBeats({
 // 3. Stateful BeatTracker class
 const tracker = new BeatTracker({
   targetBpm: 120,
-  executionProvider: 'cpu', // 'cpu' | 'cuda' | 'webgpu'
+  device: 'gpu', // 'gpu' (default; DirectML on Windows, CPU where no GPU provider exists) | 'cpu'
 });
 await tracker.init();
 const result = await tracker.trackFile('song.wav', 0.32);
@@ -96,6 +96,7 @@ const result = await tracker.trackFile('song.wav', 0.32);
 
 - `--bpm` / `targetBpm` (required): the song's approximate tempo. It is a tight prior: beat spacing is confined to about +/-12% of it, so a wrong value yields wrong beats. There is deliberately no default.
 - `--first-downbeat` / `firstDownbeat` (optional): seconds; aligns downbeat phase to the beat nearest this time. Beat times are unchanged.
+- `--device` / `device` (optional): `gpu` (default) or `cpu`. `gpu` uses the GPU provider of the platform's onnxruntime-node build (DirectML on Windows; CUDA where the build has it) and runs on the CPU where there is none. Beat and downbeat times are the same on both (checked on a 194 s song).
 
 ## Verified behaviour
 

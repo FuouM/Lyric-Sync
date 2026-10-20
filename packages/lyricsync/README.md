@@ -2,7 +2,7 @@
 
 Singing-voice lyrics timing, end to end: a vocal stem and the lyrics text in, word- and **syllable**-level timings out (`lyrics.json`). It works with nothing known about the song (*free*), with the start and end of lines known (*anchored*), and as an **interactive loop** where you (or an agent) pin the timings you trust and the solver re-decodes everything around them.
 
-Everything runs locally (ONNX Runtime; DirectML on Windows where it can, otherwise CPU): the forced-alignment, pitch, beat and syllable-boundary models ship inside the package, there is no Python and no network access.
+Everything runs locally (ONNX Runtime; `--device gpu`, the default, uses DirectML on Windows and the CPU where there is no GPU provider; `--device cpu` uses only the CPU): the forced-alignment, pitch, beat and syllable-boundary models ship inside the package, there is no Python and no network access.
 
 ```
 vocal stem ─┐                                       ┌─ free solve
@@ -26,7 +26,7 @@ npm install lyricsync        # Node >= 20 (also runs on Bun)
 
 ```bash
 lyricsync init  ws --vocal vocal.wav --lyrics lyrics.txt --language en --mix song.wav --bpm 120
-lyricsync prepare ws                     # ~1 min for a 3.5 min song (DirectML; longer on CPU); cached
+lyricsync prepare ws                     # ~20 s for a 3 min song on a GPU, ~90 s on the CPU (--device cpu); cached
 lyricsync solve ws --out lyrics.json     # seconds
 lyricsync review ws                      # the lines the solver is least sure about
 lyricsync anchor ws --line 7 --start 41.20 --end 44.85     # pin what you know ...

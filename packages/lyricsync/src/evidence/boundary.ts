@@ -1,16 +1,19 @@
 // packages/lyricsync/src/evidence/boundary.ts
 // The trained syllable-boundary model (models/boundary: trained on GTSinger, fine-tuned on the Namine Ritsu database; scripts/gtsinger,
 // scripts/ritsu; exported by export_onnx.py).
-//   frames.onnx   the vocal (16 kHz, peak-normalised over the song) -> per frame (100 fps) a dim-wide embedding and a context-free boundary logit
+//   frames.encoder.onnx + frames.recurrent.onnx (frames.onnx cut before its GRU by scripts/split_gru.py; see split-model.ts)
+//                 the vocal (16 kHz, peak-normalised over the song) -> per frame (100 fps) a dim-wide embedding and a context-free boundary logit
 //   queries.onnx  one boundary's phone context (last two phones on the left, first three on the right, SIL past a rest; the boundary kind;
 //                 the language) -> a dim-wide query.
 // Score of boundary j at frame t: embedding_t . query_j / sqrt(dim) + logit_t (the guided solver's guide, engine/guided.ts).
 
 import * as fs from 'node:fs';
 import * as ort from 'onnxruntime-node';
+import type { InferenceDevice } from 'beatsync';
 import { resampleBandLimited } from '../audio/audio.ts';
 import { dictionaryG2P } from '../lyrics/dictionary.ts';
 import { modelFile } from '../paths.ts';
+import { openSplitModel } from './split-model.ts';
 import type { BoundaryModelEvidence, Language, LyricsDefinition } from '../types.ts';
 
 interface BoundaryConfig {
@@ -18,7 +21,7 @@ interface BoundaryConfig {
   hop: number;
   fps: number;
   dim: number;
-  /** frames.onnx runs on windows of chunkSec + 2 padSec; each window keeps chunkSec of output. */
+  /** The frame model runs on windows of chunkSec + 2 padSec; each window keeps chunkSec of output. */
   chunkSec: number;
   padSec: number;
   phones: string[];
@@ -159,10 +162,11 @@ export async function computeQueries(cfg: BoundaryConfig, definition: LyricsDefi
 }
 
 /**
- * Frame embeddings of the whole vocal. frames.onnx runs on fixed windows (chunkSec + 2 padSec, the last one shifted back inside the song) so
- * the accelerator sees one input shape; each window contributes the chunkSec of frames at its centre (all of it for a song shorter than a window).
+ * Frame embeddings of the whole vocal. The frame model runs on fixed windows (chunkSec + 2 padSec, the last one shifted back inside the
+ * song) so the accelerator sees one input shape; each window contributes the chunkSec of frames at its centre (all of it for a song
+ * shorter than a window).
  */
-async function computeFrames(cfg: BoundaryConfig, audio: Float32Array, sampleRate: number): Promise<Float32Array> {
+async function computeFrames(cfg: BoundaryConfig, audio: Float32Array, sampleRate: number, device: InferenceDevice): Promise<Float32Array> {
   // The model was trained on scipy-resampled (band-limited) audio; linear interpolation's aliasing costs accuracy (measured on the annotated songs).
   const signal = Float32Array.from(resampleBandLimited(audio, sampleRate, cfg.sampleRate));
   let peak = 0;
@@ -175,16 +179,15 @@ async function computeFrames(cfg: BoundaryConfig, audio: Float32Array, sampleRat
   const step = Math.round(cfg.chunkSec * cfg.fps);
   const pad = Math.round(cfg.padSec * cfg.fps);
   const W = Math.min(T, step + 2 * pad);
-  // DirectML first: windows are fixed-size and short (a few thousand GRU steps); the CPU provider takes what DirectML cannot run.
-  const session = await ort.InferenceSession.create(modelFile('boundary', 'frames.onnx'), { executionProviders: ['dml', 'cpu'], graphOptimizationLevel: 'all' });
+  const model = await openSplitModel('boundary', 'frames', device);
   for (let f0 = 0; f0 < T; f0 += step) {
     const a = Math.max(0, Math.min(f0 - pad, T - W));
-    const res = await session.run({ waveform: new ort.Tensor('float32', signal.slice(a * cfg.hop, (a + W) * cfg.hop), [1, W * cfg.hop]) });
+    const res = await model.run({ waveform: new ort.Tensor('float32', signal.slice(a * cfg.hop, (a + W) * cfg.hop), [1, W * cfg.hop]) });
     const fr = res.frames!.data as Float32Array;
     const n = Math.min(step, T - f0);
     out.set(fr.subarray((f0 - a) * stride, (f0 - a + n) * stride), f0 * stride);
   }
-  await session.release();
+  await model.release();
   return out;
 }
 
@@ -193,7 +196,12 @@ export function readBoundaryConfig(): BoundaryConfig {
 }
 
 /** Runs the boundary model on a vocal (mono, any rate) for the lines of `definition`. */
-export async function extractBoundaryEvidence(audio: Float32Array, sampleRate: number, definition: LyricsDefinition): Promise<BoundaryModelEvidence> {
+export async function extractBoundaryEvidence(
+  audio: Float32Array,
+  sampleRate: number,
+  definition: LyricsDefinition,
+  device: InferenceDevice = 'gpu'
+): Promise<BoundaryModelEvidence> {
   const cfg = readConfig();
-  return { fps: cfg.fps, dim: cfg.dim, frames: await computeFrames(cfg, audio, sampleRate), queries: await computeQueries(cfg, definition) };
+  return { fps: cfg.fps, dim: cfg.dim, frames: await computeFrames(cfg, audio, sampleRate, device), queries: await computeQueries(cfg, definition) };
 }

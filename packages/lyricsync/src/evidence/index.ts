@@ -8,6 +8,7 @@ import type {
   SlicedAlignment,
   SongEvidence,
 } from '../types.ts';
+import type { InferenceDevice } from 'beatsync';
 import { loadAudioFile } from '../audio/audio.ts';
 import { extractBoundaryEvidence } from './boundary.ts';
 import { HubertAligner } from './hubert.ts';
@@ -20,45 +21,50 @@ export interface ExtractOptions {
   definition: LyricsDefinition;
   beats: number[];
   onProgress?: (message: string) => void;
+  /** Where the models run (default `gpu`; see InferenceDevice). */
+  device?: InferenceDevice;
 }
 
 /**
- * Extracts all audio-derived evidence needed by the lyricsync DP engine.
+ * Extracts all audio-derived evidence needed by the lyricsync DP engine. The models run one after another: onnxruntime-node runs a
+ * session on the JavaScript thread, so concurrent sessions in one process would only wait for each other.
  */
 export async function extractEvidence(opts: ExtractOptions): Promise<SongEvidence> {
-  opts.onProgress?.('Loading vocal audio...');
+  const device = opts.device ?? 'gpu';
+  const say = opts.onProgress ?? (() => {});
+  say('Loading vocal audio...');
   const audio = await loadAudioFile(opts.vocalPath, 44100);
   const durationSec = audio.length / 44100;
 
-  opts.onProgress?.('Extracting RMVPE pitch contour...');
-  const { f0Hz, rmvpeNotes } = await runRmvpe(audio, 44100);
+  say('Extracting RMVPE pitch contour...');
+  const { f0Hz, rmvpeNotes } = await runRmvpe(audio, 44100, device);
 
-  opts.onProgress?.('Extracting Swift-F0 transient note onsets...');
-  const swiftNotes = await runSwiftF0(audio, 44100);
+  say('Extracting Swift-F0 transient note onsets...');
+  const swiftNotes = await runSwiftF0(audio, 44100, device);
 
-  opts.onProgress?.('Extracting HarmoF0 sustained notes...');
-  const harmoNotes = await runHarmoF0(audio, 44100);
+  say('Extracting HarmoF0 sustained notes...');
+  const harmoNotes = await runHarmoF0(audio, 44100, device);
 
-  opts.onProgress?.('Extracting base HuBERT posteriors, edges and breaths...');
-  const baseAligner = new HubertAligner('base');
+  say('Extracting base HuBERT posteriors, edges and breaths...');
+  const baseAligner = new HubertAligner('base', device);
   const posteriors = await baseAligner.extractPosteriorgram(audio);
   const basePriors = await baseAligner.extractAcousticPriors(audio);
 
-  opts.onProgress?.('Aligning full song (base model)...');
+  say('Aligning full song (base model)...');
   const fullBase = await baseAligner.alignFullSong(audio, opts.definition);
 
-  opts.onProgress?.('Extracting combined HuBERT edges...');
-  const combinedAligner = new HubertAligner('combined');
+  say('Extracting combined HuBERT edges...');
+  const combinedAligner = new HubertAligner('combined', device);
   const combinedPriors = await combinedAligner.extractAcousticPriors(audio);
 
   let fullCombined: ConsensusLine[] | null = null;
   if (opts.definition.language === 'en') {
-    opts.onProgress?.('Aligning full song (combined model)...');
+    say('Aligning full song (combined model)...');
     fullCombined = await combinedAligner.alignFullSong(audio, opts.definition);
   }
 
-  opts.onProgress?.('Running the boundary model...');
-  const boundary = await extractBoundaryEvidence(audio, 44100, opts.definition);
+  say('Running the boundary model...');
+  const boundary = await extractBoundaryEvidence(audio, 44100, opts.definition, device);
   const { resolver: nucleusFor, silenceId } = createNucleusResolver(opts.definition.language);
   posteriors.silenceId = silenceId;
 
@@ -90,12 +96,13 @@ export async function alignAnchoredLines(
   evidence: SongEvidence,
   definition: LyricsDefinition,
   bounds: Record<number, { start: number; end: number }>,
-  onProgress?: (m: string) => void
+  onProgress?: (m: string) => void,
+  device: InferenceDevice = 'gpu'
 ): Promise<Record<number, SlicedAlignment>> {
-  const baseAligner = new HubertAligner('base');
+  const baseAligner = new HubertAligner('base', device);
   let combinedAligner: HubertAligner | null = null;
   if (definition.language === 'en') {
-    combinedAligner = new HubertAligner('combined');
+    combinedAligner = new HubertAligner('combined', device);
   }
 
   const results: Record<number, SlicedAlignment> = {};

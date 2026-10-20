@@ -41,7 +41,8 @@ Commands
                  [--epochs 3] [--lr 0.1] [--l2 0.2] [--tau-ms 4]. See docs/training.md.
   version
 
-Global options: --json (machine-readable stdout), --help
+Global options: --json (machine-readable stdout), --device gpu|cpu (where prepare/solve run the models; default gpu, which uses
+                DirectML on Windows and the CPU where no GPU provider exists; results agree up to float rounding), --help
 Exit codes: 0 ok, 1 error (message on stderr; with --json also {"error":{"message":..}} on stdout), 2 usage.
 
 Methods: "guided" (default) adds the bundled syllable-boundary model's scores to the vote-count solver (see docs/guided.md); "trained" scores
@@ -143,6 +144,7 @@ async function main(argv: string[]): Promise<number> {
       'tau-ms': { type: 'string' },
       method: { type: 'string' },
       'no-snap': { type: 'boolean' },
+      device: { type: 'string' },
     },
   });
   if (values.help) {
@@ -150,6 +152,8 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const json = values.json === true;
+  if (values.device !== undefined && values.device !== 'gpu' && values.device !== 'cpu') throw new UsageError('--device must be gpu or cpu.');
+  const device = values.device ?? 'gpu';
   const dir = positionals[0];
   if (dir === undefined) throw new UsageError(`"${command}" needs a workspace directory.`);
   const say = (m: string): void => void process.stderr.write(`${m}\n`);
@@ -184,7 +188,7 @@ async function main(argv: string[]): Promise<number> {
     if (method !== 'guided' && method !== 'trained' && method !== 'analytic' && method !== 'simple') {
       throw new UsageError(`--method must be guided, trained, analytic or simple, got "${method}".`);
     }
-    const result = await session.solve({ onProgress: say, method, snapToBeats: values['no-snap'] !== true });
+    const result = await session.solve({ onProgress: say, method, snapToBeats: values['no-snap'] !== true, device });
     const out = values.out ? path.resolve(values.out) : undefined;
     if (out) fs.copyFileSync(session.paths.lyricsOut, out);
     const top = session.reviewTop(5);
@@ -199,7 +203,7 @@ async function main(argv: string[]): Promise<number> {
       initFromOptions(true);
       return 0;
     case 'prepare': {
-      const r = await Session.open(dir).prepare({ force: values.force === true, onProgress: say });
+      const r = await Session.open(dir).prepare({ force: values.force === true, onProgress: say, device });
       emit({ skipped: r.skipped }, r.skipped ? 'Already prepared for these inputs (use --force to redo).' : 'Prepared.');
       return 0;
     }
@@ -218,7 +222,7 @@ async function main(argv: string[]): Promise<number> {
         session.saveAnchors(anchors);
         say(`Imported ${summary.boundariesPinned} pinned boundaries on ${summary.linesTouched} lines.`);
       }
-      await session.prepare({ onProgress: say });
+      await session.prepare({ onProgress: say, device });
       await solveAndReport(session);
       return 0;
     }

@@ -7,6 +7,7 @@ import { loadAudioFile, toMono, resample } from './audio.ts';
 import { computeLogMelSpectrogram } from './spectrogram.ts';
 import { postprocessBeats } from './postprocess.ts';
 import { modelPath } from './paths.ts';
+import { executionProviders, type InferenceDevice } from './device.ts';
 import type { BeatAnalysis, BeatTrackerOptions, TrackBeatsOptions } from './types.ts';
 
 /**
@@ -18,7 +19,7 @@ export class BeatTracker {
   private readonly chunkSize: number;
   private readonly borderSize: number;
   private readonly fps: number;
-  private readonly executionProvider: string;
+  private readonly device: InferenceDevice;
   private readonly targetBpm: number;
   private externalRunner?: (spectrogram: Float32Array, chunkSize: number) => Promise<{ beat: Float32Array; downbeat: Float32Array }>;
 
@@ -31,7 +32,7 @@ export class BeatTracker {
     this.chunkSize = options.chunkSize ?? 1500; // 30 seconds at 50 fps
     this.borderSize = options.borderSize ?? 6;   // 120 ms overlap boundary
     this.fps = options.fps ?? 50;
-    this.executionProvider = options.executionProvider ?? 'cpu';
+    this.device = options.device ?? 'gpu';
     this.targetBpm = options.targetBpm;
     this.externalRunner = options.runner;
     this.modelPath = modelPath('beat_this.onnx');
@@ -48,7 +49,7 @@ export class BeatTracker {
     }
 
     const sessionOptions: ort.InferenceSession.SessionOptions = {
-      executionProviders: [this.executionProvider === 'cpu' ? 'cpu' : this.executionProvider],
+      executionProviders: executionProviders(this.device),
       graphOptimizationLevel: 'all',
     };
 
@@ -198,6 +199,7 @@ export async function trackBeats(
 ): Promise<BeatAnalysis> {
   const tracker = new BeatTracker({
     targetBpm: options.targetBpm,
+    ...(options.device ? { device: options.device } : {}),
   });
 
   if (typeof input === 'string') {

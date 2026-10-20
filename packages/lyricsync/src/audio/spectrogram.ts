@@ -84,6 +84,35 @@ export function loadRmvpeMelFilterbank(melFbPath: string): Float32Array {
   return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
 }
 
+/** Non-zero entries of each mel band of a [128, 513] filterbank, in frequency order: skipping zero weights leaves every sum unchanged. */
+interface SparseBands {
+  start: Int32Array;
+  bins: Int32Array;
+  weights: Float32Array;
+}
+const sparseBandsOf = new WeakMap<Float32Array, SparseBands>();
+function sparseBands(melBasis: Float32Array): SparseBands {
+  let s = sparseBandsOf.get(melBasis);
+  if (s) return s;
+  const bins: number[] = [];
+  const weights: number[] = [];
+  const start = new Int32Array(RMVPE_N_MELS + 1);
+  for (let m = 0; m < RMVPE_N_MELS; m++) {
+    start[m] = bins.length;
+    for (let k = 0; k < N_FREQS; k++) {
+      const w = melBasis[m * N_FREQS + k] ?? 0;
+      if (w !== 0) {
+        bins.push(k);
+        weights.push(w);
+      }
+    }
+  }
+  start[RMVPE_N_MELS] = bins.length;
+  s = { start, bins: Int32Array.from(bins), weights: Float32Array.from(weights) };
+  sparseBandsOf.set(melBasis, s);
+  return s;
+}
+
 /**
  * Computes the 128-bin HTK Mel Spectrogram for RMVPE at 16 kHz.
  * Outputs tensor with layout [128, numFrames].
@@ -105,6 +134,7 @@ export function computeRmvpeMelSpectrogram(
   const numFrames = 1 + Math.floor((paddedLen - N_FFT) / RMVPE_HOP_LENGTH);
   const outSpectrogram = new Float32Array(RMVPE_N_MELS * numFrames);
 
+  const bands = sparseBands(melBasis);
   const re = new Float32Array(N_FFT);
   const im = new Float32Array(N_FFT);
   const mag = new Float32Array(N_FREQS);
@@ -127,9 +157,8 @@ export function computeRmvpeMelSpectrogram(
 
     for (let m = 0; m < RMVPE_N_MELS; m++) {
       let melVal = 0.0;
-      const baseOffset = m * N_FREQS;
-      for (let k = 0; k < N_FREQS; k++) {
-        melVal += (melBasis[baseOffset + k] ?? 0) * (mag[k] ?? 0);
+      for (let j = bands.start[m]!, end = bands.start[m + 1]!; j < end; j++) {
+        melVal += bands.weights[j]! * mag[bands.bins[j]!]!;
       }
       outSpectrogram[m * numFrames + f] = Math.log(Math.max(1e-5, melVal));
     }

@@ -8,7 +8,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { trackBeats } from 'beatsync';
+import { trackBeats, type InferenceDevice } from 'beatsync';
 import { isLineReview, isNumber, isRecord, isSlicedAlignment } from '../guards.ts';
 import { loadWeights } from '../engine/weights.ts';
 import { solve } from '../engine/solve.ts';
@@ -278,9 +278,13 @@ export class Session {
     return computeEvidenceKey(this.paths.dir, this.manifest, this.definition) === this.manifest.evidenceKey;
   }
 
-  /** Beats + audio evidence. Skips work when the workspace is already prepared for the current inputs, unless `force`. */
-  async prepare(options: { force?: boolean; onProgress?: Progress } = {}): Promise<{ skipped: boolean; incremental?: boolean }> {
+  /**
+   * Beats + audio evidence. Skips work when the workspace is already prepared for the current inputs, unless `force`.
+   * `device` (default `gpu`) is where the models run; the evidence is the same on both up to float rounding.
+   */
+  async prepare(options: { force?: boolean; onProgress?: Progress; device?: InferenceDevice } = {}): Promise<{ skipped: boolean; incremental?: boolean }> {
     const say = options.onProgress ?? (() => {});
+    const device = options.device ?? 'gpu';
     if (!options.force && this.evidenceFresh()) return { skipped: true, incremental: false };
     fs.mkdirSync(this.paths.evidence, { recursive: true });
 
@@ -289,7 +293,7 @@ export class Session {
     let beats: BeatsDocument;
     if (source.kind === 'mix') {
       say(`Tracking beats on ${path.basename(sourcePath)}...`);
-      const analysis = await trackBeats(sourcePath, { targetBpm: source.targetBpm, firstDownbeat: source.firstDownbeat });
+      const analysis = await trackBeats(sourcePath, { targetBpm: source.targetBpm, firstDownbeat: source.firstDownbeat, device });
       beats = {
         v: 1,
         model: 'beat_this',
@@ -355,14 +359,14 @@ export class Session {
           say('Audio evidence is current (pitch tracking and acoustic frames kept); re-aligning text...');
           const t0 = Date.now();
           const audio = await loadAudioFile(this.vocalPath(), 44100);
-          const baseAligner = new HubertAligner('base');
+          const baseAligner = new HubertAligner('base', device);
           say('Aligning full song (base model)...');
           const fullBase = await baseAligner.alignFullSong(audio, this.definition);
 
           let fullCombined: ConsensusLine[] | null = null;
           if (this.definition.language === 'en') {
             say('Aligning full song (combined model)...');
-            const combinedAligner = new HubertAligner('combined');
+            const combinedAligner = new HubertAligner('combined', device);
             fullCombined = await combinedAligner.alignFullSong(audio, this.definition);
           }
 
@@ -388,7 +392,7 @@ export class Session {
       }
     }
 
-    const evidence = await extractEvidence({ vocalPath: this.vocalPath(), definition: this.definition, beats: beats.beats, onProgress: say });
+    const evidence = await extractEvidence({ vocalPath: this.vocalPath(), definition: this.definition, beats: beats.beats, onProgress: say, device });
     saveEvidence(this.paths.evidence, evidence, { audioKey });
     this.evidence = null;
     // Cached per-line alignments belong to the previous evidence; they are recomputed on demand.
@@ -426,7 +430,7 @@ export class Session {
   }
 
   /** Forced alignments of anchored lines, cached per line and reused while that line's anchors do not change. */
-  async alignAnchored(anchors: Anchors, evidence: SongEvidence, say: Progress): Promise<Record<number, SlicedAlignment>> {
+  async alignAnchored(anchors: Anchors, evidence: SongEvidence, say: Progress, device: InferenceDevice = 'gpu'): Promise<Record<number, SlicedAlignment>> {
     const sliced: Record<number, SlicedAlignment> = {};
     const missing: Record<number, { start: number; end: number }> = {};
     fs.mkdirSync(this.paths.sliced, { recursive: true });
@@ -447,7 +451,7 @@ export class Session {
     const todo = Object.keys(missing).length;
     if (todo > 0) {
       say(`Aligning ${todo} anchored line${todo === 1 ? '' : 's'}...`);
-      const fresh = await alignAnchoredLines(evidence, this.definition, missing, say);
+      const fresh = await alignAnchoredLines(evidence, this.definition, missing, say, device);
       for (const [key, alignment] of Object.entries(fresh)) {
         const index = Number(key);
         sliced[index] = alignment;
@@ -465,8 +469,9 @@ export class Session {
    * "analytic" (explicit model, no learned weights) or "simple" (vote counts).
    * `snapToBeats` (guided only, default true) moves a solved boundary within 55 ms of a beat onto the beat, as hand-calibrated lyrics are;
    * false keeps the acoustic times (natural timing).
+   * `device` (default `gpu`) is where anchored lines are aligned.
    */
-  async solve(options: { onProgress?: Progress; anchors?: Anchors; method?: SolveMethod; snapToBeats?: boolean } = {}): Promise<SolveResult> {
+  async solve(options: { onProgress?: Progress; anchors?: Anchors; method?: SolveMethod; snapToBeats?: boolean; device?: InferenceDevice } = {}): Promise<SolveResult> {
     const method = options.method ?? 'guided';
     const snapToBeats = options.snapToBeats ?? true;
     if (!snapToBeats && method !== 'guided') throw new Error(`Natural timing (no beat snap) is only available with the guided method, not "${method}".`);
@@ -475,7 +480,7 @@ export class Session {
     const evidence = await this.loadEvidence();
     const anchors = options.anchors ?? this.loadAnchors();
     if (options.anchors !== undefined) validateAnchors(anchors, this.definition);
-    const sliced = await this.alignAnchored(anchors, evidence, say);
+    const sliced = await this.alignAnchored(anchors, evidence, say, options.device);
     say('Solving...');
     const input = { evidence, anchors, sliced };
     const output =

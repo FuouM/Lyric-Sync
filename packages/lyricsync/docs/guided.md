@@ -4,9 +4,9 @@ The simple solver's vote-count chain ([simple.md](simple.md)) plus a trained **s
 
 ## The boundary model
 
-`models/boundary/` (`frames.onnx`, `queries.onnx`, `config.json`), run by `prepare` (about 10 s for a 3.5 min song with DirectML, about 20 s on CPU). The output goes into the evidence (`boundary.bin`, `boundary.json`). The evidence key includes a fingerprint of the model, so after a model update `prepare` extracts the evidence of each workspace again (the first `prepare` after the update takes the full time).
+`models/boundary/` (`frames.encoder.onnx` + `frames.recurrent.onnx`, `queries.onnx`, `config.json`), run by `prepare` (about 5 s for a 3.2 min song on the GPU, about 20 s on the CPU). The frame model ships in two parts: the encoder runs on the GPU and the GRU part on the CPU (see [evidence.md](evidence.md)). On the CPU the two parts give exactly the output of the whole model. The output goes into the evidence (`boundary.bin`, `boundary.json`). The evidence key includes a fingerprint of the model, so after a model update `prepare` extracts the evidence of each workspace again (the first `prepare` after the update takes the full time).
 
-- **Audio side** (`frames.onnx`): the vocal is resampled to 16 kHz with a band-limited (windowed-sinc) resampler and peak-normalised, then cut into fixed 26 s windows (20 s kept, 3 s of context either side). Each window goes through a frozen mHuBERT-147 backbone (its 13 hidden layers mixed with learned weights) and a log-mel front end, then a convolution and a two-layer bidirectional GRU. Out comes, at 100 frames per second, a 64-wide embedding and a context-free boundary logit.
+- **Audio side** (the frame model): the vocal is resampled to 16 kHz with a band-limited (windowed-sinc) resampler and peak-normalised, then cut into fixed 26 s windows (20 s kept, 3 s of context either side). Each window goes through a frozen mHuBERT-147 backbone (its 13 hidden layers mixed with learned weights) and a log-mel front end, then a convolution and a two-layer bidirectional GRU. Out comes, at 100 frames per second, a 64-wide embedding and a context-free boundary logit.
 - **Text side** (`queries.onnx`): each boundary is described by its phone context: the last two phones before it, the first three after it (`SIL` past a rest), the kind of boundary (line start, line end, word start, inside a word) and the language. English words are split into their sung syllables by maximal onset, the same rule the training labels follow. That description becomes a 64-wide query.
 - Score of boundary j at frame t: `embedding_t . query_j / 8 + logit_t`. Inside a boundary's candidate span (plus 0.1 s either side) a softmax over frames turns the scores into a distribution P.
 
@@ -14,7 +14,7 @@ The simple solver's vote-count chain ([simple.md](simple.md)) plus a trained **s
 
 **Weights**: the MatMul weights are stored as 8-bit integers (weight-only, blocks of 32 values with their own scale) and the other large weights as float16. Activations stay float32. That makes 117 MB instead of 394 MB, at no measurable cost. Measured on the previous (GTSinger-only) model:
 
-| `frames.onnx` | Size | Anchored | Free |
+| Frame model | Size | Anchored | Free |
 |---|---|---|---|
 | float32 | 394 MB | 16.47 | 23.46 |
 | float16 weights | 197 MB | 16.47 | 23.46 |

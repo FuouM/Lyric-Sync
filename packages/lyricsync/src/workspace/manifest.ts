@@ -123,14 +123,15 @@ function contentStamp(file: string): string {
 let boundaryStamp: string | undefined;
 /**
  * Fingerprint of the bundled boundary model, whose output is part of the evidence: the content of queries.onnx and config.json (exported
- * together with frames.onnx from one checkpoint) and the size of frames.onnx. A new model makes prepared evidence stale.
+ * together with the frame model from one checkpoint) and the sizes of the frame model's two parts. A new model makes prepared evidence stale.
  */
 function boundaryModelStamp(): string {
   boundaryStamp ??= crypto
     .createHash('sha256')
     .update(fs.readFileSync(modelFile('boundary', 'queries.onnx')))
     .update(fs.readFileSync(modelFile('boundary', 'config.json')))
-    .update(String(fs.statSync(modelFile('boundary', 'frames.onnx')).size))
+    .update(String(fs.statSync(modelFile('boundary', 'frames.encoder.onnx')).size))
+    .update(String(fs.statSync(modelFile('boundary', 'frames.recurrent.onnx')).size))
     .digest('hex');
   return boundaryStamp;
 }
