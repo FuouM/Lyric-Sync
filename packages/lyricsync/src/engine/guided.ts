@@ -14,6 +14,8 @@ export interface BoundaryGuide {
   candidates(sk: LineSkeleton, j: number): number[];
   /** Score added to each candidate of boundary j. */
   score(sk: LineSkeleton, j: number, cands: number[]): Float64Array;
+  /** The guide's probability mass (0..1) around each candidate of boundary j: how sure it is of that time, independent of its weight. */
+  mass(sk: LineSkeleton, j: number, cands: number[]): Float64Array;
 }
 
 /** How boundaryGuide turns the model's frame scores into candidate scores (set with the bundled model on the annotated songs). */
@@ -81,13 +83,16 @@ export function boundaryGuide(model: BoundaryModelEvidence, scoring: GuideScorin
       return peaks.filter((i) => d.p[i]! >= scoring.minPeak * top).slice(0, scoring.maxPeaks).map((i) => (d.f0 + i) / fps);
     },
     score(sk, j, cands) {
+      return this.mass(sk, j, cands).map((m) => scoring.weight * m);
+    },
+    mass(sk, j, cands) {
       const d = distribution(sk, j, cands);
       return Float64Array.from(cands, (c) => {
         const lo = Math.max(0, Math.ceil((c - scoring.massSec) * fps) - d.f0);
         const hi = Math.min(d.p.length - 1, Math.floor((c + scoring.massSec) * fps) - d.f0);
         let s = 0;
         for (let i = lo; i <= hi; i++) s += d.p[i]!;
-        return scoring.weight * s;
+        return s;
       });
     },
   };
@@ -124,6 +129,13 @@ export const GUIDED_DESIGN = {
   /** Snap: a decoded boundary within beatSnapSec of a beat moves onto it. A candidate within onBeatSec of a beat counts as on it. */
   beatSnapSec: 0.055,
   onBeatSec: 0.004,
+  /** Song-adaptive guide weight. After a first solve, s = the guide's mean probability mass on the chosen interior boundaries. On clean
+   *  vocals the boundary model is sharp and right (s about 0.8 to 0.88 on the 50 Ritsu songs) and outperforms the votes; on separated stems it is
+   *  flatter (s <= 0.68 on every annotated and sample song) and the votes carry the solve. When s > guideAdaptLo the song is solved again
+   *  with the guide scaled by 1 + (guideAdaptMax - 1) * clamp((s - guideAdaptLo) / (guideAdaptHi - guideAdaptLo), 0, 1). guideAdaptHi 0 = off. */
+  guideAdaptLo: 0.7,
+  guideAdaptHi: 0.8,
+  guideAdaptMax: 3.33,
   /** Minimum duration of a sung syllable (seconds). */
   minSylSec: 0.08,
   /** Score lost per sixteenth note between a candidate and the consensus estimate, and the cap in sixteenths. */
@@ -249,7 +261,7 @@ function addGuideCandidates(sk: LineSkeleton, pins: Array<number | undefined>, g
   });
 }
 
-function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefined>, guide: BoundaryGuide | null, D: GuidedDesign): Float64Array[] {
+function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefined>, guide: BoundaryGuide | null, D: GuidedDesign, guideScale = 1): Float64Array[] {
   const { prior, s16 } = sk;
   const e = sk.ev.events;
   const m = sk.cands.length - 1;
@@ -270,7 +282,7 @@ function unaryRows(sk: LineSkeleton, le: LineEvents, pins: Array<number | undefi
     });
     if (guide !== null && pins[j] === undefined) {
       const add = guide.score(sk, j, cands);
-      for (let k = 0; k < row.length; k++) row[k]! += add[k]!;
+      for (let k = 0; k < row.length; k++) row[k]! += guideScale * add[k]!;
     }
     return row;
   });
@@ -403,32 +415,52 @@ export function solveGuided(input: Omit<SolveInput, 'weights'> & { guide: Bounda
   const { consensus, linePins, ev } = prepareSolve(input);
   const eighths = eighthGrid(ev.events, D);
   const audio = D.audioVote > 0 ? audioOnsets(input.evidence.audio, input.evidence.sampleRate, D) : [];
-  const lines: ConsensusLine[] = structuredClone(consensus);
-  // In time order: each line is constrained by the one before it, already decoded.
-  const solved: Array<{ skeleton: LineSkeleton; marginals: Float64Array[] }> = new Array(linePins.length);
   const order = linePins.map((_, i) => i).sort((a, b) => linePins[a]!.lineIndex - linePins[b]!.lineIndex);
   const pinnedEnd = new Map(linePins.flatMap((lp) => (lp.pins[lp.syllableCount] === undefined ? [] : [[lp.lineIndex, lp.pins[lp.syllableCount]!] as const])));
-  for (const i of order) {
-    const lp = linePins[i]!;
-    const line = lines[lp.lineIndex]!;
-    const skeleton = buildLineSkeleton(line, lp.lineIndex, ev, lp.pins);
-    if (input.guide !== null) addGuideCandidates(skeleton, lp.pins, input.guide);
-    const prev = lines[lp.lineIndex - 1];
-    if (prev !== undefined) {
-      const prevSyl = prev.words[prev.words.length - 1]!.syl!;
-      // After the previous line's last syllable start, and after its end when the user pinned that end.
-      keepAfter(skeleton, lp.pins, Math.max(prevSyl[prevSyl.length - 1]![0] + D.minSylSec, pinnedEnd.get(lp.lineIndex - 1) ?? -Infinity), D);
+
+  const decode = (guideScale: number) => {
+    const lines: ConsensusLine[] = structuredClone(consensus);
+    // In time order: each line is constrained by the one before it, already decoded.
+    const solved: Array<{ skeleton: LineSkeleton; marginals: Float64Array[] }> = new Array(linePins.length);
+    let massSum = 0;
+    let massN = 0;
+    for (const i of order) {
+      const lp = linePins[i]!;
+      const line = lines[lp.lineIndex]!;
+      const skeleton = buildLineSkeleton(line, lp.lineIndex, ev, lp.pins);
+      if (input.guide !== null) addGuideCandidates(skeleton, lp.pins, input.guide);
+      const prev = lines[lp.lineIndex - 1];
+      if (prev !== undefined) {
+        const prevSyl = prev.words[prev.words.length - 1]!.syl!;
+        // After the previous line's last syllable start, and after its end when the user pinned that end.
+        keepAfter(skeleton, lp.pins, Math.max(prevSyl[prevSyl.length - 1]![0] + D.minSylSec, pinnedEnd.get(lp.lineIndex - 1) ?? -Infinity), D);
+      }
+      const le = lineEvents(skeleton, eighths, audio, D);
+      const u = unaryRows(skeleton, le, lp.pins, input.guide, D, guideScale);
+      const pair = pairTables(skeleton, le, D);
+      const path = snapToBeats(skeleton, decodeChain(skeleton.cands, u, pair, D), D);
+      applyPath(line, skeleton, path);
+      if (input.guide !== null) {
+        for (let j = 1; j + 1 < skeleton.cands.length; j++) {
+          if (lp.pins[j] !== undefined) continue;
+          massSum += input.guide.mass(skeleton, j, [skeleton.cands[j]![path[j]!]!])[0]!;
+          massN++;
+        }
+      }
+      // The review's uncertainty: the chain's own posterior, its scores read as log-potentials (on the annotated songs the mean expected error
+      // comes out close to the real one, and it ranks lines about as well as the trained method's CRF posterior).
+      const marginals = chainMarginals(skeleton.cands, { u, pair });
+      solved[i] = { skeleton, marginals };
     }
-    const le = lineEvents(skeleton, eighths, audio, D);
-    const u = unaryRows(skeleton, le, lp.pins, input.guide, D);
-    const pair = pairTables(skeleton, le, D);
-    const path = decodeChain(skeleton.cands, u, pair, D);
-    applyPath(line, skeleton, snapToBeats(skeleton, path, D));
-    // The review's uncertainty: the chain's own posterior, its scores read as log-potentials (on the annotated songs the mean expected error
-    // comes out close to the real one, and it ranks lines about as well as the trained method's CRF posterior).
-    const marginals = chainMarginals(skeleton.cands, { u, pair });
-    solved[i] = { skeleton, marginals };
+    return { lines, solved, mass: massN > 0 ? massSum / massN : 0 };
+  };
+
+  let run = decode(1);
+  if (D.guideAdaptHi > 0) {
+    const f = Math.max(0, Math.min(1, (run.mass - D.guideAdaptLo) / (D.guideAdaptHi - D.guideAdaptLo)));
+    if (f > 0) run = decode(1 + f * (D.guideAdaptMax - 1));
   }
+  const { lines, solved } = run;
   joinLineEnds(lines, linePins, [...input.evidence.rmvpeNotes, ...input.evidence.harmoNotes], D);
   clipLineOverlaps(lines, new Set(pinnedEnd.keys()));
   fitLineExtents(lines);
