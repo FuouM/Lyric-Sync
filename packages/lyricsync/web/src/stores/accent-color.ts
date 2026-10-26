@@ -47,7 +47,6 @@ function computeAccentPalette(rawColor: string, appTheme: AppTheme = "light"): R
   const contrastText = getContrastText(hex);
   const isDark = appTheme === "dark";
   const isHighContrast = appTheme === "high-contrast";
-  const isWin7 = appTheme === "windows7";
 
   const accessibleLink = getAccessibleLinkColor(hex, isDark || isHighContrast);
   let primary = hex;
@@ -60,7 +59,7 @@ function computeAccentPalette(rawColor: string, appTheme: AppTheme = "light"): R
   let buttonHover = adjustBrightness(hex, 90);
   let buttonActive = adjustBrightness(hex, 78);
   const buttonPrimaryBg = highlightBg;
-  const buttonPrimaryBorder = isWin7 ? primaryBorder : adjustBrightness(hex, -15);
+  const buttonPrimaryBorder = adjustBrightness(hex, -15);
   const buttonPrimaryHover = isDark || isHighContrast ? adjustBrightness(hex, 10) : adjustBrightness(hex, -8);
   const buttonPrimaryActive = isDark || isHighContrast ? adjustBrightness(hex, -10) : adjustBrightness(hex, -15);
   let link = accessibleLink;
@@ -85,16 +84,7 @@ function computeAccentPalette(rawColor: string, appTheme: AppTheme = "light"): R
     buttonActive = adjustBrightness(hex, -45);
     link = adjustBrightness(hex, 25);
     linkHover = adjustBrightness(hex, 40);
-  } else if (isWin7) {
-    primary = adjustBrightness(hex, -5);
-    primaryHover = adjustBrightness(hex, 14);
-    primaryActive = adjustBrightness(hex, -18);
-    primaryBorder = adjustBrightness(hex, -25);
-    borderFocus = adjustBrightness(hex, 10);
-    buttonHover = adjustBrightness(hex, 90);
-    buttonActive = adjustBrightness(hex, 78);
   }
-
   // Windows 7 Aero Colorization Palette
   const aeroLight = adjustBrightness(hex, 25);
   const aeroMid = hex;

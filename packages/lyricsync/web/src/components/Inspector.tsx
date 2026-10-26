@@ -1,8 +1,10 @@
 // packages/lyricsync/web/src/components/Inspector.tsx
 // NLE-style inspector: properties of the selected syllable and its line, with nudge and pin controls.
 import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
+import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { calibrationStats, formatTimecode, type SylRef } from "../lib/doc-edit";
+import type { TempoMap } from "../lib/tempo-grid";
+import { GroupBox } from "./GroupBox";
 
 export interface InspectorProps {
   doc: CalibrationDoc | null;
@@ -22,6 +24,17 @@ export interface InspectorProps {
   analysedSplit: string[] | null;
   /** Re-splits the selected word from "syl|la|bles"; returns an error to show, or null when applied. */
   onResplit: (text: string) => string | null;
+  /** The song's tempo map from the dev server, or null when the song is not open through it. */
+  tempo: TempoMap | null;
+  tempoBusy: boolean;
+  /** Applies an edited tempo map (the server re-fits the beats). */
+  onTempoEdit: (map: TempoMap) => void;
+  onAddTempo: () => void;
+  onSeek: (t: number) => void;
+  /** The beats fixed by hand, with the bar each is on. */
+  pins: Array<{ beat: number; at: number; bar: number | null }>;
+  onRemovePin: (beat: number) => void;
+  onClearPins: () => void;
 }
 
 const NUDGE = 0.01;
@@ -56,8 +69,58 @@ function TimeField(p: { label: string; value: number; onChange: (t: number) => v
         <i class="bi bi-chevron-right" />
       </button>
       <button class="daw-btn daw-btn-sm" title={`Set ${p.label.toLowerCase()} to playhead (${p.hotkey})`} onClick={() => p.onPlayhead()}>
-        <i class="bi bi-cursor-text" /> {p.hotkey}
+        Set ({p.hotkey})
       </button>
+    </div>
+  );
+}
+
+/** One row of the tempo map: where it starts (null for the start of the song) and its BPM. Enter, or leaving the row, applies an edit. */
+function TempoRow(p: {
+  label: string;
+  at: number | null;
+  bpm: number;
+  disabled: boolean;
+  onChange: (at: number, bpm: number) => void;
+  onGo?: () => void;
+  onRemove?: () => void;
+}) {
+  const [atDraft, setAtDraft] = createSignal<string | null>(null);
+  const [bpmDraft, setBpmDraft] = createSignal<string | null>(null);
+  const commit = () => {
+    const at = atDraft() === null ? p.at : Number(atDraft());
+    const bpm = bpmDraft() === null ? p.bpm : Number(bpmDraft());
+    setAtDraft(null);
+    setBpmDraft(null);
+    if (at === null || !Number.isFinite(at) || !Number.isFinite(bpm)) return;
+    if (at !== p.at || bpm !== p.bpm) p.onChange(at, bpm);
+  };
+  const keys = (e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") {
+      setAtDraft(null);
+      setBpmDraft(null);
+      e.currentTarget.blur();
+    }
+  };
+  return (
+    <div class="daw-prop-row" onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && commit()}>
+      <span class="daw-prop-label">{p.label}</span>
+      <Show when={p.at !== null}>
+        <input class="daw-num" title="Starts at (seconds)" disabled={p.disabled} value={atDraft() ?? p.at!.toFixed(3)} onInput={(e) => setAtDraft(e.currentTarget.value)} onKeyDown={keys} />
+      </Show>
+      <input class="daw-num" title="Tempo (BPM)" disabled={p.disabled} value={bpmDraft() ?? String(p.bpm)} onInput={(e) => setBpmDraft(e.currentTarget.value)} onKeyDown={keys} />
+      <span class="daw-muted">BPM</span>
+      <Show when={p.onGo}>
+        <button class="daw-icon-btn" title="Go to this change" onClick={() => p.onGo!()}>
+          <i class="bi bi-skip-backward-fill" />
+        </button>
+      </Show>
+      <Show when={p.onRemove}>
+        <button class="daw-icon-btn" title="Remove this change" disabled={p.disabled} onClick={() => p.onRemove!()}>
+          <i class="bi bi-x-lg" />
+        </button>
+      </Show>
     </div>
   );
 }
@@ -152,8 +215,7 @@ export function Inspector(props: InspectorProps) {
           const stats = () => calibrationStats(doc());
           return (
             <>
-              <section class="daw-section">
-                <header class="daw-section-title">Song</header>
+              <GroupBox title="Song Details">
                 <div class="daw-progress" title="Pinned syllables">
                   <div class="daw-progress-fill" style={{ width: `${(stats().pinned / Math.max(1, stats().total)) * 100}%` }} />
                 </div>
@@ -169,7 +231,73 @@ export function Inspector(props: InspectorProps) {
                     </button>
                   </b>
                 </div>
-              </section>
+              </GroupBox>
+
+              <GroupBox
+                title="Tempo Map"
+                actions={
+                  <button class="daw-icon-btn" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+                    <i class="bi bi-plus-lg" />
+                  </button>
+                }
+              >
+                <Show when={props.tempo} fallback={<div class="daw-empty-note">Open the song through the dev server to edit its tempo.</div>}>
+                  {(map) => (
+                    <>
+                      <TempoRow label="Start" at={null} bpm={map().nearestBpm} disabled={props.tempoBusy} onChange={(_, bpm) => props.onTempoEdit({ ...map(), nearestBpm: bpm })} />
+                      <For each={map().tempoChanges}>
+                        {(c, i) => (
+                          <TempoRow
+                            label={`Change ${i() + 1}`}
+                            at={c.at}
+                            bpm={c.bpm}
+                            disabled={props.tempoBusy}
+                            onChange={(at, bpm) =>
+                              props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.map((x, j) => (j === i() ? { at, bpm } : x)).sort((a, b) => a.at - b.at) })
+                            }
+                            onGo={() => props.onSeek(c.at)}
+                            onRemove={() => props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.filter((_, j) => j !== i()) })}
+                          />
+                        )}
+                      </For>
+                      <p class="daw-wizard-note">
+                        Drag a grip in the Tempo track, or type here. Put a change on the first beat of the new tempo. The beats follow at once; Re-analyze, then Auto-time, re-fits the lyric timing to them.
+                      </p>
+                    </>
+                  )}
+                </Show>
+              </GroupBox>
+
+              <Show when={props.tempo}>
+                <GroupBox
+                  title="Fixed Bars"
+                  actions={
+                    <button class="daw-btn daw-btn-sm" title="Free every fixed beat" disabled={props.pins.length === 0 || props.tempoBusy} onClick={() => props.onClearPins()}>
+                      Clear
+                    </button>
+                  }
+                >
+                  <Show when={props.pins.length > 0} fallback={<div class="daw-empty-note">Drag a bar line (the top of the ruler) onto the music to fix it.</div>}>
+                    <For each={props.pins}>
+                      {(p) => (
+                        <div class="daw-prop-row">
+                          <span class="daw-prop-label">{p.bar === null ? `Beat ${p.beat + 1}` : `Bar ${p.bar}`}</span>
+                          <b>{formatTimecode(p.at)}</b>
+                          <button class="daw-icon-btn" title="Go to this bar" onClick={() => props.onSeek(p.at)}>
+                            <i class="bi bi-skip-backward-fill" />
+                          </button>
+                          <button class="daw-icon-btn" title="Free this beat" disabled={props.tempoBusy} onClick={() => props.onRemovePin(p.beat)}>
+                            <i class="bi bi-x-lg" />
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+                  <p class="daw-wizard-note">
+                    Drag a bar line in the top strip of the ruler to where the bar starts in the music; Alt+click frees it. The beats between fixed bars are re-fitted, the count between them stays.
+                  </p>
+                </GroupBox>
+              </Show>
 
               <Show
                 when={sel()}
@@ -177,18 +305,19 @@ export function Inspector(props: InspectorProps) {
               >
                 {(x) => (
                   <>
-                    <section class="daw-section">
-                      <header class="daw-section-title">
-                        Syllable
-                        <span class="daw-section-actions">
+                    <GroupBox
+                      title="Selected Syllable"
+                      actions={
+                        <>
                           <button class="daw-icon-btn" title="Previous syllable (,)" onClick={() => props.onStep(-1)}>
                             <i class="bi bi-skip-start-fill" />
                           </button>
                           <button class="daw-icon-btn" title="Next syllable (.)" onClick={() => props.onStep(1)}>
                             <i class="bi bi-skip-end-fill" />
                           </button>
-                        </span>
-                      </header>
+                        </>
+                      }
+                    >
                       <div class="daw-syl-name">
                         <span class="daw-syl-text">{x().word.sylText[x().s.sylIdx]}</span>
                         <span class="daw-syl-word">in “{x().word.w}”</span>
@@ -210,10 +339,9 @@ export function Inspector(props: InspectorProps) {
                           <i class="bi bi-play-fill" /> Play
                         </button>
                       </div>
-                    </section>
+                    </GroupBox>
 
-                    <section class="daw-section">
-                      <header class="daw-section-title">Line {x().line.i}</header>
+                    <GroupBox title={`Line ${x().line.i}`}>
                       <div class="daw-line-text">{x().line.text}</div>
                       <div class="daw-kv"><span>Span</span><b>{formatTimecode(x().line.start)} – {formatTimecode(x().line.end)}</b></div>
                       <div class="daw-kv"><span>Status</span><b class={x().line.calibrated ? "daw-ok" : ""}>{x().line.calibrated ? "Frozen (all pinned)" : "Solver may move it"}</b></div>
@@ -228,7 +356,7 @@ export function Inspector(props: InspectorProps) {
                           <i class="bi bi-lock" /> {x().line.calibrated ? "Unfreeze" : "Freeze"}
                         </button>
                       </div>
-                    </section>
+                    </GroupBox>
                   </>
                 )}
               </Show>
@@ -237,14 +365,13 @@ export function Inspector(props: InspectorProps) {
         }}
       </Show>
 
-      <section class="daw-section">
-        <header class="daw-section-title">Shortcuts</header>
+      <GroupBox title="Keyboard Shortcuts" collapsible defaultCollapsed={false}>
         <For each={SHORTCUTS}>
           {([k, v]) => (
             <div class="daw-kv daw-shortcut"><kbd>{k}</kbd><span>{v}</span></div>
           )}
         </For>
-      </section>
+      </GroupBox>
     </div>
   );
 }

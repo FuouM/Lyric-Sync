@@ -12,7 +12,7 @@
 //   lyricsync/out/review.json           solver review; absent until the first solve
 import { isLineReview, isNumber, isRecord } from "../../../src/guards";
 import type { LineReview } from "../../../src/types";
-import { parseCalibrationDoc, type CalibrationDoc } from "./calibration-doc";
+import { parseCalibrationDoc, type CalibrationDoc } from "../../../src/calibration-doc";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat } from "./beat-grid";
 
 export const CALIBRATED_PATH = "user_input/lyrics.calibrated.json";

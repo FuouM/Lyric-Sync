@@ -1,13 +1,14 @@
 // packages/lyricsync/web/server/wizard.ts
 // New-song wizard backend (local dev server): turns raw inputs into a song folder the editor opens, in the song-folder layout
-// (server/song-inputs.ts; the same as probable-video-editor projects, so its project scripts work on it too).
+// (src/song-folder.ts; the same as probable-video-editor projects, so its project scripts work on it too).
 //
 // <songs>/<id>/
 //   project.json                       video project with only the song asset (assets.song.src = the mix)
-//   user_input/prompt.yaml             song and stem names, nearest_bpm, first_downbeat_s
+//   user_input/prompt.yaml             song and stem names, nearest_bpm, tempo_changes, first_downbeat_s
 //   user_input/<mix>, user_input/stems/<vocal>
 //   user_input/lyrics.txt              the lyrics as typed;  user_input/lyrics.sync.json  the parsed lyrics contract
 //   generated/timing.ai.json           beat grid (beatsync)
+//   generated/features.json            audio feature envelopes (beatsync features), the input of the pve video editor
 //   lyricsync/                         workspace: init + prepare (evidence), free solve -> out/lyrics.json
 //   generated/lyrics.json              copy of the solver's out/lyrics.json (system generated)
 //   user_input/lyrics.calibrated.json  start of the human calibration: the free solve, nothing pinned
@@ -15,25 +16,30 @@
 // The build is a pipeline of stages; a stage whose result exists is skipped, so a failed build resumes where it stopped.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { trackBeats } from "../../../beatsync/src/index.ts";
+import { checkTempoChanges, computeFeatures, type TempoChange } from "../../../beatsync/src/index.ts";
+import { beatsDocument, trackSongBeats } from "./beats.ts";
+import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
   lintLyricsText,
   lyricsSectionOutline,
   parseLyricsText,
   pronunciationKey,
+  readLyricsFile,
   Session,
   type AutoSplitNote,
   type Language,
   type LyricsDefinition,
   type LyricsIssue,
+  type ParsedLyrics,
   type Pronunciations,
   type SectionOutline,
+  type SylJoins,
 } from "../../src/index.ts";
 import type { BeatsDocument, ConsensusLine } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { dictionaryG2P } from "../../src/lyrics/index.ts";
-import { findSongDir, ID_RE, readPromptManifest, songDir, songInputs, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, readPromptManifest, readSongPrompt, SONG_ID_RE, songDir, songFolderPaths, songInputs, type SongsRoots } from "../../src/song-folder.ts";
 
 export interface WizardJob {
   project: string;
@@ -87,7 +93,7 @@ export function checkLyrics(text: string, language: Language, pronunciations: Pr
       const words = norm.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
       for (const w of words) {
         const clean = w.replace(/\{[^}]*\}/g, "");
-        syllablesCount += clean.includes("|") ? clean.split("|").length : 1;
+        syllablesCount += clean.split(language === "ja" ? /[|+]/ : "|").length;
       }
     }
   }
@@ -121,6 +127,8 @@ export interface CreateInput {
   id: string;
   language: Language;
   bpm: number;
+  /** Tempo changes after the start of the song, increasing in time. */
+  tempoChanges: TempoChange[];
   firstDownbeat: number | null;
   lyrics: string;
   pronunciations: Pronunciations;
@@ -135,12 +143,26 @@ const safeName = (name: string, what: string) => {
   return base;
 };
 
+/** The `lines` of user_input/lyrics.sync.json: the definition, plus the `+` joins of the text (display only; the solver reads the syllables). */
+export function syncLines(parsed: ParsedLyrics) {
+  return parsed.definition.lines.map((l, li) => ({
+    ...(l.section ? { section: l.section } : {}),
+    text: l.text,
+    words: l.words.map((w, wi) => {
+      const join = parsed.sylJoin[li]![wi];
+      return { w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}), ...(join ? { sylJoin: join } : {}) };
+    }),
+  }));
+}
+
 /** Validates everything that can be checked up front, writes the inputs, then starts the build. */
 export async function createSong(songsRoot: string, input: CreateInput): Promise<void> {
   if (job?.state === "running") throw new Error(`A build is already running (${job.project}). Wait for it to finish.`);
-  if (!ID_RE.test(input.id)) throw new Error("The song id must be lowercase letters, digits, - or _, starting with a letter or digit.");
+  if (!SONG_ID_RE.test(input.id)) throw new Error("The song id must be lowercase letters, digits, - or _, starting with a letter or digit.");
   if (!Number.isFinite(input.bpm) || input.bpm < 40 || input.bpm > 260) throw new Error("The tempo must be between 40 and 260 BPM.");
   if (input.firstDownbeat !== null && !(input.firstDownbeat >= 0)) throw new Error("The first downbeat must be a time in seconds, 0 or more.");
+  checkTempoChanges(input.bpm, input.tempoChanges);
+  for (const c of input.tempoChanges) if (c.bpm < 40 || c.bpm > 260) throw new Error(`The tempo from ${c.at} s must be between 40 and 260 BPM.`);
   const dir = songDir(songsRoot, input.id);
   if (fs.existsSync(dir)) throw new Error(`${dir} already exists. Choose another id, or resume its build.`);
   const check = checkLyrics(input.lyrics, input.language, input.pronunciations);
@@ -158,6 +180,7 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
     "timing_mode: ai",
     `nearest_bpm: ${input.bpm}`,
     ...(input.firstDownbeat === null ? [] : [`first_downbeat_s: ${input.firstDownbeat}`]),
+    ...(input.tempoChanges.length === 0 ? [] : ["tempo_changes:", ...input.tempoChanges.flatMap((c) => [`  - at: ${c.at}`, `    bpm: ${c.bpm}`])]),
     "files:",
     `  song: ${yamlString(mixName)}`,
     "  lyrics: lyrics.txt",
@@ -167,15 +190,8 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
     "",
   ].join("\n");
   fs.writeFileSync(path.join(dir, "user_input", "prompt.yaml"), prompt, "utf8");
-  const definition = parseLyricsText(input.lyrics, input.language, input.pronunciations).definition;
-  writeJson(path.join(dir, "user_input", "lyrics.sync.json"), {
-    language: definition.language,
-    lines: definition.lines.map((l) => ({
-      ...(l.section ? { section: l.section } : {}),
-      text: l.text,
-      words: l.words.map((w) => ({ w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}) })),
-    })),
-  });
+  const parsed = parseLyricsText(input.lyrics, input.language, input.pronunciations);
+  writeJson(path.join(dir, "user_input", "lyrics.sync.json"), { language: parsed.definition.language, lines: syncLines(parsed) });
   writeJson(path.join(dir, "project.json"), {
     v: 1,
     id: input.id,
@@ -228,19 +244,21 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
   else {
     const prompt = readPromptManifest(roots, id);
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
-    say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${prompt.nearestBpm} BPM)…`);
-    const a = await trackBeats(prompt.songPath, { targetBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat ?? undefined });
-    const doc: BeatsDocument = {
-      v: 1,
-      model: "beat_this",
-      duration: Number(a.durationSec.toFixed(3)),
-      bpm: a.bpm,
-      beat_period: a.beatPeriod,
-      beats: a.beats.map((b) => Number(b.toFixed(3))),
-      downbeats: a.downbeats.map((d) => Number(d.toFixed(3))),
-    };
+    const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
+    say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
+    const doc = beatsDocument(await trackSongBeats(dir, prompt));
     writeJson(beatsFile, doc);
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);
+  }
+
+  const featuresFile = songFolderPaths(dir).featuresFile;
+  if (fs.existsSync(featuresFile)) say("Audio features: generated/features.json exists, kept.");
+  else {
+    const prompt = readSongPrompt(dir);
+    say(`Computing audio features (envelopes at 100 fps) from ${path.basename(prompt.mixPath)} and the stems…`);
+    // Compact JSON: each envelope has 100 values per second of audio.
+    fs.writeFileSync(featuresFile, JSON.stringify(await computeFeatures(prompt.mixPath, prompt.stems)), "utf8");
+    say("  Wrote generated/features.json.");
   }
 
   const inputs = songInputs(roots, id);
@@ -260,7 +278,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
 
   say("Preparing audio evidence (pitch, alignment, boundary model). This takes a few minutes…");
   const t0 = Date.now();
-  const prepared = await session.prepare({ onProgress: (m) => say(`  ${m}`) });
+  const prepared = await session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() });
   say(prepared.skipped ? "Evidence is up to date." : `Evidence ready in ${((Date.now() - t0) / 1000).toFixed(0)} s.`);
 
   const calibrated = path.join(dir, "user_input", "lyrics.calibrated.json");
@@ -269,18 +287,22 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     return;
   }
   say("Solving (nothing pinned yet)…");
-  const result = await session.solve({ anchors: emptyAnchors() });
+  const result = await session.solve({ anchors: emptyAnchors(), device: inferenceDevice() });
   fs.mkdirSync(path.join(dir, "generated"), { recursive: true });
   fs.copyFileSync(session.paths.lyricsOut, path.join(dir, "generated", "lyrics.json"));
   const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));
   const songEnd = typeof beats === "object" && beats !== null && "duration" in beats && typeof beats.duration === "number" ? beats.duration : result.lyrics.lines.at(-1)!.end;
   const outline = lyricsSectionOutline(fs.readFileSync(path.join(dir, "user_input", "lyrics.txt"), "utf8"));
-  writeJson(calibrated, calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd));
+  const sylJoin = readLyricsFile(inputs.lyricsFile, inputs.language).sylJoin;
+  writeJson(calibrated, calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd, sylJoin));
   say(`Wrote user_input/lyrics.calibrated.json (${result.lyrics.lines.length} lines, mean expected error ${result.meanExpectedErrorMs.toFixed(0)} ms).`);
 }
 
-/** The project calibration file for a free solve: solver times, no pins, sections from the lyrics' headers (sectionsFromOutline). */
-export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number) {
+/**
+ * The project calibration file for a free solve: solver times, no pins, sections from the lyrics' headers (sectionsFromOutline).
+ * `sylJoin` (from the lyrics text) is display only: the syllables stay the solver's.
+ */
+export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number, sylJoin: SylJoins) {
   if (solved.length !== def.lines.length) throw new Error(`The solver returned ${solved.length} lines for ${def.lines.length} lyric lines.`);
   const lines = def.lines.map((l, i) => {
     const s = solved[i]!;
@@ -292,7 +314,8 @@ export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLin
       words: l.words.map((w, wi) => {
         const sw = s.words[wi];
         if (!sw?.syl || sw.syl.length !== w.syllables.length) throw new Error(`The solver returned no syllable times for "${w.w}" in line ${i}.`);
-        return { w: w.w, start: sw.start, end: sw.end, syl: sw.syl, sylText: w.syllables };
+        const join = sylJoin[i]?.[wi];
+        return { w: w.w, start: sw.start, end: sw.end, syl: sw.syl, sylText: w.syllables, ...(join ? { sylJoin: join } : {}) };
       }),
     };
   });

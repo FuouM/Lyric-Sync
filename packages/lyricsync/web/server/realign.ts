@@ -5,12 +5,15 @@
 //   - a line flagged `calibrated` is frozen: every syllable boundary is pinned;
 //   - otherwise only the syllables flagged calibrated (`sylCalibrated` / word `calibrated`) are pinned;
 //   - everything unpinned is re-solved around the pins.
-// `snapToBeats` (default true) moves solved boundaries near a beat onto it; false keeps the acoustic times.
+// `snapToBeats` (default true) moves solved boundaries near a beat onto it; false keeps the acoustic times. The response also carries
+// `alternate`: the same solve with the other setting, so the editor can switch the setting without solving again. out/ holds the
+// requested one.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { emptyAnchors, importCalibrated, Session } from "../../src/index.ts";
 import type { ConsensusLine } from "../../src/index.ts";
-import { findSongDir, toRoots, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, toRoots, type SongsRoots } from "../../src/song-folder.ts";
+import { inferenceDevice } from "./device.ts";
 
 export interface EditorWord {
   w?: string;
@@ -100,7 +103,7 @@ function definitionIndices(editorLines: number, definitionLines: number, unannot
   return mapped;
 }
 
-async function realign(roots: SongsRoots, id: string, lines: EditorLine[], snapToBeats: boolean): Promise<EditorLine[]> {
+async function realign(roots: SongsRoots, id: string, lines: EditorLine[], snapToBeats: boolean): Promise<{ lines: EditorLine[]; alternate: EditorLine[] }> {
   const { session, unannotatedLines } = songSession(roots, id);
   const def = session.definition;
   const indices = definitionIndices(lines.length, def.lines.length, unannotatedLines);
@@ -116,8 +119,14 @@ async function realign(roots: SongsRoots, id: string, lines: EditorLine[], snapT
     throw new RealignError(422, "LINES_MISMATCH", `The editor's lines do not match the lyricsync lyrics: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const solved = (await session.solve({ anchors, snapToBeats })).lyrics.lines;
-  return lines.map((line, k) => merge(line, solved[indices[k]!]!));
+  // The other setting first, so out/lyrics.json and out/review.json end up as the requested one. The second solve reuses the cached
+  // anchored-line alignments, so it costs only the decode.
+  const alternate = (await session.solve({ anchors, snapToBeats: !snapToBeats, device: inferenceDevice() })).lyrics.lines;
+  const solved = (await session.solve({ anchors, snapToBeats, device: inferenceDevice() })).lyrics.lines;
+  return {
+    lines: lines.map((line, k) => merge(line, solved[indices[k]!]!)),
+    alternate: lines.map((line, k) => merge(line, alternate[indices[k]!]!)),
+  };
 }
 
 /**
@@ -149,11 +158,11 @@ export async function handleRealign(roots: SongsRoots, body: RealignBody): Promi
   const run = queue.then(() => realign(roots, id, lines, snapToBeats));
   queue = run.catch(() => undefined);
   try {
-    const refined = await run;
+    const { lines: refined, alternate } = await run;
     const calibratedLines = refined.filter((l) => l.calibrated === true).length;
     const totalLines = refined.length;
     const pct = Math.round((calibratedLines / totalLines) * 1000) / 10;
-    return { status: 200, body: { ok: true, project: id, lines: refined, coverage: { calibratedLines, totalLines, pct } } };
+    return { status: 200, body: { ok: true, project: id, snapToBeats, lines: refined, alternate, coverage: { calibratedLines, totalLines, pct } } };
   } catch (err: unknown) {
     if (err instanceof RealignError) return error(err.status, err.code, err.message);
     throw err;

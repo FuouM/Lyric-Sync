@@ -49,7 +49,7 @@ export {
   syllabifyEnglish,
   syllabifyJapanese,
 } from './lyrics/index.ts';
-export type { AutoSplitNote, LyricsIssue, ParsedLyrics, Pronunciations, SectionOutline } from './lyrics/index.ts';
+export type { AutoSplitNote, LyricsIssue, ParsedLyrics, Pronunciations, SectionOutline, SylJoins } from './lyrics/index.ts';
 
 export { alignAnchoredLines, computeQueries, extractEvidence, loadEvidence, readBoundaryConfig, saveEvidence } from './evidence/index.ts';
 export type { ExtractOptions } from './evidence/index.ts';
@@ -59,3 +59,7 @@ export { solveAnalytic, ANALYTIC_DESIGN } from './engine/analytic.ts';
 export { loadTrainingSongs, readTrainingManifest } from './train/songs.ts';
 export type { TrainingManifestSong } from './train/songs.ts';
 export type { TrainingSong } from './train/train.ts';
+
+// The song folder (also importable alone, without the models: "lyricsync/song-folder").
+export * from './song-folder.ts';
+export { isSylPinned, parseCalibrationDoc } from './calibration-doc.ts';

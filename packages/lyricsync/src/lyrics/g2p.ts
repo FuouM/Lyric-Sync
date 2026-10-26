@@ -2,6 +2,7 @@
 // Grapheme-to-Phoneme (G2P) dictionary lookup for HuBERT forced alignment.
 
 import * as fs from 'node:fs';
+import { stripPunctuation } from './clean.ts';
 
 export interface G2PResult {
   phSeq: string[];
@@ -122,7 +123,7 @@ export class HubertG2P {
       let word = rawWords[wi]!.toLowerCase();
       // Basic punctuation trimming if direct lookup fails
       if (!this.dictionary.has(word)) {
-        const cleaned = word.replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
+        const cleaned = stripPunctuation(word);
         if (this.dictionary.has(cleaned)) {
           word = cleaned;
         }
@@ -237,7 +238,7 @@ export class HubertG2P {
       }
     }
 
-    const isUpper = /^[A-Z0-9]+$/.test(raw.replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, ''));
+    const isUpper = /^[A-Z0-9]+$/.test(stripPunctuation(raw));
     if (isUpper && cleaned.length >= 2 && cleaned.length <= 6) {
       const letters = cleaned.split("");
       const letterPhones: string[] = [];
@@ -294,7 +295,7 @@ export class HubertG2P {
     const lower = raw.toLowerCase()
       .replace(/[‘’]/g, "'")
       .replace(/[“”]/g, '"');
-    const cleaned = lower.replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
+    const cleaned = stripPunctuation(lower);
     const direct = this.dictionary.get(lower) ?? this.dictionary.get(cleaned);
     if (direct && direct.length > 0) return direct;
     if (this.language === "ja") {

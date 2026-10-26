@@ -8,6 +8,7 @@ import { detectEventPeaks, fillGaps, removeShort } from '../../src/evidence/even
 import { despikeF0, smoothAndSegmentNotes } from '../../src/evidence/pitch.ts';
 import { loadEvidence, saveEvidence } from '../../src/evidence/store.ts';
 import { createNucleusResolver } from '../../src/evidence/nucleus.ts';
+import { boundaryContexts } from '../../src/evidence/boundary.ts';
 import type { ConsensusLine, SongEvidence } from '../../src/types.ts';
 import { wavBytes } from '../helpers/wav.ts';
 
@@ -153,5 +154,16 @@ describe('band-limited resampling', () => {
     expect(rms(low)).toBeCloseTo(Math.SQRT1_2, 2);
     expect(rms(resampleBandLimited(tone(10000), 44100, 16000))).toBeLessThan(0.01);
     expect(rms(resample(tone(10000), 44100, 16000))).toBeGreaterThan(0.3);
+  });
+});
+
+describe('boundaryContexts (Japanese)', () => {
+  test('a closure mora ("p" of "ppoi") has the word\'s closure phone, not a lookup of its own text', () => {
+    const lines = boundaryContexts({
+      language: 'ja',
+      lines: [{ index: 0, text: 'wakare ppoi', words: [{ w: 'wakare', syllables: ['wa', 'ka', 're'] }, { w: 'ppoi', syllables: ['p', 'po', 'i'] }] }],
+    });
+    expect(lines[0]!.syllables.map((s) => s.phones)).toEqual([['w', 'a'], ['k', 'a'], ['r', 'e'], ['cl'], ['p', 'o'], ['i']]);
+    expect(lines[0]!.syllables.map((s) => s.wordStart)).toEqual([true, false, false, true, false, false]);
   });
 });

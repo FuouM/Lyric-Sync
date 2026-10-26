@@ -2,7 +2,7 @@
 
 Singing-voice lyrics timing, end to end: a vocal stem and the lyrics text in, word- and **syllable**-level timings out (`lyrics.json`). It works with nothing known about the song (*free*), with the start and end of lines known (*anchored*), and as an **interactive loop** where you (or an agent) pin the timings you trust and the solver re-decodes everything around them.
 
-Everything runs locally (ONNX Runtime; DirectML on Windows where it can, otherwise CPU): the forced-alignment, pitch, beat and syllable-boundary models ship inside the package, there is no Python and no network access.
+Everything runs locally (ONNX Runtime; `--device gpu`, the default, uses DirectML on Windows and the CPU where there is no GPU provider; `--device cpu` uses only the CPU): the forced-alignment, pitch, beat and syllable-boundary models ship inside the package, there is no Python and no network access.
 
 ```
 vocal stem ─┐                                       ┌─ free solve
@@ -26,7 +26,7 @@ npm install lyricsync        # Node >= 20 (also runs on Bun)
 
 ```bash
 lyricsync init  ws --vocal vocal.wav --lyrics lyrics.txt --language en --mix song.wav --bpm 120
-lyricsync prepare ws                     # ~1 min for a 3.5 min song (DirectML; longer on CPU); cached
+lyricsync prepare ws                     # ~20 s for a 3 min song on a GPU, ~90 s on the CPU (--device cpu); cached
 lyricsync solve ws --out lyrics.json     # seconds
 lyricsync review ws                      # the lines the solver is least sure about
 lyricsync anchor ws --line 7 --start 41.20 --end 44.85     # pin what you know ...
@@ -54,6 +54,7 @@ A standalone web app conforming to the **SoulWindow** design system (WinForms ae
   ```bash
   bun run dev                                  # songs in <repository>/songs
   bun run dev --songs path/to/my/song-folders  # or edit another project's song folders in place
+  bun run dev --device cpu                     # models on the CPU (Solve › Run Models on GPU switches it while running)
   ```
   The server ([docs/editor-spec.md](docs/editor-spec.md#6a-development-build-current-state)) adds Auto-time, the New Song wizard and re-analysis on top of the browser editor.
 Pinning both edges of every line is the most accurate mode (see below). `--level word|syllable|flagged` pins more of what your file knows.
@@ -76,6 +77,21 @@ session.saveAnchors(anchors);
 session.setSyllables([{ line: 3, word: 2, syllables: ['wa', 'alls'] }]);  // re-split a word (pins move along)
 await session.prepare();                                    // the evidence depends on the syllables
 ```
+
+### Song folder reader
+
+`lyricsync/song-folder` reads a song folder (the layout the New Song wizard writes). It does not load the models, so other tools (for example the pve video editor) can import it. It needs Bun: `prompt.yaml` is parsed with `Bun.YAML`. The same functions are also in the main entry.
+
+```ts
+import { readCalibratedLyrics, readFeatures, readSongPrompt, readTimingAi, songFolderPaths } from 'lyricsync/song-folder';
+
+const prompt = readSongPrompt(dir);      // mixPath, stems { vocal, mainVocal, drums, bass, other }, nearestBpm, firstDownbeat
+const timing = readTimingAi(dir);        // generated/timing.ai.json: duration, bpm, beat_period, beats, downbeats
+const lyrics = readCalibratedLyrics(dir); // user_input/lyrics.calibrated.json: sections, lines[].words[].syl / sylText
+const features = readFeatures(dir);      // generated/features.json v1 (beatsync features)
+```
+
+Each reader checks the file. A missing file gives an error with the full path of the file.
 
 ## Accuracy
 

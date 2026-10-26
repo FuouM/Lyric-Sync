@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,7 +9,7 @@
     <script>
       (function() {
         var raw = localStorage.getItem('ds-theme');
-        var theme = 'dark';
+        var theme = 'light';
         try {
           if (raw) theme = JSON.parse(raw);
         } catch(e) {
@@ -20,7 +20,7 @@
       })();
     </script>
   </head>
-  <body class="ds-dark">
+  <body class="ds-light">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

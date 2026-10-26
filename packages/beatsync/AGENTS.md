@@ -47,6 +47,7 @@ import { trackBeats, BeatTracker } from 'beatsync';
 // 1. Convenience one-shot function from audio file path
 const analysis = await trackBeats('path/to/audio.wav', {
   targetBpm: 120,       // Required: the song's approximate tempo; beats are confined to about +/-12% of it
+  tempoChanges: [{ at: 20, bpm: 150 }], // Optional: from 20 s the prior is 150 BPM (stepped tempo changes; `at` increasing, > 0)
   firstDownbeat: 0.32,   // Optional: seconds; aligns downbeat phase to the beat nearest this time
 });
 
@@ -65,14 +66,28 @@ const analysisFromPcm = await trackBeats({
 // 3. Stateful reusable class instance
 const tracker = new BeatTracker({
   targetBpm: 120,
-  executionProvider: 'cpu', // 'cpu' | 'cuda' | 'webgpu'
+  device: 'gpu', // 'gpu' (default, CPU fallback when the platform has no GPU provider) | 'cpu'; same beats on both
 });
 await tracker.init();
 const result = await tracker.trackFile('path/to/audio.wav', 0.32);
 ```
 
+## Audio features (`features.json` v1)
+
+```bash
+# Envelopes at 100 fps, each peak-normalized to 0..1: rms, low, mid, high from the mix; vocal, drums, bass, other from the stems
+beatsync features song.wav --vocal vocal.wav --drums drums.wav --out generated/features.json
+```
+
+```typescript
+import { computeFeatures } from 'beatsync';
+const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'], drums: ['drums.wav'] });
+```
+
+Envelope length is `ceil(mix samples * 100 / mix sample rate)`. Stem keys without files are not written. `onsets` is `{}` (no detector yet). The method is in `README.md`.
+
 ## Running Tests
 ```bash
-bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess)
+bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess, feature envelopes)
 bun test tests/e2e      # E2E inference test on a synthesized click track
 ```

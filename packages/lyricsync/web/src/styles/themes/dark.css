@@ -229,13 +229,13 @@
   }
   /* ── Group boxes in Dark theme ── */
   :is(:root[data-theme="dark"], body.ds-dark) .group-box {
-    background: var(--sys-window-bg) !important;
+    background: var(--sys-control-bg) !important;
     border-color: var(--sys-border-dark) !important;
     box-shadow: none !important;
   }
   :is(:root[data-theme="dark"], body.ds-dark) .group-box-title {
     background: var(--sys-control-bg) !important;
-    border-color: var(--sys-border-dark) !important;
+    border: none !important;
     color: var(--sys-control-text) !important;
     box-shadow: none !important;
   }

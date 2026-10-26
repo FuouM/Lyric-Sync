@@ -5,6 +5,7 @@
 //   [Verse 1]                 section header (optional; applies to the lines below)
 //   # comment                 ignored, as are blank lines
 //   one lyric line per line   words separated by spaces; "re|con|cil|i|a|tion" gives explicit syllables;
+//                             Japanese: "ko+n|ni|chi|wa", "+" is a "|" whose syllables are shown as one unit (display only);
 //                             "(i)" marks a backing-vocal word (kept in the text, ignored by the dictionary)
 // JSON (.json):
 //   { "language": "en", "lines": [ "plain text line", { "section": "chorus", "text": "optional", "words": [ "free", { "w": "any", "syllables": ["an","y"], "phones": ["eh","n","iy"] } ] } ] }
@@ -18,13 +19,14 @@ import { isRecord, isStringArray } from '../guards.ts';
 import type { Language, LyricLine, LyricsDefinition, LyricWord } from '../types.ts';
 import { dictionaryG2P, pronounceAs } from './dictionary.ts';
 import { resolveSyllables } from './syllabify.ts';
+import { normalizeBracedPhones, stripPunctuation } from './clean.ts';
 
 /** Hand-added pronunciations, keyed by pronunciationKey(word). */
 export type Pronunciations = Record<string, string[]>;
 
 /** The key a word's pronunciation is stored under: lowercase, surrounding punctuation trimmed (as the dictionary lookup does). */
 export function pronunciationKey(word: string): string {
-  return word.toLowerCase().replace(/^[.,?!:;"'()[\]{}]+/, '').replace(/[.,?!:;"'()[\]{}]+$/, '');
+  return stripPunctuation(word.toLowerCase());
 }
 
 export interface LyricsIssue {
@@ -42,16 +44,23 @@ export interface AutoSplitNote {
   syllables: string[];
 }
 
+/** Per line, per word: which gaps between syllables the lyrics text joins with `+` (display only), or null for a word without a join. */
+export type SylJoins = Array<Array<boolean[] | null>>;
+
 export interface ParsedLyrics {
   definition: LyricsDefinition;
   /** Multi-syllable words whose syllables were derived (not written explicitly); review these. */
   autoSplit: AutoSplitNote[];
+  /** The `+` joins of the text. They are not part of the definition: the solver never sees them. */
+  sylJoin: SylJoins;
 }
 
 interface RawWord {
   w: string;
   explicit: string[] | null;
   phones?: string[];
+  /** Gaps between the explicit syllables shown as one unit (`+`), when any. Display only. */
+  join?: boolean[];
 }
 
 interface RawLine {
@@ -72,7 +81,7 @@ function tokenToRawWord(token: string, where: string, language?: Language): RawW
     if (pronInput.length > 0 && language) {
       if (pronInput.includes('|')) {
         const phoneChunks = pronInput.split('|').map((c) => c.trim());
-        const sylParts = wordToken.split('|');
+        const sylParts = wordToken.split(language === 'ja' ? /[|+]/ : '|');
         if (sylParts.length !== phoneChunks.length) {
           throw new Error(
             `${where} ("${token}"): syllable count (${sylParts.length}) in "${wordToken}" does not match phoneme chunks (${phoneChunks.length}) in "{${pronInput}}".`
@@ -97,10 +106,13 @@ function tokenToRawWord(token: string, where: string, language?: Language): RawW
   }
 
   if (!/[A-Za-z]/.test(wordToken)) throw new Error(`${where}: token "${wordToken}" has no letters.`);
-  if (!wordToken.includes('|')) return { w: wordToken, explicit: null, phones };
-  const parts = wordToken.split('|');
+  // Japanese: "+" is a "|" whose two syllables are shown as one ("ko+n"); the solver gets the same syllables either way.
+  const separator = language === 'ja' ? /[|+]/ : /\|/;
+  if (!separator.test(wordToken)) return { w: wordToken, explicit: null, phones };
+  const parts = wordToken.split(separator);
   if (parts.some((p) => p.length === 0)) throw new Error(`${where}: token "${wordToken}" has an empty syllable.`);
-  return { w: parts.join(''), explicit: parts, phones };
+  const join = [...wordToken.matchAll(/[|+]/g)].map((m) => language === 'ja' && m[0] === '+');
+  return { w: parts.join(''), explicit: parts, phones, ...(join.some(Boolean) ? { join } : {}) };
 }
 
 /** A `[Section]` header and how many lyric lines follow it before the next header (0 for an instrumental section). */
@@ -147,7 +159,7 @@ function parseTextLines(text: string, language?: Language): { lines: RawLine[]; 
     }
 
     // Normalize optional space between word and {phones}: "foom {f uw m}" -> "foom{f uw m}"
-    const normalizedLine = line.replace(/([^\s{]+)\s+\{([^}]+)\}/g, '$1{$2}');
+    const normalizedLine = normalizeBracedPhones(line);
     const tokens = normalizedLine.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
     const words = tokens.map((tok) => tokenToRawWord(tok, `line ${i + 1}`, language));
     const section = outline.at(-1);
@@ -195,7 +207,10 @@ function parseJsonLines(raw: unknown): { language: Language | null; lines: RawLi
       const explicit = w.syllables === undefined ? null : isStringArray(w.syllables) ? w.syllables : null;
       if (w.syllables !== undefined && explicit === null) throw new Error(`${wh}.syllables must be an array of strings.`);
       if (w.phones !== undefined && !isStringArray(w.phones)) throw new Error(`${wh}.phones must be an array of strings.`);
-      return { w: w.w, explicit, phones: w.phones };
+      if (w.sylJoin !== undefined && (explicit === null || !Array.isArray(w.sylJoin) || w.sylJoin.length !== explicit.length - 1 || !w.sylJoin.every((j: unknown) => typeof j === 'boolean'))) {
+        throw new Error(`${wh}.sylJoin must be one boolean per gap between the syllables (and needs "syllables").`);
+      }
+      return { w: w.w, explicit, phones: w.phones, ...(w.sylJoin ? { join: w.sylJoin as boolean[] } : {}) };
     });
     return {
       section: typeof entry.section === 'string' ? entry.section : undefined,
@@ -209,8 +224,10 @@ function parseJsonLines(raw: unknown): { language: Language | null; lines: RawLi
 function build(rawLines: RawLine[], language: Language): ParsedLyrics {
   if (rawLines.length === 0) throw new Error('The lyrics contain no lines.');
   const autoSplit: AutoSplitNote[] = [];
+  const sylJoin: SylJoins = [];
   const lines: LyricLine[] = rawLines.map((rl, index) => {
     if (rl.words.length === 0) throw new Error(`Lyric line ${index} has no words.`);
+    sylJoin.push(rl.words.map((rw) => rw.join ?? null));
     const words: LyricWord[] = rl.words.map((rw) => {
       const syllables = resolveSyllables({ w: rw.w, phones: rw.phones }, rw.explicit, language);
       if (rw.explicit === null && syllables.length > 1) autoSplit.push({ line: index, word: rw.w, syllables });
@@ -222,7 +239,7 @@ function build(rawLines: RawLine[], language: Language): ParsedLyrics {
     if (rl.section) line.section = rl.section;
     return line;
   });
-  return { definition: { language, lines }, autoSplit };
+  return { definition: { language, lines }, autoSplit, sylJoin };
 }
 
 function withPronunciations(lines: RawLine[], pronunciations: Pronunciations): RawLine[] {

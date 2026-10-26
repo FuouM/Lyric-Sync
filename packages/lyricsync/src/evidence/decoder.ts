@@ -64,8 +64,9 @@ export class AlignmentDecoder {
     }
     phMask[0] = 0.0;
 
-    // Log-softmax of adjusted frame logits: [vocabSize, T]
-    const phProbLog = new Float32Array(vocabSize * T);
+    // Log-softmax of adjusted frame logits, kept only for the phones of the sequence: probLog[t * S + s] (time-major, so the
+    // Viterbi recursion below reads and writes contiguous memory).
+    const probLog = new Float32Array(S * T);
     for (let t = 0; t < T; t++) {
       let maxVal = -Infinity;
       for (let v = 0; v < vocabSize; v++) {
@@ -82,10 +83,11 @@ export class AlignmentDecoder {
       }
 
       const logSum = maxVal + Math.log(sumExp);
-      for (let v = 0; v < vocabSize; v++) {
+      for (let s = 0; s < S; s++) {
+        const v = phSeqId[s]!;
         const raw = phFrameLogits[v * stride + t] ?? -1e9;
         const adj = raw - (phMask[v] ?? 0);
-        phProbLog[v * T + t] = adj - logSum;
+        probLog[t * S + s] = adj - logSum;
       }
     }
 
@@ -108,15 +110,7 @@ export class AlignmentDecoder {
       edgeProb[t] = Math.min(1.0, Math.max(0.0, (phEdgePred[t] ?? 0) + prev));
     }
 
-    // Forward pass
-    const probLog = new Float32Array(S * T);
-    for (let s = 0; s < S; s++) {
-      const v = phSeqId[s]!;
-      for (let t = 0; t < T; t++) {
-        probLog[s * T + t] = phProbLog[v * T + t]!;
-      }
-    }
-
+    // Forward pass (dp and backtrackS are time-major like probLog: index t * S + s)
     const dp = new Float32Array(S * T).fill(-Infinity);
     const backtrackS = new Int16Array(S * T).fill(-1);
     const currPhMaxProbLog = new Float32Array(S).fill(-Infinity);
@@ -124,8 +118,8 @@ export class AlignmentDecoder {
     dp[0] = probLog[0]!;
     currPhMaxProbLog[0] = probLog[0]!;
     if (phSeqId[0] === 0 && S > 1) {
-      dp[1 * T + 0] = probLog[1 * T + 0]!;
-      currPhMaxProbLog[1] = probLog[1 * T + 0]!;
+      dp[1] = probLog[1]!;
+      currPhMaxProbLog[1] = probLog[1]!;
     }
 
     const prob3PadLen = S >= 2 ? 2 : 1;
@@ -137,34 +131,24 @@ export class AlignmentDecoder {
     }
 
     const maxIndices = new Int8Array(S);
+    const tFactor = T / S;
 
     for (let t = 1; t < T; t++) {
       const edgeLogT = edgeProbLog[t]!;
       const notEdgeLogT = notEdgeProbLog[t]!;
-      const tFactor = T / S;
-      const tPrevOffset = t - 1;
-      const tCurOffset = t;
+      const prev = (t - 1) * S;
+      const cur = t * S;
 
       for (let s = 0; s < S; s++) {
-        const p1 = dp[s * T + tPrevOffset]! + probLog[s * T + tCurOffset]! + notEdgeLogT;
+        const p1 = dp[prev + s]! + probLog[cur + s]! + notEdgeLogT;
 
-        const p2 =
-          s > 0
-            ? dp[(s - 1) * T + tPrevOffset]! +
-              probLog[(s - 1) * T + tCurOffset]! +
-              edgeLogT +
-              currPhMaxProbLog[s - 1]! * tFactor
-            : -Infinity;
+        const p2 = s > 0 ? dp[prev + s - 1]! + probLog[cur + s - 1]! + edgeLogT + currPhMaxProbLog[s - 1]! * tFactor : -Infinity;
 
         let p3 = -Infinity;
         if (s >= prob3PadLen) {
           const idx = Math.min(S - 1, Math.max(0, s - prob3PadLen + 1));
           if (idx >= S - 1 || phSeqId[idx] === 0) {
-            p3 =
-              dp[(s - prob3PadLen) * T + tPrevOffset]! +
-              probLog[(s - prob3PadLen) * T + tCurOffset]! +
-              edgeLogT +
-              currPhMaxProbLog[s - prob3PadLen]! * tFactor;
+            p3 = dp[prev + s - prob3PadLen]! + probLog[cur + s - prob3PadLen]! + edgeLogT + currPhMaxProbLog[s - prob3PadLen]! * tFactor;
           }
         }
 
@@ -179,16 +163,16 @@ export class AlignmentDecoder {
           bestIdx = 2;
         }
 
-        dp[s * T + tCurOffset] = bestVal;
-        backtrackS[s * T + tCurOffset] = bestIdx;
+        dp[cur + s] = bestVal;
+        backtrackS[cur + s] = bestIdx;
         maxIndices[s] = bestIdx;
       }
 
       for (let s = 0; s < S; s++) {
         if (maxIndices[s] === 0) {
-          currPhMaxProbLog[s] = Math.max(currPhMaxProbLog[s]!, probLog[s * T + tCurOffset]!);
+          currPhMaxProbLog[s] = Math.max(currPhMaxProbLog[s]!, probLog[cur + s]!);
         } else {
-          currPhMaxProbLog[s] = probLog[s * T + tCurOffset]!;
+          currPhMaxProbLog[s] = probLog[cur + s]!;
         }
         if (phSeqId[s] === 0) {
           currPhMaxProbLog[s] = 0.0;
@@ -198,7 +182,7 @@ export class AlignmentDecoder {
 
     // Backward pass
     let s =
-      S > 1 && dp[(S - 2) * T + (T - 1)]! > dp[(S - 1) * T + (T - 1)]! && phSeqId[S - 1] === 0
+      S > 1 && dp[(T - 1) * S + S - 2]! > dp[(T - 1) * S + S - 1]! && phSeqId[S - 1] === 0
         ? S - 2
         : S - 1;
     const phIdxSeq: number[] = [];
@@ -206,8 +190,8 @@ export class AlignmentDecoder {
     const frameConfList: number[] = [];
 
     for (let t = T - 1; t >= 0; t--) {
-      frameConfList.push(dp[s * T + t]!);
-      const type = backtrackS[s * T + t]!;
+      frameConfList.push(dp[t * S + s]!);
+      const type = backtrackS[t * S + s]!;
       if (type !== 0) {
         phIdxSeq.push(s);
         phTimeInt.push(t);

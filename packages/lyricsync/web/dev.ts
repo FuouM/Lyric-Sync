@@ -1,13 +1,16 @@
 // packages/lyricsync/web/dev.ts
 // Editor server: Vite (with vite.config.ts) plus the local endpoints the editor's server features use.
-//   GET  /api/config                      { songsDir }: the songs folder this server works on.
+//   GET  /api/config                      { songsDir, roots, device, gpuProvider }: the songs folders this server works on, and where it
+//                                          runs the models (server/device.ts).
+//   POST /api/config { device: "gpu"|"cpu" }   sets where the models run, for the rest of this server's life.
 //   POST /api/realign { project, lines, snapToBeats? }   lyricsync's full solve around the pins in `lines` (server/realign.ts);
-//                                          returns the lines with every unpinned syllable re-timed, and writes
+//                                          returns the lines with every unpinned syllable re-timed (`lines`, the requested snap
+//                                          setting; `alternate`, the other one), and writes
 //                                          <songs>/<project>/lyricsync/out/lyrics.json and review.json.
 //   POST /api/wizard/check { text, language, pronunciations }   lints lyrics: every word problem (unknown words), or counts,
 //                                          sections and automatic syllable splits. Always 200; `ok` says whether they are usable.
 //   POST /api/wizard/pronounce { language, input }   phones for a hand-added pronunciation ("sounds like" words, or phones).
-//   POST /api/wizard/create  (multipart: id, language, bpm, firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
+//   POST /api/wizard/create  (multipart: id, language, bpm, tempoChanges (JSON [{at, bpm}]), firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
 //   POST /api/wizard/resume { id }        continues a failed build.
 //   GET  /api/wizard/job                  the current or last build: state and log.
 //   GET/PUT /api/project/<id>/file/<path> song folder files (server/project-files.ts), for songs opened without the folder picker.
@@ -16,10 +19,11 @@
 //   GET  /api/lyrics/job                  the current or last re-analysis: state and log.
 // Builds and re-analyses use the GPU, so only one of them runs at a time.
 // `project` / `id` is a song folder name inside the songs folder.
-// usage: bun dev.ts [--songs <dir>] [--port <n>]
+// usage: bun dev.ts [--songs <dir>] [--port <n>] [--device gpu|cpu]
 //   --songs  the folder that holds the song folders (default: <repository>/songs, created when missing). Point it at another
 //            folder of song folders (e.g. ~/Music/projects) to edit them in place.
 //   --port   default 3000.
+//   --device where prepare, solve and beat tracking run the models at start (default gpu; the editor's Solve menu changes it).
 // Run with Bun (`bun run dev`): the routes and lyricsync are TypeScript and are imported here directly, outside Vite's
 // config bundling, so lyricsync still resolves its models from its own source location.
 import * as fs from "node:fs";
@@ -30,9 +34,11 @@ import { parseArgs } from "node:util";
 import { createServer, type Plugin } from "vite";
 import { handleRealign } from "./server/realign.ts";
 import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
+import { parseTempoChanges, parseTempoMap, readTempoMap, refitTempoMap, SongNotFoundError } from "./server/beats.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
-import { findSongDir } from "./server/song-inputs.ts";
+import { findSongDir } from "../src/song-folder.ts";
+import { deviceConfig, isInferenceDevice, setInferenceDevice } from "./server/device.ts";
 import { isRecord } from "../src/guards.ts";
 import {
   approximateEnglishPhonemes,
@@ -48,7 +54,11 @@ import {
 const WEB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(WEB_DIR, "../../..");
 
-const { values: args } = parseArgs({ options: { songs: { type: "string" }, port: { type: "string" } } });
+const { values: args } = parseArgs({ options: { songs: { type: "string" }, port: { type: "string" }, device: { type: "string" } } });
+if (args.device !== undefined) {
+  if (!isInferenceDevice(args.device)) throw new Error(`--device must be gpu or cpu, got "${args.device}".`);
+  setInferenceDevice(args.device);
+}
 
 // Primary default songs folder
 const DEFAULT_SONGS = path.resolve(REPO_ROOT, "songs");
@@ -114,9 +124,19 @@ function getSortedWords(lang: "en" | "ja"): string[] {
 const localApi: Plugin = {
   name: "lyricsync-local-api",
   configureServer(server) {
-    server.middlewares.use("/api/config", (req, res) => {
-      if (req.method !== "GET") return send(res, 405, { error: "METHOD", message: "GET only" });
-      send(res, 200, { songsDir: PRIMARY_SONGS, roots: ROOT_LIST });
+    server.middlewares.use("/api/config", async (req, res) => {
+      if (req.method === "POST") {
+        try {
+          const body: unknown = await (await toRequest(req)).json();
+          if (!isRecord(body) || !isInferenceDevice(body.device)) return send(res, 400, { error: "BAD_REQUEST", message: 'Needs device "gpu" or "cpu".' });
+          setInferenceDevice(body.device);
+        } catch (e: unknown) {
+          return fail(res, 500, e);
+        }
+      } else if (req.method !== "GET") {
+        return send(res, 405, { error: "METHOD", message: "GET or POST only" });
+      }
+      send(res, 200, { songsDir: PRIMARY_SONGS, roots: ROOT_LIST, ...deviceConfig() });
     });
 
     server.middlewares.use("/api/realign", async (req, res) => {
@@ -274,14 +294,16 @@ const localApi: Plugin = {
           const vocal = form.get("vocal");
           const downbeat = form.get("firstDownbeat");
           const pronunciations = form.get("pronunciations");
-          if (typeof id !== "string" || !isLanguage(language) || typeof lyrics !== "string" || typeof pronunciations !== "string" || !(mix instanceof File) || !(vocal instanceof File)) {
-            return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, mix and vocal." });
+          const tempoChanges = form.get("tempoChanges");
+          if (typeof id !== "string" || !isLanguage(language) || typeof lyrics !== "string" || typeof pronunciations !== "string" || typeof tempoChanges !== "string" || !(mix instanceof File) || !(vocal instanceof File)) {
+            return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, tempoChanges, mix and vocal." });
           }
           try {
             await createSong(PRIMARY_SONGS, {
               id,
               language,
               bpm: Number(form.get("bpm")),
+              tempoChanges: parseTempoChanges(JSON.parse(tempoChanges)),
               firstDownbeat: typeof downbeat === "string" && downbeat.trim() !== "" ? Number(downbeat) : null,
               lyrics,
               pronunciations: parsePronunciations(JSON.parse(pronunciations), language),
@@ -311,6 +333,23 @@ const localApi: Plugin = {
 
     server.middlewares.use("/api/project", async (req, res) => {
       const raw = (req.url ?? "/").split("?")[0]!;
+      const tempo = /^\/([^/]+)\/tempo$/.exec(raw);
+      if (tempo) {
+        // The tempo map of a song: GET reads it, POST sets it and re-fits the beats (the model's logits are cached, so this is quick).
+        try {
+          const id = decodeURIComponent(tempo[1]!);
+          if (req.method === "GET") return send(res, 200, readTempoMap(ROOT_LIST, id));
+          if (req.method !== "POST") return send(res, 405, { error: "METHOD", message: "GET or POST" });
+          const map = parseTempoMap(await (await toRequest(req)).json());
+          const build = currentJob();
+          const analysis = currentReanalyzeJob();
+          const busy = build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : analysis?.state === "running" ? `Re-analysis of ${analysis.project} is running. Wait for it to finish.` : null;
+          return send(res, 200, await refitTempoMap(ROOT_LIST, id, map, busy));
+        } catch (e: unknown) {
+          if (e instanceof SongNotFoundError) return send(res, 404, { error: "NOT_FOUND", message: e.message });
+          return fail(res, 422, e);
+        }
+      }
       const m = /^\/([^/]+)\/file\/(.+)$/.exec(raw);
       if (!m) return send(res, 404, { error: "NOT_FOUND", message: req.url });
       const id = decodeURIComponent(m[1]!);

@@ -5,7 +5,7 @@
 // Paths stay inside <songs>/<id> (dev.ts --songs).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { findSongDir, type SongsRoots } from "./song-inputs.ts";
+import { findSongDir, type SongsRoots } from "../../src/song-folder.ts";
 
 const WRITABLE: Record<string, true> = { "user_input/lyrics.calibrated.json": true, "user_input/prompt.yaml": true };
 

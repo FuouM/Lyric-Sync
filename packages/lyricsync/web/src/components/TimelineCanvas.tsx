@@ -2,8 +2,10 @@
 // Multi-track NLE-style timeline: track headers, ruler (time + bars), section markers,
 // mix and vocal waveforms with pitch, lyric clips with editable syllable edges, overview scrollbar.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { isSylPinned, type CalibrationDoc } from "../lib/calibration-doc";
+import { theme } from "../stores/theme";
+import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
+import type { TempoMap } from "../lib/tempo-grid";
 
 export type MonitorTrack = "vocal" | "mix";
 
@@ -47,10 +49,24 @@ export interface TimelineCanvasProps {
   /** `partner`: the touching syllable that moves along (roll edit), chosen when the drag starts; null to move this edge alone. */
   onBoundaryDrag: (ref: SylRef, edge: "start" | "end", t: number, partner: SylRef | null) => void;
   onSectionDrag: (sectionIdx: number, t: number) => void;
+  /** The song's tempo map from the dev server, or null when the song is not open through it. */
+  tempo: TempoMap | null;
+  /** A re-fit of the beats is running; the tempo changes cannot be dragged meanwhile. */
+  tempoBusy: boolean;
+  onAddTempo: () => void;
+  /** Moves tempo change `idx` to `t` (live while dragging). */
+  onTempoDrag: (idx: number, t: number) => void;
+  /** A drag of a tempo change ended: apply it. */
+  onTempoDrop: () => void;
+  /** A bar line was dragged to `t`: fix that bar's beat there (`idx` indexes `downbeats`). */
+  onBarDrop: (idx: number, t: number) => void;
+  /** Alt+click on a bar line: free its beat again. */
+  onBarUnpin: (idx: number) => void;
 }
 
 const HEADER_W = 148;
 const RULER_H = 30;
+const TEMPO_H = 22;
 const MARKERS_H = 22;
 const MIX_H = 46;
 const LYRICS_H = 60;
@@ -58,16 +74,18 @@ const LINES_H = 20;
 const OVERVIEW_H = 18;
 const MIN_VOCAL_H = 64;
 const EDGE_HIT_PX = 6;
+/** The top strip of the ruler holds the bar lines you can drag. */
+const BAR_GRIP_H = 12;
 const PITCH_FPS = 100;
 
 interface Lane {
-  id: "ruler" | "markers" | "mix" | "vocal" | "lyrics" | "lines";
+  id: "ruler" | "tempo" | "markers" | "mix" | "vocal" | "lyrics" | "lines";
   y: number;
   h: number;
 }
 
 function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overviewY: number } {
-  const vocalH = Math.max(MIN_VOCAL_H, height - RULER_H - MARKERS_H - MIX_H - LYRICS_H - LINES_H - OVERVIEW_H);
+  const vocalH = Math.max(MIN_VOCAL_H, height - RULER_H - TEMPO_H - MARKERS_H - MIX_H - LYRICS_H - LINES_H - OVERVIEW_H);
   let y = 0;
   const lane = (id: Lane["id"], h: number): Lane => {
     const l = { id, y, h };
@@ -76,6 +94,7 @@ function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overvie
   };
   const lanes = {
     ruler: lane("ruler", RULER_H),
+    tempo: lane("tempo", TEMPO_H),
     markers: lane("markers", MARKERS_H),
     mix: lane("mix", MIX_H),
     vocal: lane("vocal", vocalH),
@@ -87,7 +106,7 @@ function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overvie
 
 const RULER_STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 
-const C = {
+const C_DARK = {
   bg: "#16181d",
   laneAlt: "#1a1d23",
   laneBorder: "#262a33",
@@ -109,7 +128,43 @@ const C = {
   snap: "#00e5ff",
   edgeHover: "#ffffff",
   hotspot: "#ff5d5d",
+  overviewBg: "#101216",
+  overviewBorder: "rgba(255,255,255,0.7)",
+  snapText: "#001318",
+  wordHeadText: "#cfd8e3",
 };
+
+const C_LIGHT = {
+  bg: "#ffffff",
+  laneAlt: "#f8f9fa",
+  laneBorder: "#e2e8f0",
+  ruler: "#f1f3f6",
+  rulerText: "#4b5563",
+  beat: "rgba(0,0,0,0.06)",
+  downbeat: "rgba(217,119,6,0.35)",
+  mixWave: "#475569",
+  vocalWave: "#0d9488",
+  pitch: "#b45309",
+  clipFree: "#3b82f6",
+  clipFreeAlt: "#2563eb",
+  clipFreeHead: "#1d4ed8",
+  clipPinned: "#16a34a",
+  clipPinnedHead: "#15803d",
+  clipSel: "#d97706",
+  clipText: "#ffffff",
+  playhead: "#dc2626",
+  snap: "#0284c7",
+  edgeHover: "#000000",
+  hotspot: "#ef4444",
+  overviewBg: "#f1f3f6",
+  overviewBorder: "rgba(0,0,0,0.6)",
+  snapText: "#ffffff",
+  wordHeadText: "#ffffff",
+};
+
+let isDarkCurrent = true;
+let C = C_DARK;
+
 
 export function TimelineCanvas(props: TimelineCanvasProps) {
   let container!: HTMLDivElement;
@@ -120,6 +175,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   let drag:
     | { kind: "boundary"; ref: SylRef; edge: "start" | "end"; partner: SylRef | null }
     | { kind: "section"; idx: number }
+    | { kind: "tempo"; idx: number }
+    | { kind: "bar"; idx: number; lo: number; hi: number }
     | { kind: "scrub" }
     | { kind: "overview"; grabOffset: number }
     /** Press on empty space: a drag pans the view; a release without moving is a click (`click` runs then). */
@@ -127,11 +184,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | null = null;
   let hoverEdge: { ref: SylRef; edge: "start" | "end" } | null = null;
   let snapGuide: { time: number; label: string } | null = null;
+  let barGhost: { idx: number; t: number } | null = null;
   let frame = 0;
 
-  const canvasW = () => size().w - HEADER_W;
-  const tToX = (t: number) => ((t - props.viewStart) / props.viewDuration) * canvasW();
-  const xToT = (x: number) => props.viewStart + (x / canvasW()) * props.viewDuration;
+  /** The view a paint pass renders; null is the live view. The cached scene is painted over a wider span (see `paintScene`). */
+  let rv: { start: number; dur: number; w: number } | null = null;
+  const vStart = () => rv?.start ?? props.viewStart;
+  const vDur = () => rv?.dur ?? props.viewDuration;
+  const canvasW = () => rv?.w ?? size().w - HEADER_W;
+  const tToX = (t: number) => ((t - vStart()) / vDur()) * canvasW();
+  const xToT = (x: number) => vStart() + (x / canvasW()) * vDur();
   const total = () => Math.max(props.duration, props.doc?.lines.at(-1)?.end ?? 0, 1);
 
   /** Song-level pitch display range (log Hz), from voiced-frame percentiles padded by 3 semitones. */
@@ -217,6 +279,46 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   // ── Drawing ──────────────────────────────────────────────────────────────
 
+  // What stays put while the playhead moves (lanes, grid, ruler, waves, clips) is painted into `scene`, a canvas about twice as wide as
+  // the view, and blitted per frame at the current scroll offset; the playhead, guides and overview are drawn live over it. A frame so
+  // costs one drawImage however far the view is zoomed out. The scene is repainted when its data change or the view leaves it.
+  const SCENE_MAX_DEVICE_PX = 8192;
+  let scene: HTMLCanvasElement | null = null;
+  let sceneSpan: { start: number; pps: number; w: number; dpr: number; h: number } | null = null;
+  let sceneDirty = true;
+
+  const sceneCovers = (W: number, H: number, dpr: number) => {
+    const s = sceneSpan;
+    if (!s || sceneDirty || s.dpr !== dpr || s.h !== H || s.w < W) return false;
+    const pps = W / props.viewDuration;
+    return Math.abs(s.pps - pps) <= 1e-9 * pps && props.viewStart >= s.start - 1e-9 && props.viewStart + props.viewDuration <= s.start + s.w / s.pps + 1e-9;
+  };
+
+  const paintScene = (W: number, H: number, dpr: number) => {
+    const pps = W / props.viewDuration;
+    const sceneW = Math.max(W, Math.min(W * 2, Math.floor(SCENE_MAX_DEVICE_PX / dpr)));
+    // Spare room: a quarter behind the view, three quarters ahead (the playhead mostly moves forward).
+    const start = Math.max(0, props.viewStart - ((sceneW - W) / pps) * 0.25);
+    scene ??= document.createElement("canvas");
+    const dw = Math.max(1, Math.floor(sceneW * dpr));
+    const dh = Math.max(1, Math.floor(H * dpr));
+    if (scene.width !== dw || scene.height !== dh) {
+      scene.width = dw;
+      scene.height = dh;
+    }
+    const ctx = scene.getContext("2d");
+    if (!ctx) return;
+    rv = { start, dur: sceneW / pps, w: sceneW };
+    try {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintLanes(ctx, sceneW, H);
+    } finally {
+      rv = null;
+    }
+    sceneSpan = { start, pps, w: sceneW, dpr, h: H };
+    sceneDirty = false;
+  };
+
   const draw = () => {
     frame = 0;
     const ctx = canvas.getContext("2d");
@@ -224,13 +326,27 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const dpr = window.devicePixelRatio || 1;
     const W = canvasW();
     const H = size().h;
+    isDarkCurrent = theme() !== "light";
+    C = isDarkCurrent ? C_DARK : C_LIGHT;
+    if (!sceneCovers(W, H, dpr)) paintScene(W, H, dpr);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const s = sceneSpan;
+    if (scene && s) {
+      const x0 = Math.min(scene.width - canvas.width, Math.max(0, Math.round((props.viewStart - s.start) * s.pps * dpr)));
+      ctx.drawImage(scene, x0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintOverlay(ctx, W);
+  };
+
+  /** The scrolling content, painted over the span of the current paint view (`rv`). */
+  const paintLanes = (ctx: CanvasRenderingContext2D, W: number, H: number) => {
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
 
     const { lanes, overviewY } = layout();
-    const v0 = props.viewStart;
-    const v1 = props.viewStart + props.viewDuration;
+    const v0 = vStart();
+    const v1 = vStart() + vDur();
     const contentTop = lanes.markers.y;
     const contentBottom = overviewY;
 
@@ -250,15 +366,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
     // Song end shading
     const endX = tToX(total());
-    if (endX < W) {
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+    if (props.doc && endX < W) {
+      ctx.fillStyle = isDarkCurrent ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.06)";
       ctx.fillRect(Math.max(0, endX), contentTop, W - endX, contentBottom - contentTop);
     }
 
     // Beat grid
     const beats = props.beats ?? [];
     const downs = props.downbeats ?? [];
-    const pxPerBeat = beats.length > 1 ? (W / props.viewDuration) * (beats[1]! - beats[0]!) : 0;
+    const pxPerBeat = beats.length > 1 ? (W / vDur()) * (beats[1]! - beats[0]!) : 0;
     if (pxPerBeat > 6) {
       ctx.strokeStyle = C.beat;
       ctx.beginPath();
@@ -280,12 +396,42 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
     drawRuler(ctx, W, lanes.ruler, downs);
     drawMarkers(ctx, W, lanes.markers);
+    drawTempo(ctx, W, lanes.tempo);
     drawWave(ctx, lanes.mix, props.mixPeaks, C.mixWave, props.monitor === "mix");
     drawWave(ctx, lanes.vocal, props.vocalPeaks, C.vocalWave, props.monitor === "vocal");
     if (props.showPitch) drawPitch(ctx, lanes.vocal);
     drawLyrics(ctx, lanes.lyrics);
     drawLines(ctx, lanes.lines);
+  };
+
+  /** What moves with the pointer or the playhead, drawn over the blitted scene in the live view. */
+  const paintOverlay = (ctx: CanvasRenderingContext2D, W: number) => {
+    const { lanes, overviewY } = layout();
+    const contentTop = lanes.markers.y;
+    const contentBottom = overviewY;
     drawOverview(ctx, W, overviewY);
+
+    // Hovered / dragged syllable edge
+    const doc = props.doc;
+    const he = drag?.kind === "boundary" ? drag : hoverEdge;
+    const hp = he ? doc?.lines[he.ref.lineIdx]?.words[he.ref.wordIdx]?.syl[he.ref.sylIdx] : undefined;
+    if (he && hp) {
+      const x = tToX(he.edge === "start" ? hp[0] : hp[1]);
+      ctx.fillStyle = C.edgeHover;
+      ctx.fillRect(Math.round(x) - 1, lanes.lyrics.y + 1, 3, lanes.lyrics.h - 2);
+    }
+
+    // The bar line being dragged
+    if (barGhost) {
+      const gx = Math.round(tToX(barGhost.t)) + 0.5;
+      ctx.strokeStyle = "#e879f9";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(gx, lanes.ruler.y);
+      ctx.lineTo(gx, contentBottom);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
 
     // Snap guide
     if (snapGuide && snapGuide.label) {
@@ -301,7 +447,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const tw = ctx.measureText(snapGuide.label).width + 8;
       ctx.fillStyle = C.snap;
       ctx.fillRect(sx + 3, contentTop + 2, tw, 13);
-      ctx.fillStyle = "#001318";
+      ctx.fillStyle = C.snapText;
       ctx.fillText(snapGuide.label, sx + 7, contentTop + 12);
     }
 
@@ -329,13 +475,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const drawRuler = (ctx: CanvasRenderingContext2D, W: number, lane: Lane, downs: number[]) => {
     ctx.fillStyle = C.ruler;
     ctx.fillRect(0, lane.y, W, lane.h);
-    const pxPerSec = W / props.viewDuration;
+    const pxPerSec = W / vDur();
     const step = RULER_STEPS.find((s) => s * pxPerSec >= 70) ?? 300;
     const minor = step / 5;
     ctx.strokeStyle = "#4a5160";
     ctx.beginPath();
-    const first = Math.floor(props.viewStart / minor) * minor;
-    for (let t = first; t <= props.viewStart + props.viewDuration; t += minor) {
+    const first = Math.floor(vStart() / minor) * minor;
+    for (let t = first; t <= vStart() + vDur(); t += minor) {
       const x = Math.round(tToX(t)) + 0.5;
       const isMajor = Math.abs(t / step - Math.round(t / step)) < 1e-6;
       ctx.moveTo(x, lane.y + lane.h - (isMajor ? 12 : 5));
@@ -344,8 +490,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ctx.stroke();
     ctx.fillStyle = C.rulerText;
     ctx.font = "10px 'Cascadia Mono', Consolas, monospace";
-    const firstMajor = Math.ceil(props.viewStart / step) * step;
-    for (let t = firstMajor; t <= props.viewStart + props.viewDuration; t += step) {
+    const firstMajor = Math.ceil(vStart() / step) * step;
+    for (let t = firstMajor; t <= vStart() + vDur(); t += step) {
       const m = Math.floor(t / 60);
       const s = t - m * 60;
       const label = step < 1 ? `${m}:${s.toFixed(step < 0.1 ? 2 : 1).padStart(step < 0.1 ? 5 : 4, "0")}` : `${m}:${String(Math.round(s)).padStart(2, "0")}`;
@@ -357,7 +503,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const every = pxPerBar >= 28 ? 1 : pxPerBar >= 14 ? 2 : pxPerBar >= 7 ? 4 : 8;
       ctx.fillStyle = "#e0b45c";
       ctx.font = "600 9px 'Segoe UI', sans-serif";
-      for (let i = Math.max(0, floorIndex(downs, props.viewStart)); i < downs.length && downs[i]! <= props.viewStart + props.viewDuration; i++) {
+      for (let i = Math.max(0, floorIndex(downs, vStart())); i < downs.length && downs[i]! <= vStart() + vDur(); i++) {
         const bar = i + 1 - props.bar1Index;
         const x = tToX(downs[i]!);
         if (bar === 1) {
@@ -376,6 +522,63 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.fillRect(x, lane.y, 1, 6);
         ctx.fillText(String(bar), x + 3, lane.y + 9);
       }
+    }
+    // Fixed (pinned) bars: a diamond on the bar line
+    const beatTimes = props.beats ?? [];
+    const pinned = new Set((props.tempo?.beatPins ?? []).map((p) => beatTimes[p.beat]));
+    if (pinned.size > 0) {
+      ctx.fillStyle = "#e879f9";
+      for (let i = Math.max(0, floorIndex(downs, vStart())); i < downs.length && downs[i]! <= vStart() + vDur(); i++) {
+        if (!pinned.has(downs[i]!)) continue;
+        const x = Math.round(tToX(downs[i]!)) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, lane.y + 1);
+        ctx.lineTo(x + 5, lane.y + 6);
+        ctx.lineTo(x, lane.y + 11);
+        ctx.lineTo(x - 5, lane.y + 6);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  };
+
+  /** The tempo map as blocks (the starting tempo, then each change) with a grip on every change; a grip drags. */
+  const drawTempo = (ctx: CanvasRenderingContext2D, W: number, lane: Lane) => {
+    const tempo = props.tempo;
+    ctx.font = "600 11px 'Segoe UI', sans-serif";
+    if (!tempo) {
+      ctx.fillStyle = C.rulerText;
+      ctx.fillText("Open the song through the dev server to edit its tempo", 8, lane.y + 15);
+      return;
+    }
+    const starts = [0, ...tempo.tempoChanges.map((c) => c.at)];
+    const ends = [...tempo.tempoChanges.map((c) => c.at), total()];
+    const bpms = [tempo.nearestBpm, ...tempo.tempoChanges.map((c) => c.bpm)];
+    bpms.forEach((bpm, i) => {
+      const x1 = tToX(starts[i]!);
+      const x2 = tToX(ends[i]!);
+      if (x2 < 0 || x1 > W) return;
+      const hue = 295 + (i % 2) * 35;
+      ctx.fillStyle = `hsla(${hue}, 45%, 45%, 0.3)`;
+      ctx.fillRect(x1, lane.y + 2, x2 - x1, lane.h - 4);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x1, lane.y, x2 - x1, lane.h);
+      ctx.clip();
+      ctx.fillStyle = C.rulerText;
+      ctx.fillText(`${bpm} BPM`, Math.max(x1, 0) + 9, lane.y + 15);
+      ctx.restore();
+    });
+    for (const c of tempo.tempoChanges) {
+      const x = tToX(c.at);
+      if (x < -8 || x > W + 8) continue;
+      ctx.fillStyle = "#e879f9";
+      ctx.beginPath();
+      ctx.roundRect(x - 4, lane.y + 3, 8, lane.h - 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "hsl(300, 40%, 30%)";
+      ctx.fillRect(x - 2, lane.y + 7, 1, lane.h - 14);
+      ctx.fillRect(x + 1, lane.y + 7, 1, lane.h - 14);
     }
   };
 
@@ -439,8 +642,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const f0 = props.pitchContour;
     const range = pitchRange();
     if (!f0 || !range) return;
-    const a = Math.max(0, Math.floor(props.viewStart * PITCH_FPS));
-    const b = Math.min(f0.length, Math.ceil((props.viewStart + props.viewDuration) * PITCH_FPS) + 1);
+    const a = Math.max(0, Math.floor(vStart() * PITCH_FPS));
+    const b = Math.min(f0.length, Math.ceil((vStart() + vDur()) * PITCH_FPS) + 1);
     ctx.strokeStyle = C.pitch;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
@@ -475,7 +678,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const h = lane.h - 8;
     const headH = 14;
     doc.lines.forEach((line, li) => {
-      if (line.end < props.viewStart || line.start > props.viewStart + props.viewDuration) return;
+      if (line.end < vStart() || line.start > vStart() + vDur()) return;
       line.words.forEach((w, wi) => {
         if (w.syl.length === 0) return;
         const wx1 = tToX(w.syl[0]![0]);
@@ -490,7 +693,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.fillStyle = allPinned ? C.clipPinnedHead : C.clipFreeHead;
         ctx.fillRect(wx1, top, ww, headH);
         if (ww > 16) {
-          ctx.fillStyle = "#cfd8e3";
+          ctx.fillStyle = C.wordHeadText;
           ctx.font = "10px 'Segoe UI', sans-serif";
           ctx.fillText(w.w, wx1 + 4, top + 10);
         }
@@ -543,18 +746,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       ctx.lineWidth = 1;
     }
 
-    // Hovered / dragged edge
-    const he = drag?.kind === "boundary" ? drag : hoverEdge;
-    const hp = he ? doc.lines[he.ref.lineIdx]?.words[he.ref.wordIdx]?.syl[he.ref.sylIdx] : undefined;
-    if (he && hp) {
-      const x = tToX(he.edge === "start" ? hp[0] : hp[1]);
-      ctx.fillStyle = C.edgeHover;
-      ctx.fillRect(Math.round(x) - 1, lane.y + 1, 3, lane.h - 2);
-    }
-
     // Uncertainty hotspots
     for (const hs of props.hotspots) {
-      if (hs.time < props.viewStart || hs.time > props.viewStart + props.viewDuration) continue;
+      if (hs.time < vStart() || hs.time > vStart() + vDur()) continue;
       const x = tToX(hs.time);
       ctx.globalAlpha = Math.min(1, 0.35 + hs.expectedErrorMs / 60);
       ctx.fillStyle = C.hotspot;
@@ -573,10 +767,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (!doc) return;
     const selLine = props.selectedSyl?.lineIdx;
     doc.lines.forEach((line, li) => {
-      if (line.end < props.viewStart || line.start > props.viewStart + props.viewDuration) return;
+      if (line.end < vStart() || line.start > vStart() + vDur()) return;
       const x1 = tToX(line.start);
       const w = Math.max(2, tToX(line.end) - x1);
-      ctx.fillStyle = li === selLine ? "#8a5a22" : line.calibrated ? "#2a5a3c" : "#2a3a52";
+      ctx.fillStyle = li === selLine ? (isDarkCurrent ? "#8a5a22" : "#f59e0b") : line.calibrated ? (isDarkCurrent ? "#2a5a3c" : "#86efac") : (isDarkCurrent ? "#2a3a52" : "#bfdbfe");
       roundRect(ctx, x1, lane.y + 3, w, lane.h - 6, 2);
       ctx.fill();
       if (w > 22) {
@@ -584,7 +778,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.beginPath();
         ctx.rect(x1, lane.y, w, lane.h);
         ctx.clip();
-        ctx.fillStyle = "#d6dde7";
+        ctx.fillStyle = isDarkCurrent ? "#d6dde7" : "#1f2937";
         ctx.font = "10px 'Segoe UI', sans-serif";
         ctx.fillText(`L${line.i}  ${line.text}`, x1 + 4, lane.y + 14);
         ctx.restore();
@@ -593,19 +787,19 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   };
 
   const drawOverview = (ctx: CanvasRenderingContext2D, W: number, y: number) => {
-    ctx.fillStyle = "#101216";
+    ctx.fillStyle = C.overviewBg;
     ctx.fillRect(0, y, W, OVERVIEW_H);
     const T = total();
     const sx = (t: number) => (t / T) * W;
     for (const line of props.doc?.lines ?? []) {
-      ctx.fillStyle = line.calibrated ? "#3f9a62" : "#3b5f8f";
+      ctx.fillStyle = line.calibrated ? (isDarkCurrent ? "#3f9a62" : "#16a34a") : (isDarkCurrent ? "#3b5f8f" : "#2563eb");
       ctx.fillRect(sx(line.start), y + 6, Math.max(1, sx(line.end) - sx(line.start)), OVERVIEW_H - 12);
     }
     const vx = sx(props.viewStart);
     const vw = Math.max(6, sx(props.viewStart + props.viewDuration) - vx);
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillStyle = isDarkCurrent ? "rgba(255,255,255,0.10)" : "rgba(0,120,215,0.12)";
     ctx.fillRect(vx, y + 2, vw, OVERVIEW_H - 4);
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.strokeStyle = C.overviewBorder;
     ctx.strokeRect(vx + 0.5, y + 2.5, vw - 1, OVERVIEW_H - 5);
     ctx.fillStyle = C.playhead;
     ctx.fillRect(sx(props.currentTime), y, 1.5, OVERVIEW_H);
@@ -615,11 +809,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (!frame) frame = requestAnimationFrame(draw);
   };
 
+  // Scene data: anything that changes the painted lanes (not the playhead or the scroll, which only move the blit).
   createEffect(() => {
-    // Track every prop that affects pixels.
-    void [props.doc, props.currentTime, props.viewStart, props.viewDuration, props.beats, props.downbeats, props.bar1Index,
-      props.mixPeaks, props.vocalPeaks, props.pitchContour, props.showPitch, props.selectedSyl,
-      props.hotspots, props.monitor, props.duration, size()];
+    void [theme(), props.doc, props.viewDuration, props.beats, props.downbeats, props.bar1Index, props.mixPeaks, props.vocalPeaks,
+      props.peaksPerSec, props.pitchContour, props.showPitch, props.selectedSyl, props.hotspots, props.monitor, props.duration, props.tempo, size()];
+    sceneDirty = true;
+    requestDraw();
+  });
+
+  createEffect(() => {
+    void [props.currentTime, props.viewStart];
     requestDraw();
   });
 
@@ -659,6 +858,24 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     props.onViewChange(Math.max(0, Math.min(total() - props.viewDuration * 0.5, t)), props.viewDuration);
   };
 
+  /** Index in `downbeats` of the bar line under x, or null. */
+  const barAt = (x: number): number | null => {
+    const downs = props.downbeats ?? [];
+    const i = floorIndex(downs, xToT(x));
+    let best: number | null = null;
+    for (const k of [i, i + 1]) {
+      const d = downs[k];
+      if (d !== undefined && Math.abs(tToX(d) - x) <= EDGE_HIT_PX && (best === null || Math.abs(tToX(d) - x) < Math.abs(tToX(downs[best]!) - x))) best = k;
+    }
+    return best;
+  };
+
+  /** Index of the tempo change whose grip is under x, or null. */
+  const tempoGripAt = (x: number): number | null => {
+    const i = (props.tempo?.tempoChanges ?? []).findIndex((c) => Math.abs(tToX(c.at) - x) <= EDGE_HIT_PX);
+    return i < 0 ? null : i;
+  };
+
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const { x, y } = local(e);
@@ -672,9 +889,22 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const grabOffset = inside ? tAtX - vx0 : props.viewDuration / 2;
       drag = { kind: "overview", grabOffset };
       overviewScroll(x, grabOffset);
+    } else if (lane === "ruler" && y <= BAR_GRIP_H && !props.tempoBusy && props.tempo && barAt(x) !== null) {
+      // The top of the ruler holds the bar lines: drag one onto the music to fix that beat (Alt+click unpins it).
+      const idx = barAt(x)!;
+      if (e.altKey) props.onBarUnpin(idx);
+      else {
+        const downs = props.downbeats ?? [];
+        const beats = props.beats ?? [];
+        const bi = floorIndex(beats, downs[idx]! + 1e-4);
+        drag = { kind: "bar", idx, lo: (beats[bi - 1] ?? 0) + 0.05, hi: (beats[bi + 1] ?? total()) - 0.05 };
+        barGhost = { idx, t: downs[idx]! };
+      }
     } else if (lane === "ruler") {
       drag = { kind: "scrub" };
       props.onSeek(Math.max(0, t));
+    } else if (lane === "tempo" && !props.tempoBusy && tempoGripAt(x) !== null) {
+      drag = { kind: "tempo", idx: tempoGripAt(x)! };
     } else if (lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX)) {
       const idx = (props.doc?.sections ?? []).findIndex((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
       props.onEditBegin();
@@ -716,7 +946,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       hoverEdge = lane === "lyrics" ? edgeAt(x) : null;
       const onSection =
         lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
-      canvas.style.cursor = hoverEdge || onSection ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
+      const onTempo = lane === "tempo" && tempoGripAt(x) !== null;
+      const onBar = lane === "ruler" && y <= BAR_GRIP_H && !!props.tempo && barAt(x) !== null;
+      canvas.style.cursor = hoverEdge || onSection || onTempo || onBar ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
       requestDraw();
       return;
     }
@@ -734,6 +966,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       props.onSeek(Math.max(0, Math.min(total(), t)));
     } else if (drag.kind === "overview") {
       overviewScroll(x, drag.grabOffset);
+    } else if (drag.kind === "tempo") {
+      props.onTempoDrag(drag.idx, Math.max(0, t));
+    } else if (drag.kind === "bar") {
+      barGhost = { idx: drag.idx, t: Math.max(drag.lo, Math.min(drag.hi, t)) };
     } else if (drag.kind === "section") {
       const s = findSnap(t);
       snapGuide = s.label ? s : null;
@@ -749,6 +985,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const onPointerUp = (e: PointerEvent) => {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     if (drag?.kind === "pan" && !drag.moved) drag.click();
+    if (drag?.kind === "tempo") props.onTempoDrop();
+    if (drag?.kind === "bar" && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
+    barGhost = null;
     drag = null;
     snapGuide = null;
     requestDraw();
@@ -791,6 +1030,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         <div class="daw-track-header daw-ruler-header" style={{ top: "0px", height: `${RULER_H}px` }}>
           <span class="daw-track-title">Bars · Time</span>
         </div>
+        <Header lane={layout().lanes.tempo} title="Tempo" icon="speedometer2">
+          <button class="daw-icon-btn" title="Add tempo change at playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+            <i class="bi bi-plus-lg" />
+          </button>
+        </Header>
         <Header lane={layout().lanes.markers} title="Sections" icon="bookmark-fill">
           <button class="daw-icon-btn" title="Add section marker at playhead (M)" onClick={() => props.onAddSection()}>
             <i class="bi bi-plus-lg" />

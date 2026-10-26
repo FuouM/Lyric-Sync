@@ -10,14 +10,17 @@ import { Inspector } from "./components/Inspector";
 import { TimelineCanvas, type MonitorTrack } from "./components/TimelineCanvas";
 import { NewSongWizard } from "./components/NewSongWizard";
 import { EditLyricsModal } from "./components/EditLyricsModal";
+import { Logo } from "./components/Logo";
 import type { LineReview } from "../../src/types";
-import { isRecord, isStringArray } from "../../src/guards";
+import { isNumber, isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
 import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSongFiles, serverStore, type SongStore } from "./lib/song-files";
-import { isSylPinned, parseCalibrationDoc, type CalibrationDoc } from "./lib/calibration-doc";
-import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, writeFirstDownbeat } from "./lib/beat-grid";
+import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "../../src/calibration-doc";
+import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat, writeFirstDownbeat } from "./lib/beat-grid";
+import { readTempoMap, tempoAt, type TempoMap } from "./lib/tempo-grid";
 import { persistedSignal } from "./lib/persisted-signal";
+import { theme, setTheme } from "./stores/theme";
 import {
   addSectionAt,
   barBeatAt,
@@ -34,8 +37,11 @@ import {
   sameSyl,
   setLinePinned,
   setPinned,
+  splitText,
   sylPair,
+  switchSolvedTimes,
   tempoBpm,
+  barTempoBpm,
   type SylRef,
 } from "./lib/doc-edit";
 
@@ -72,6 +78,10 @@ export function App() {
   const [downbeats, setDownbeats] = createSignal<number[] | undefined>();
   const [bar1Index, setBar1Index] = createSignal(0);
   const [reviewLines, setReviewLines] = createSignal<LineReview[]>([]);
+  // Tempo map from the dev server (null when the song is not open through it) and the last one it confirmed
+  const [tempoMap, setTempoMap] = createSignal<TempoMap | null>(null);
+  const [tempoBusy, setTempoBusy] = createSignal(false);
+  let appliedTempo: TempoMap | null = null;
 
   // Playback
   const [currentTime, setCurrentTime] = createSignal(0);
@@ -92,6 +102,8 @@ export function App() {
   const [showPitch, setShowPitch] = persistedSignal("lyricsync.editor.showPitch", true);
   /** Auto-time moves solved boundaries near a beat onto it (how hand-calibrated lyrics look); off keeps the acoustic times. */
   const [solveSnap, setSolveSnap] = persistedSignal("lyricsync.editor.solveSnap", true);
+  /** The last Auto-time of the open song in both snap settings, so switching the setting re-times unpinned syllables at once. */
+  const [solvedModes, setSolvedModes] = createSignal<{ song: string; snapped: CalLine[]; natural: CalLine[] } | null>(null);
   const [panelTab, setPanelTab] = persistedSignal<ProjectTab>("lyricsync.editor.panelTab", "lines", {
     deserialize: (raw) => (raw === '"sections"' || raw === '"review"' || raw === '"songs"' ? JSON.parse(raw) : "lines"),
   });
@@ -102,6 +114,39 @@ export function App() {
     },
   });
   const [status, setStatus] = createSignal("Open a song folder to start.");
+  /**
+   * Where the editor server runs the models (GET/POST /api/config, server/device.ts). "gpu" uses `gpuProvider`; when it is null the
+   * machine has no GPU provider and "gpu" runs on the CPU. null: no server answered (Solve features need it anyway).
+   */
+  const [modelDevice, setModelDevice] = createSignal<{ device: "gpu" | "cpu"; gpuProvider: string | null } | null>(null);
+  const applyDeviceConfig = (data: unknown): void => {
+    if (isRecord(data) && (data.device === "gpu" || data.device === "cpu")) {
+      setModelDevice({ device: data.device, gpuProvider: typeof data.gpuProvider === "string" ? data.gpuProvider : null });
+    }
+  };
+  void fetch("/api/config")
+    .then((r) => r.json())
+    .then(applyDeviceConfig)
+    .catch(() => setModelDevice(null));
+  const gpuName = (provider: string | null): string => (provider === "dml" ? "DirectML" : provider === "cuda" ? "CUDA" : "none found");
+  const toggleModelDevice = async () => {
+    const current = modelDevice();
+    if (!current) return;
+    const device = current.device === "gpu" ? "cpu" : "gpu";
+    try {
+      const res = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device }) });
+      const data: unknown = await res.json();
+      if (!res.ok) throw new Error(isRecord(data) && typeof data.message === "string" ? data.message : `HTTP ${res.status}`);
+      applyDeviceConfig(data);
+      setStatus(
+        device === "gpu"
+          ? `Models run on the GPU (${gpuName(current.gpuProvider)}).`
+          : "Models run on the CPU: analysis takes about 4x longer; the results are the same."
+      );
+    } catch (e: unknown) {
+      setStatus(`Could not change where the models run: ${errorMessage(e)}`);
+    }
+  };
   const [solving, setSolving] = createSignal(false);
   const [showWizard, setShowWizard] = createSignal(false);
   const [showEditLyrics, setShowEditLyrics] = createSignal(false);
@@ -116,6 +161,7 @@ export function App() {
 
   const duration = createMemo(() => Math.max(audioDuration(), calDoc()?.lines.at(-1)?.end ?? 0));
   const bpm = createMemo(() => tempoBpm(beats()));
+  const barBpm = createMemo(() => barTempoBpm(currentTime(), beats(), downbeats()));
   const barBeat = createMemo(() => barBeatAt(currentTime(), beats(), downbeats(), bar1Index()));
   const bar1Time = () => downbeats()?.[bar1Index()] ?? null;
   const playingLine = createMemo(() => {
@@ -351,7 +397,7 @@ export function App() {
         curSection = sec.name;
         out.push(`[${sec.name}]`);
       }
-      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? w.sylText.join("|") : w.w)).join(" ");
+      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? splitText(w) : w.w)).join(" ");
       out.push(words);
     }
     return out.join("\n");
@@ -410,6 +456,127 @@ export function App() {
     } catch (e: unknown) {
       setStatus(`Bar 1 moved, but saving it failed: ${errorMessage(e)}`);
     }
+  };
+
+  // ── Tempo map (dev server): where the tempo changes and what the tempos are; the beats follow ──
+  const tempoUrl = (name: string) => `/api/project/${encodeURIComponent(getProjectPath(name))}/tempo`;
+
+  const loadTempo = async (name: string) => {
+    setTempoMap(null);
+    appliedTempo = null;
+    try {
+      const res = await fetch(tempoUrl(name));
+      if (!res.ok) return;
+      const body: unknown = await res.json();
+      const map = readTempoMap(body);
+      if (map) {
+        appliedTempo = map;
+        setTempoMap(map);
+      }
+    } catch (e: unknown) {
+      console.warn(`Could not read the tempo map of ${name}:`, e);
+    }
+  };
+
+  /** Moves tempo change `idx` while its grip is dragged (kept between its neighbours); `applyTempo` sends the result when it is dropped. */
+  const dragTempoChange = (idx: number, t: number) => {
+    const map = tempoMap();
+    if (!map || tempoBusy()) return;
+    const lo = (map.tempoChanges[idx - 1]?.at ?? 0) + 0.5;
+    const hi = (map.tempoChanges[idx + 1]?.at ?? duration()) - 0.5;
+    const at = Number(Math.max(lo, Math.min(hi, t)).toFixed(3));
+    setTempoMap({ ...map, tempoChanges: map.tempoChanges.map((c, i) => (i === idx ? { ...c, at } : c)) });
+  };
+
+  /**
+   * Sends a tempo map (the given one, else the one on screen) to the server, which re-fits the beats; the new beats replace the grid.
+   * The lyric timing is not touched: Re-analyze (the beats are part of the analysis) and Auto-time re-time it to the new beats.
+   */
+  const applyTempo = async (next?: TempoMap) => {
+    const s = song();
+    const map = next ?? tempoMap();
+    if (!s || !map || tempoBusy()) return;
+    if (JSON.stringify(map) === JSON.stringify(appliedTempo)) {
+      setTempoMap(map);
+      return;
+    }
+    setTempoBusy(true);
+    setTempoMap(map);
+    setStatus("Re-fitting the beats to the tempo map…");
+    try {
+      const res = await fetch(tempoUrl(s.name), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(map) });
+      const body: unknown = await res.json();
+      if (!res.ok || !isRecord(body)) throw new Error(isRecord(body) && typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
+      const applied = readTempoMap(body.tempoMap);
+      const doc = body.beats;
+      if (!applied || !isRecord(doc) || !Array.isArray(doc.beats) || !doc.beats.every(isNumber) || !Array.isArray(doc.downbeats) || !doc.downbeats.every(isNumber)) {
+        throw new Error("The tempo endpoint answered with an unexpected body.");
+      }
+      const prompt = await s.store.read(PROMPT_PATH);
+      const first = prompt ? readFirstDownbeat(await prompt.text()) : null;
+      const grid = first === null ? { downbeats: doc.downbeats, bar1Index: 0 } : gridFromBar1(doc.beats, nearestBeatIndex(doc.beats, first));
+      setBeats(doc.beats);
+      setDownbeats(grid.downbeats);
+      setBar1Index(grid.bar1Index);
+      appliedTempo = applied;
+      setTempoMap(applied);
+      // The beats are part of the analysis: it is stale now, which turns Auto-time off and shows Re-analyze.
+      await loadAnalysed(s.name);
+      setStatus(`Tempo map applied: ${doc.beats.length} beats. Re-analyze, then Auto-time, to re-fit the lyric timing to them.`);
+    } catch (e: unknown) {
+      setTempoMap(appliedTempo);
+      setStatus(`Tempo map not applied: ${errorMessage(e)}`);
+    } finally {
+      setTempoBusy(false);
+    }
+  };
+
+  /** A tempo change at the playhead (put it on the first beat of the new tempo), starting at the tempo in force there; then set its BPM. */
+  const addTempoChange = () => {
+    const map = tempoMap();
+    if (!map || tempoBusy()) return;
+    const at = Number(currentTime().toFixed(3));
+    if (at < 0.5 || at > duration() - 0.5 || map.tempoChanges.some((c) => Math.abs(c.at - at) < 0.5)) {
+      setStatus("Put the playhead on the first beat of the new tempo, away from the start, the end and other tempo changes.");
+      return;
+    }
+    const bpm = Number(tempoAt(at, map.nearestBpm, map.tempoChanges).toFixed(1));
+    void applyTempo({ ...map, tempoChanges: [...map.tempoChanges, { at, bpm }].sort((a, b) => a.at - b.at) });
+  };
+
+  /** The fixed beats with the bar each is on (the Inspector lists them). */
+  const pinRows = createMemo(() => (tempoMap()?.beatPins ?? []).map((p) => ({ ...p, bar: barBeatAt(p.at, beats(), downbeats(), bar1Index())?.bar ?? null })));
+
+  /** Bar line `idx` was dragged to `t`: its beat is fixed there (replacing an older pin on the same beat); the beats around it are re-fitted. */
+  const pinBar = (idx: number, t: number) => {
+    const map = tempoMap();
+    const b = beats();
+    const time = downbeats()?.[idx];
+    if (!map || !b || time === undefined || tempoBusy()) return;
+    const beat = nearestBeatIndex(b, time);
+    const beatPins = [...map.beatPins.filter((p) => p.beat !== beat), { beat, at: Number(t.toFixed(3)) }].sort((x, y) => x.beat - y.beat);
+    void applyTempo({ ...map, beatPins });
+  };
+
+  /** Frees the beat of bar line `idx` again. */
+  const unpinBar = (idx: number) => {
+    const map = tempoMap();
+    const b = beats();
+    const time = downbeats()?.[idx];
+    if (!map || !b || time === undefined) return;
+    const beat = nearestBeatIndex(b, time);
+    if (!map.beatPins.some((p) => p.beat === beat)) return;
+    void applyTempo({ ...map, beatPins: map.beatPins.filter((p) => p.beat !== beat) });
+  };
+
+  const removePin = (beat: number) => {
+    const map = tempoMap();
+    if (map) void applyTempo({ ...map, beatPins: map.beatPins.filter((p) => p.beat !== beat) });
+  };
+
+  const clearPins = () => {
+    const map = tempoMap();
+    if (map && map.beatPins.length > 0) void applyTempo({ ...map, beatPins: [] });
   };
 
   const addSection = () => {
@@ -662,6 +829,7 @@ export function App() {
       setPitchContour(files.f0Hz);
       setReviewLines(sortReview(files.review));
       void loadAnalysed(name);
+      void loadTempo(name);
       setVocalUrl(vUrl);
       setMixUrl(mUrl);
       setVocalPeaks(undefined);
@@ -756,10 +924,14 @@ export function App() {
       if (!res.ok) throw new Error(typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
       // Re-validate: the solved lines replace the document's lines.
       const solved = parseCalibrationDoc({ ...doc, lines: body.lines });
+      const alternate = parseCalibrationDoc({ ...doc, lines: body.alternate });
       if (calDoc() !== doc) {
         setStatus("Auto-timing finished, but you edited meanwhile; result discarded. Run it again.");
         return;
       }
+      const snapped = body.snapToBeats !== false;
+      const [snappedLines, naturalLines] = snapped ? [solved.lines, alternate.lines] : [alternate.lines, solved.lines];
+      setSolvedModes({ song: s.name, snapped: structuredClone(snappedLines), natural: structuredClone(naturalLines) });
       edit((d) => {
         d.lines = solved.lines;
       }, "Auto-timing done: unpinned syllables follow the solver. Save (Ctrl+S) to keep it.");
@@ -769,6 +941,30 @@ export function App() {
     } finally {
       setSolving(false);
     }
+  };
+
+  /**
+   * Switches "Snap Auto-timing to Beats". After an Auto-time of this song the unpinned syllables move to the other setting's times
+   * right away (one undoable edit); pinned syllables and syllables moved by hand since then stay.
+   */
+  const toggleSolveSnap = () => {
+    const on = !solveSnap();
+    setSolveSnap(on);
+    const modes = solvedModes();
+    const s = song();
+    const doc = calDoc();
+    const label = `Snap Auto-timing to Beats ${on ? "on" : "off"}`;
+    if (!modes || !s || !doc || modes.song !== s.name) {
+      setStatus(`${label}: applies from the next Auto-time.`);
+      return;
+    }
+    const [from, to] = on ? [modes.natural, modes.snapped] : [modes.snapped, modes.natural];
+    const moved = switchSolvedTimes(structuredClone(doc), from, to);
+    if (moved === 0) {
+      setStatus(`${label}: no unpinned syllable changes.`);
+      return;
+    }
+    edit((d) => void switchSolvedTimes(d, from, to), `${label}: ${moved} unpinned syllable${moved === 1 ? "" : "s"} re-timed; pinned ones stay.`);
   };
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
@@ -801,6 +997,7 @@ export function App() {
       case "m": case "M": addSection(); break;
       case "e": case "E": focusSplit(); break;
       case "b": case "B": void setBar1Here(); break;
+      case "t": case "T": addTempoChange(); break;
       case "s": case "S": setSnap(!snap()); setStatus(`Snap ${snap() ? "on" : "off"}`); break;
       case "f": case "F": setFollow(!follow()); setStatus(`Follow playhead ${follow() ? "on" : "off"}`); break;
       case "+": case "=": zoom(1 / 1.5); break;
@@ -931,6 +1128,7 @@ export function App() {
           { label: "Edit Syllable Split", shortcut: "E", action: focusSplit, disabled: !hasSel },
           { label: "Add Section Marker at Playhead", shortcut: "M", action: addSection, disabled: !hasDoc },
           { label: "Set Bar 1 at Playhead", shortcut: "B", action: () => void setBar1Here(), disabled: !beats() },
+          { label: "Add Tempo Change at Playhead", shortcut: "T", action: addTempoChange, disabled: !tempoMap() || tempoBusy() },
         ],
       },
       {
@@ -959,6 +1157,10 @@ export function App() {
           { label: "Follow Playhead", shortcut: "F", action: () => setFollow(!follow()), checked: follow() },
           { label: "Snap", shortcut: "S", action: () => setSnap(!snap()), checked: snap() },
           { label: "Pitch Contour", action: () => setShowPitch(!showPitch()), checked: showPitch() },
+          "separator",
+          { label: "Theme: Light", action: () => setTheme("light"), checked: theme() === "light" },
+          { label: "Theme: Dark", action: () => setTheme("dark"), checked: theme() === "dark" },
+          { label: "Theme: High Contrast", action: () => setTheme("high-contrast"), checked: theme() === "high-contrast" },
         ],
       },
       {
@@ -968,7 +1170,13 @@ export function App() {
           { label: "Re-analyze (apply syllable splits)", action: () => void reanalyze(), disabled: !hasDoc || analysing() || solving() },
           { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
           "separator",
-          { label: "Snap Auto-timing to Beats", action: () => setSolveSnap(!solveSnap()), checked: solveSnap() },
+          { label: "Snap Auto-timing to Beats", action: toggleSolveSnap, checked: solveSnap(), disabled: solving() },
+          {
+            label: `Run Models on GPU (${modelDevice() ? gpuName(modelDevice()!.gpuProvider) : "no server"})`,
+            action: () => void toggleModelDevice(),
+            checked: modelDevice()?.device === "gpu",
+            disabled: !modelDevice() || solving() || analysing(),
+          },
         ],
       },
     ];
@@ -977,7 +1185,7 @@ export function App() {
 
   const welcome = (
     <div class="daw-welcome">
-      <img src="/logo.svg" width="80" height="80" class="daw-welcome-logo" alt="lyricsync logo" />
+      <Logo width={80} height={80} class="daw-welcome-logo" />
       <h1>lyricsync</h1>
       <p>Time lyrics to the syllable, like editing clips in a video editor.</p>
       <div class="daw-welcome-actions">
@@ -1024,6 +1232,7 @@ export function App() {
         duration={duration()}
         barBeat={barBeat()}
         bpm={bpm()}
+        barBpm={barBpm()}
         bar1Time={bar1Time()}
         onSetBar1={() => void setBar1Here()}
         onPlayPause={togglePlay}
@@ -1114,6 +1323,14 @@ export function App() {
             onStep={stepSyllable}
             analysedSplit={selectedAnalysedSplit()}
             onResplit={resplitSelected}
+            tempo={tempoMap()}
+            tempoBusy={tempoBusy()}
+            onTempoEdit={(map) => void applyTempo(map)}
+            onAddTempo={addTempoChange}
+            onSeek={seek}
+            pins={pinRows()}
+            onRemovePin={removePin}
+            onClearPins={clearPins}
           />
         </div>
       </div>
@@ -1164,6 +1381,13 @@ export function App() {
             edit((d) => moveEdge(d, ref, edge, t, partner), `${edge === "start" ? "Start" : "End"} → ${t.toFixed(3)} s${partner ? "" : " (alone)"}`, false);
           }}
           onSectionDrag={(si, t) => edit((d) => moveSectionStart(d, si, t), `Section start → ${t.toFixed(2)} s`, false)}
+          tempo={tempoMap()}
+          tempoBusy={tempoBusy()}
+          onAddTempo={addTempoChange}
+          onTempoDrag={dragTempoChange}
+          onTempoDrop={() => void applyTempo()}
+          onBarDrop={pinBar}
+          onBarUnpin={unpinBar}
         />
       </div>
 
@@ -1180,8 +1404,15 @@ export function App() {
         />
       </Show>
 
-      <div class="daw-statusbar">
-        <div class="daw-status-left">
+      <footer class="status-strip">
+        <div class="status-cell" style={{ flex: "1", "min-width": "0" }}>
+          <div
+            class="status-dot"
+            classList={{
+              busy: solving() || analysing(),
+              offline: status().toLowerCase().includes("fail") || status().toLowerCase().includes("error"),
+            }}
+          />
           <button
             class="daw-status-copy-btn"
             classList={{ "daw-status-copy-btn--copied": copiedStatus() }}
@@ -1192,8 +1423,26 @@ export function App() {
           </button>
           <span class="daw-status-msg" title={status()}>{status()}</span>
         </div>
-        <span class="daw-status-hint">Drag empty space to scroll · drag clip edges to retime · double-click a syllable to hear it · Ctrl+wheel zooms</span>
-      </div>
+        <div class="status-cell">
+          <i class="bi bi-clock" />
+          <span>{formatTimecode(currentTime())} / {formatTimecode(duration())}</span>
+        </div>
+        <Show when={barBeat()}>
+          {(bb) => (
+            <div class="status-cell">
+              <i class="bi bi-music-note" />
+              <span>Bar {bb().bar}.{bb().beat}</span>
+            </div>
+          )}
+        </Show>
+        <div class="status-cell">
+          <i class="bi bi-cpu" />
+          <span>{modelDevice() ? `${modelDevice()!.device.toUpperCase()}: ${gpuName(modelDevice()!.gpuProvider)}` : "No server"}</span>
+        </div>
+        <div class="status-cell" style={{ "border-right": "none" }}>
+          <span class="daw-status-hint">Space: play · C: pin · [: start · ]: end · Ctrl+S: save</span>
+        </div>
+      </footer>
     </div>
   );
 }

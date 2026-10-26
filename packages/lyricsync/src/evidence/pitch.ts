@@ -3,6 +3,7 @@
 // note DP segmentation, and morphological pitch smoothing.
 
 import * as ort from 'onnxruntime-node';
+import { executionProviders, type InferenceDevice } from 'beatsync';
 import type { ConsensusNote } from '../types.ts';
 import { resample } from '../audio/audio.ts';
 import {
@@ -11,6 +12,7 @@ import {
   RMVPE_SAMPLE_RATE,
   RMVPE_HOP_LENGTH,
 } from '../audio/spectrogram.ts';
+import { openSplitModel } from './split-model.ts';
 import { modelFile } from '../paths.ts';
 
 export interface PitchResult {
@@ -459,12 +461,13 @@ export function smoothAndSegmentNotes(
 // -------------------------------------------------------------
 export async function runSwiftF0(
   audio44k: Float32Array,
-  sampleRate = 44100
+  sampleRate = 44100,
+  device: InferenceDevice = 'gpu'
 ): Promise<ConsensusNote[]> {
   const signal = sampleRate === SWIFT_SAMPLE_RATE ? audio44k : resample(audio44k, sampleRate, SWIFT_SAMPLE_RATE);
   const modelPath = modelFile('swift-f0', 'swift_f0.onnx');
   const session = await ort.InferenceSession.create(modelPath, {
-    executionProviders: ['dml', 'cpu'],
+    executionProviders: executionProviders(device),
     graphOptimizationLevel: 'all',
   });
 
@@ -538,12 +541,13 @@ export async function runSwiftF0(
 // -------------------------------------------------------------
 export async function runHarmoF0(
   audio44k: Float32Array,
-  sampleRate = 44100
+  sampleRate = 44100,
+  device: InferenceDevice = 'gpu'
 ): Promise<ConsensusNote[]> {
   const signal = sampleRate === HARMO_SAMPLE_RATE ? audio44k : resample(audio44k, sampleRate, HARMO_SAMPLE_RATE);
   const modelPath = modelFile('harmof0', 'harmof0_e2e.onnx');
   const session = await ort.InferenceSession.create(modelPath, {
-    executionProviders: ['dml', 'cpu'],
+    executionProviders: executionProviders(device),
     graphOptimizationLevel: 'all',
   });
 
@@ -620,26 +624,23 @@ export async function runHarmoF0(
 // -------------------------------------------------------------
 // RMVPE Tracker Execution
 // -------------------------------------------------------------
-// CPU only: the song is one input sequence, and DirectML's GRU kernel rejects long ones (a 220 s vocal fails with 0x80070057).
-// One session per process: loading the model costs more than running it on a short input.
-let rmvpeSession: Promise<ort.InferenceSession> | undefined;
-
 export async function runRmvpe(
   audio44k: Float32Array,
-  sampleRate = 44100
+  sampleRate = 44100,
+  device: InferenceDevice = 'gpu'
 ): Promise<{ f0Hz: number[]; rmvpeNotes: ConsensusNote[] }> {
   const signal = sampleRate === RMVPE_SAMPLE_RATE ? audio44k : resample(audio44k, sampleRate, RMVPE_SAMPLE_RATE);
   const melFb = loadRmvpeMelFilterbank(modelFile('rmvpe', 'rmvpe_mel_fb.bin'));
-  rmvpeSession ??= ort.InferenceSession.create(modelFile('rmvpe', 'rmvpe.onnx'), { executionProviders: ['cpu'], graphOptimizationLevel: 'all' });
-  const session = await rmvpeSession;
 
   const { data: melData, numFrames } = computeRmvpeMelSpectrogram(signal, melFb);
   if (numFrames === 0) {
     return { f0Hz: [], rmvpeNotes: [] };
   }
 
-  const inputTensor = new ort.Tensor('float32', melData, [1, 128, numFrames]);
-  const outputs = await session.run({ mel: inputTensor });
+  // The whole song is one input sequence; its GRU runs on the CPU (split-model.ts), the convolutions on `device`.
+  const model = await openSplitModel('rmvpe', 'rmvpe', device);
+  const outputs = await model.run({ mel: new ort.Tensor('float32', melData, [1, 128, numFrames]) });
+  await model.release();
   const hiddenOut = outputs.hidden;
   if (!hiddenOut) throw new Error('RMVPE model output missing hidden');
   const hiddenData = hiddenOut.data as Float32Array;

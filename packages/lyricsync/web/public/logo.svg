@@ -1,5 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="70 61 264 264" width="100%" height="100%">
   <defs>
+    <style>
+      .constellation-line { stroke: #0078d4; }
+      .constellation-star { fill: #0078d4; }
+      .globe-star { fill: #0078d4; }
+      .globe-rim-star { fill: #152238; stroke: #0078d4; }
+      .globe-disc { fill: #152238; stroke: #0078d4; }
+      .globe-inner { fill: #ffffff; stroke: #ffffff; }
+
+      @media (prefers-color-scheme: dark) {
+        .constellation-line { stroke: #ffffff; }
+        .constellation-star { fill: #ffffff; }
+        .globe-star { fill: #ffffff; }
+        .globe-rim-star { fill: #152238; stroke: #ffffff; }
+        .globe-disc { fill: #152238; stroke: #ffffff; }
+        .globe-inner { fill: #ffffff; stroke: #ffffff; }
+      }
+    </style>
     <!-- Standard 5-pointed star -->
     <polygon id="star" points="0,-10 2.47,-3.4 9.51,-3.09 3.99,1.3 5.88,8.09 0,4.2 -5.88,8.09 -3.99,1.3 -9.51,-3.09 -2.47,-3.4" />
     
@@ -10,16 +27,16 @@
     <polygon id="sparkle" points="0,-4 1.1,-1.1 4,0 1.1,1.1 0,4 -1.1,1.1 -4,0 -1.1,-1.1" />
   </defs>
 
-  <!-- 1. SOLID CRISP CONSTELLATION LINES (Solid light stroke: zero zipper / zebra aliasing when zoomed out) -->
-  <g stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" opacity="0.92">
+  <!-- 1. Constellation lines -->
+  <g class="constellation-line" stroke-width="2.6" stroke-linecap="round" opacity="0.92">
     <line x1="191" y1="126" x2="283" y2="92" />
     <line x1="188" y1="138" x2="228" y2="164" />
     <line x1="252" y1="168" x2="275" y2="162" />
     <line x1="176" y1="143" x2="161" y2="252" />
   </g>
 
-  <!-- 2. MAIN CONSTELLATION STARS: Solid White -->
-  <g fill="#ffffff">
+  <!-- 2. Main constellation stars -->
+  <g class="constellation-star">
     <use href="#star" transform="translate(298, 86) rotate(-3) scale(1.45)" />
     <use href="#star" transform="translate(177, 130) rotate(2) scale(1.05)" />
     <use href="#star" transform="translate(239, 171) rotate(-3) scale(1.0)" />
@@ -27,24 +44,20 @@
     <use href="#star" transform="translate(310, 154) rotate(8) scale(0.58)" />
   </g>
 
-  <!-- 3. BOTTOM-LEFT CELESTIAL GLOBE -->
+  <!-- 3. Bottom-left celestial globe -->
   <g id="star-cluster">
-    <!-- Midnight disc with crisp white border -->
-    <circle cx="141" cy="272" r="34" fill="#152238" stroke="#ffffff" stroke-width="2.2" />
+    <circle cx="141" cy="272" r="34" class="globe-disc" stroke-width="2.2" />
 
-    <!-- Floating outer stars around the globe -->
-    <g fill="#ffffff">
+    <g class="globe-star">
       <use href="#star" transform="translate(116, 231) rotate(-8) scale(0.45)" />
       <use href="#star" transform="translate(95, 275) rotate(-15) scale(0.6)" />
       <use href="#star" transform="translate(183, 264) rotate(15) scale(0.45)" />
       <use href="#star" transform="translate(162, 311) rotate(10) scale(0.4)" />
     </g>
 
-    <!-- Prominent Bottom-Left Star crossing the rim (Navy body with crisp white outline) -->
-    <use href="#sharp-star" transform="translate(120, 297) rotate(2.15) scale(2.2)" fill="#152238" stroke="#ffffff" stroke-width="1.0" />
+    <use href="#sharp-star" transform="translate(120, 297) rotate(2.15) scale(2.2)" class="globe-rim-star" stroke-width="1.0" />
 
-    <!-- Crisp White Inner Constellation & Stars inside the globe -->
-    <g fill="#ffffff" stroke="#ffffff">
+    <g class="globe-inner">
       <line x1="120" y1="297" x2="153" y2="255" stroke-width="2.2" stroke-linecap="round" />
       <use href="#sharp-star" transform="translate(120, 297) rotate(2.15) scale(1.15)" stroke="none" />
       <use href="#star" transform="translate(153, 255) rotate(38.15) scale(0.78)" stroke="none" />

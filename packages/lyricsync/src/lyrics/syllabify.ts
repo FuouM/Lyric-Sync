@@ -168,13 +168,19 @@ export function resolveSyllables(word: Pick<LyricWord, 'w' | 'phones'>, explicit
   }
   if (explicit) {
     if (language === 'ja') {
-      const asPhones = explicit.flatMap((syl) => {
-        const core = splitWordPunctuation(syl).core;
-        const morae = g2p.splitMoraeStrict(core);
-        if (!morae || morae.length !== 1) throw new Error(`Syllable "${syl}" of "${word.w}" is not a single mora of the Japanese dictionary.`);
-        return morae[0]!.phones;
-      });
-      if (asPhones.join(' ') !== phones.join(' ')) throw new Error(`Syllables ${JSON.stringify(explicit)} of "${word.w}" do not match its pronunciation (${phones.join(' ')}).`);
+      // The automatic split is the reference: syllables equal to it are valid even where a lone consonant is ambiguous
+      // (a doubled consonant is a closure mora, so "ko|n|ni|chi|wa" for "konnichiwa" has a closure where "n" alone says ん).
+      const auto = word.phones ? null : g2p.splitMoraeStrict(splitWordPunctuation(word.w).core);
+      const isAutoSplit = auto !== null && auto.length === explicit.length && auto.every((m, i) => m.text === splitWordPunctuation(explicit[i]!).core.toLowerCase());
+      if (!isAutoSplit) {
+        const asPhones = explicit.flatMap((syl) => {
+          const core = splitWordPunctuation(syl).core;
+          const morae = g2p.splitMoraeStrict(core);
+          if (!morae || morae.length !== 1) throw new Error(`Syllable "${syl}" of "${word.w}" is not a single mora of the Japanese dictionary.`);
+          return morae[0]!.phones;
+        });
+        if (asPhones.join(' ') !== phones.join(' ')) throw new Error(`Syllables ${JSON.stringify(explicit)} of "${word.w}" do not match its pronunciation (${phones.join(' ')}).`);
+      }
     }
     return explicit;
   }

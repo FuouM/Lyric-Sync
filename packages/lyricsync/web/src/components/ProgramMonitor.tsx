@@ -1,11 +1,12 @@
 // packages/lyricsync/web/src/components/ProgramMonitor.tsx
-// NLE "program monitor": a karaoke stage in the style of the video editor's placeholder scene. Sung syllables turn cyan,
-// the syllable being sung glows amber, coming ones stay dim, and a progress bar under every syllable fills as it is sung.
-// A pill names the word and syllable being sung; the next line is previewed. Timecode, section, bar and beat overlays,
-// and a metronome click.
+// NLE "program monitor": a karaoke stage in a WinForms look. Sung syllables turn blue, the syllable being sung is shown selected
+// (a highlight block), coming ones stay gray, and a progress bar under every syllable fills as it is sung. A status strip names the
+// word and syllable being sung; the next line is previewed. Timecode, section, bar and beat overlays, and a metronome click.
+// Per frame only what moves is touched: the line, word, syllable and state memos change at boundaries, the fill of the syllable being
+// sung is a transform, and the percentage changes at most 100 times per syllable.
 import { createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js";
-import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../lib/calibration-doc";
-import { barBeatAt, floorIndex, formatTimecode, lineAt } from "../lib/doc-edit";
+import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
+import { barBeatAt, floorIndex, formatTimecode, lineAt, sylUnits } from "../lib/doc-edit";
 
 export interface ProgramMonitorProps {
   doc: CalibrationDoc | null;
@@ -57,44 +58,70 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
   });
   onCleanup(() => void audioCtx?.close());
 
-  /** The line on stage (sung, about to start, or just ended) and the one after it. */
-  const stage = createMemo(() => {
-    const doc = props.doc;
-    if (!doc) return null;
-    const t = props.currentTime;
-    const li = lineAt(doc, t);
-    const cur = li >= 0 ? doc.lines[li] : undefined;
-    const next = doc.lines[li + 1];
-    let idx = -1;
-    if (cur && t <= cur.end) idx = li;
-    else if (next && next.start - t <= LEAD_SEC) idx = li + 1;
-    else if (cur && t - cur.end < HOLD_SEC) idx = li;
-    return { idx, line: idx >= 0 ? doc.lines[idx] : undefined, next: doc.lines[idx >= 0 ? idx + 1 : li + 1], total: doc.lines.length };
+  /** The line on stage (sung, about to start, or just ended) and the one after it, as indices: they change a few times a line, not per frame. */
+  const nav = createMemo(
+    () => {
+      const doc = props.doc;
+      if (!doc) return { idx: -1, next: -1 };
+      const t = props.currentTime;
+      const li = lineAt(doc, t);
+      const cur = doc.lines[li];
+      const nxt = doc.lines[li + 1];
+      let idx = -1;
+      if (cur && t <= cur.end) idx = li;
+      else if (nxt && nxt.start - t <= LEAD_SEC) idx = li + 1;
+      else if (cur && t - cur.end < HOLD_SEC) idx = li;
+      return { idx, next: idx >= 0 ? idx + 1 : li + 1 };
+    },
+    undefined,
+    { equals: (a, b) => a.idx === b.idx && a.next === b.next },
+  );
+  const line = createMemo(() => props.doc?.lines[nav().idx]);
+  const nextLine = () => props.doc?.lines[nav().next];
+
+  /** The word being sung and its syllable; it changes per syllable, the percentage in it is `pct`. */
+  const singing = createMemo(
+    () => {
+      const t = props.currentTime;
+      const w = line()?.words.find((x) => t >= x.start && t < x.end);
+      if (!w) return null;
+      return { w, si: Math.max(0, w.syl.findIndex(([s0, s1]) => t >= s0 && t < s1)) };
+    },
+    undefined,
+    { equals: (a, b) => a?.w === b?.w && a?.si === b?.si },
+  );
+  const pct = createMemo(() => {
+    const s = singing();
+    if (!s) return 0;
+    const [s0, s1] = s.w.syl[s.si]!;
+    return Math.round(clamp01((props.currentTime - s0) / Math.max(1e-3, s1 - s0)) * 100);
   });
 
-  /** The word being sung and where in it. */
-  const singing = createMemo(() => {
-    const line = stage()?.line;
-    const t = props.currentTime;
-    const w = line?.words.find((x) => t >= x.start && t < x.end);
-    if (!w) return null;
-    const si = Math.max(0, w.syl.findIndex(([s0, s1]) => t >= s0 && t < s1));
-    const [s0, s1] = w.syl[si]!;
-    return { w, si, p: clamp01((t - s0) / Math.max(1e-3, s1 - s0)) };
+  const section = createMemo(() => props.doc?.sections.find((s) => props.currentTime >= s.start && props.currentTime < s.end));
+  const pos = createMemo(() => barBeatAt(props.currentTime, props.beats, props.downbeats, props.bar1Index), undefined, {
+    equals: (a, b) => a?.bar === b?.bar && a?.beat === b?.beat,
   });
 
-  const section = () => props.doc?.sections.find((s) => props.currentTime >= s.start && props.currentTime < s.end);
-  const pos = () => barBeatAt(props.currentTime, props.beats, props.downbeats, props.bar1Index);
-
-  const Syllable = (p: { line: CalLine; w: CalWord; si: number }) => {
-    const pair = () => p.w.syl[p.si]!;
-    const state = () => (props.currentTime >= pair()[1] ? "past" : props.currentTime >= pair()[0] ? "active" : "future");
-    const fill = () => (state() === "past" ? 1 : state() === "active" ? clamp01((props.currentTime - pair()[0]) / Math.max(1e-3, pair()[1] - pair()[0])) : 0);
+  /** One unit of a word: syllables `from`..`to` (more than one when the lyrics join them with "+"). It fills over their whole span. */
+  const Syllable = (p: { line: CalLine; w: CalWord; from: number; to: number }) => {
+    const start = () => p.w.syl[p.from]![0];
+    const end = () => p.w.syl[p.to]![1];
+    const state = createMemo(() => (props.currentTime >= end() ? "past" : props.currentTime >= start() ? "active" : "future"));
+    const pinned = () => Array.from({ length: p.to - p.from + 1 }, (_, k) => isSylPinned(p.line, p.w, p.from + k)).every(Boolean);
+    let fill!: HTMLSpanElement;
+    // Only the syllable being sung follows the clock (this effect reads it only then); past and future fills are set by their class.
+    createEffect(() => {
+      if (state() === "active") {
+        fill.style.transform = `scaleX(${clamp01((props.currentTime - start()) / Math.max(1e-3, end() - start())).toFixed(3)})`;
+      } else {
+        fill.style.removeProperty("transform");
+      }
+    });
     return (
-      <span class={`kara-syl kara-syl--${state()}`} classList={{ "kara-syl--pinned": isSylPinned(p.line, p.w, p.si) }}>
-        <span class="kara-syl-text">{p.w.sylText[p.si]}</span>
+      <span class={`kara-syl kara-syl--${state()}${pinned() ? " kara-syl--pinned" : ""}`}>
+        <span class="kara-syl-text">{p.w.sylText.slice(p.from, p.to + 1).join("")}</span>
         <span class="kara-syl-bar">
-          <span class="kara-syl-fill" style={{ width: `${fill() * 100}%` }} />
+          <span class="kara-syl-fill" ref={fill} />
         </span>
       </span>
     );
@@ -108,24 +135,24 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
           <div class="daw-monitor-overlay-tr">{section()?.name ?? ""}</div>
 
           <div class="kara-card">
+            <span class="kara-title">Karaoke stage</span>
             <div class="kara-head">
-              <span class="kara-title">KARAOKE STAGE</span>
-              <Show when={stage()?.line}>
-                {(line) => (
+              <Show when={line()}>
+                {(l) => (
                   <span class="kara-line-info">
-                    LINE {stage()!.idx + 1} OF {stage()!.total} · [{line().start.toFixed(2)}s – {line().end.toFixed(2)}s]
+                    Line {nav().idx + 1} of {props.doc!.lines.length} · [{l().start.toFixed(2)}s – {l().end.toFixed(2)}s]
                   </span>
                 )}
               </Show>
             </div>
 
             <div class="kara-line">
-              <Show when={stage()?.line} fallback={<span class="kara-rest">♪</span>}>
-                {(line) => (
-                  <For each={line().words}>
+              <Show when={line()} fallback={<span class="kara-rest">♪</span>}>
+                {(l) => (
+                  <For each={l().words}>
                     {(w) => (
                       <span class="kara-word">
-                        <For each={w.syl}>{(_, si) => <Syllable line={line()} w={w} si={si()} />}</For>
+                        <For each={sylUnits(w)}>{([from, to]) => <Syllable line={l()} w={w} from={from} to={to} />}</For>
                       </span>
                     )}
                   </For>
@@ -133,29 +160,31 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
               </Show>
             </div>
 
-            <div class="kara-pill-row">
+            <div class="kara-status">
               <Show when={singing()}>
                 {(s) => (
-                  <span class="kara-pill">
-                    SINGING: “{s().w.w.toUpperCase()}”
-                    <Show when={s().w.syl.length > 1}>
-                      {" "}· SYL {s().si + 1}/{s().w.syl.length} [{(s().w.sylText[s().si] ?? "").toUpperCase()}]
-                    </Show>{" "}
-                    ({Math.round(s().p * 100)}%)
-                  </span>
+                  <>
+                    <span class="kara-status-text">
+                      Singing “{s().w.w}”
+                      <Show when={s().w.syl.length > 1}>
+                        {" "}· syllable {s().si + 1}/{s().w.syl.length} [{s().w.sylText[s().si] ?? ""}]
+                      </Show>
+                    </span>
+                    <span class="kara-pct">{pct()}%</span>
+                  </>
                 )}
               </Show>
             </div>
 
             <div class="kara-next">
-              <Show when={stage()?.next}>{(n) => <>NEXT: {n().text}</>}</Show>
+              <Show when={nextLine()}>{(n) => <>Next: {n().text}</>}</Show>
             </div>
           </div>
 
           <Show when={pos()}>
             {(bp) => (
               <div class="daw-monitor-beats">
-                <span class="daw-monitor-bar">BAR {bp().bar}</span>
+                <span class="daw-monitor-bar">Bar {bp().bar}</span>
                 <For each={[1, 2, 3, 4]}>
                   {(b) => <span class="daw-beat-dot" classList={{ "daw-beat-dot--on": bp().beat === b, "daw-beat-dot--down": b === 1 }} />}
                 </For>

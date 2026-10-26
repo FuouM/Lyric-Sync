@@ -17,8 +17,9 @@ import {
   type SyllableChange,
 } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
-import { findSongDir, songInputs, type SongsRoots } from "./song-inputs.ts";
-import { calibrationFromSolve, checkLyrics } from "./wizard.ts";
+import { findSongDir, songInputs, type SongsRoots } from "../../src/song-folder.ts";
+import { calibrationFromSolve, checkLyrics, syncLines } from "./wizard.ts";
+import { inferenceDevice } from "./device.ts";
 
 export interface ReanalyzeJob {
   project: string;
@@ -120,6 +121,8 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
     session.setSyllables(changes);
     changes.forEach((c, k) => {
       syncWords[k]!.syllables = session.definition.lines[c.line]!.words[c.word]!.syllables;
+      // A re-split word has other syllables than the "+" joins were written for.
+      delete syncWords[k]!.sylJoin;
     });
     fs.writeFileSync(project.syncFile, `${JSON.stringify(sync, null, 2)}\n`, "utf8");
   }
@@ -130,7 +133,7 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
   say(changes.length > 0 ? `Re-split ${changes.length} word${changes.length === 1 ? "" : "s"}: ${changes.map((c) => c.syllables.join("|")).join(", ")}.` : "Splits unchanged.");
   say("Checking audio evidence and boundary model…");
   const t0 = Date.now();
-  session.prepare({ onProgress: (m) => say(`  ${m}`) }).then(
+  session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() }).then(
     (r) => {
       current.state = "done";
       say(
@@ -205,14 +208,7 @@ export function updateLyrics(
 
   // Write user_input/lyrics.sync.json
   const syncFile = path.join(dir, "user_input", "lyrics.sync.json");
-  const syncData = {
-    language: def.language,
-    lines: def.lines.map((l) => ({
-      ...(l.section ? { section: l.section } : {}),
-      text: l.text,
-      words: l.words.map((w) => ({ w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}) })),
-    })),
-  };
+  const syncData = { language: def.language, lines: syncLines(parsed) };
   fs.writeFileSync(syncFile, `${JSON.stringify(syncData, null, 2)}\n`, "utf8");
 
   // Derive preserved anchors from oldCal
@@ -275,10 +271,10 @@ export function updateLyrics(
   say("Updating audio evidence (alignments, boundary queries)…");
   const t0 = Date.now();
 
-  session.prepare({ onProgress: (m) => say(`  ${m}`) }).then(
+  session.prepare({ onProgress: (m) => say(`  ${m}`), device: inferenceDevice() }).then(
     async () => {
       say("Solving timing around preserved pins…");
-      const result = await session.solve({ anchors });
+      const result = await session.solve({ anchors, device: inferenceDevice() });
       fs.mkdirSync(path.join(dir, "generated"), { recursive: true });
       fs.copyFileSync(session.paths.lyricsOut, path.join(dir, "generated", "lyrics.json"));
       const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));
@@ -287,7 +283,7 @@ export function updateLyrics(
           ? beats.duration
           : result.lyrics.lines.at(-1)!.end;
       const outline = lyricsSectionOutline(input.text);
-      const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd) as Record<string, unknown> & {
+      const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd, parsed.sylJoin) as Record<string, unknown> & {
         lines: Array<{
           i: number;
           text: string;

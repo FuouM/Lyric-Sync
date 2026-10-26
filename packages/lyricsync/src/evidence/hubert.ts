@@ -4,6 +4,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as ort from 'onnxruntime-node';
+import { executionProviders, type InferenceDevice } from 'beatsync';
 import type {
   AcousticBreath,
   AcousticEdge,
@@ -117,8 +118,23 @@ export function mapDecodedWordsToSyllables(
   return result;
 }
 
+/** Whole songs run through the model in 30 s chunks overlapping by 2 s (multiples of the 10 ms frame). */
+const SONG_CHUNK_SEC = 30.0;
+const SONG_OVERLAP_SEC = 2.0;
+
+/** Model outputs of one song chunk starting at sample `pos`. `frame` is vocab-major ([vocab, frames]). */
+interface ChunkOutput {
+  pos: number;
+  end: number;
+  frame: Float32Array;
+  edge: Float32Array;
+  cvnt: Float32Array | null;
+}
+
 export class HubertAligner {
   private session: ort.InferenceSession | null = null;
+  /** Chunk outputs of the last song analysed: posteriors, acoustic priors and full-song alignment of one song share one model pass. */
+  private song: { audio: Float32Array; chunks: ChunkOutput[] } | null = null;
   private decoder: AlignmentDecoder | null = null;
   private g2p: HubertG2P | null = null;
   private readonly modelDir: string;
@@ -126,7 +142,10 @@ export class HubertAligner {
   private readonly hopSize = 441;
   private language: Language = 'en';
 
-  constructor(flavor: 'base' | 'combined') {
+  constructor(
+    flavor: 'base' | 'combined',
+    private readonly device: InferenceDevice = 'gpu'
+  ) {
     this.modelDir = getHubertDir(flavor);
   }
 
@@ -166,24 +185,41 @@ export class HubertAligner {
 
     if (!this.session) {
       this.session = await ort.InferenceSession.create(modelPath, {
-        executionProviders: ['dml', 'cpu'],
+        executionProviders: executionProviders(this.device),
         graphOptimizationLevel: 'all',
       });
     }
   }
 
-  private async stitchChunkedLogits(
-    audioSamples: Float32Array,
-    options: { chunkSec?: number; overlapSec?: number } = {}
-  ): Promise<{ frameLogits: Float32Array; edgeLogits: Float32Array; totalFrames: number; vocabSize: number }> {
-    if (!this.session || !this.decoder) {
-      throw new Error('HuBERT aligner not initialized');
+  /** Runs the model over `audioSamples` chunk by chunk; calls with the same array reuse the outputs of the first call. */
+  private async songChunks(audioSamples: Float32Array): Promise<ChunkOutput[]> {
+    if (this.song?.audio === audioSamples) return this.song.chunks;
+    if (!this.session) throw new Error('HuBERT aligner not initialized');
+    const chunkSamples = Math.round(SONG_CHUNK_SEC * this.sampleRate);
+    const hopSamples = Math.round((SONG_CHUNK_SEC - SONG_OVERLAP_SEC) * this.sampleRate);
+    const chunks: ChunkOutput[] = [];
+    for (let pos = 0; pos < audioSamples.length; pos += hopSamples) {
+      const end = Math.min(pos + chunkSamples, audioSamples.length);
+      const chunk = audioSamples.subarray(pos, end);
+      const outputs = await this.session.run({ waveform: new ort.Tensor('float32', chunk, [1, chunk.length]) });
+      const frameT = outputs.ph_frame_logits;
+      const edgeT = outputs.ph_edge_logits;
+      if (!frameT || !edgeT) throw new Error('Missing expected logits in HuBERT model outputs');
+      const cvnt = outputs.cvnt_logits?.data;
+      chunks.push({ pos, end, frame: frameT.data as Float32Array, edge: edgeT.data as Float32Array, cvnt: cvnt ? (cvnt as Float32Array) : null });
     }
+    this.song = { audio: audioSamples, chunks };
+    return chunks;
+  }
 
-    const chunkSec = options.chunkSec ?? 30.0;
-    const overlapSec = options.overlapSec ?? 2.0;
-    const chunkSamples = Math.round(chunkSec * this.sampleRate);
-    const hopSamples = Math.round((chunkSec - overlapSec) * this.sampleRate);
+  /** Song-length logits: each chunk contributes its frames up to the middle of the overlaps with its neighbours. */
+  private async stitchChunkedLogits(
+    audioSamples: Float32Array
+  ): Promise<{ frameLogits: Float32Array; edgeLogits: Float32Array; totalFrames: number; vocabSize: number }> {
+    if (!this.decoder) throw new Error('HuBERT aligner not initialized');
+    const chunks = await this.songChunks(audioSamples);
+    const chunkSamples = Math.round(SONG_CHUNK_SEC * this.sampleRate);
+    const hopSamples = Math.round((SONG_CHUNK_SEC - SONG_OVERLAP_SEC) * this.sampleRate);
     if (chunkSamples % this.hopSize !== 0 || hopSamples % this.hopSize !== 0) {
       throw new Error('chunk/overlap seconds must be multiples of 10 ms model frame');
     }
@@ -194,19 +230,7 @@ export class HubertAligner {
     const frameLogits = new Float32Array(vocabSize * totalFrames);
     const edgeLogits = new Float32Array(totalFrames);
 
-    for (let pos = 0; pos < audioSamples.length; pos += hopSamples) {
-      const end = Math.min(pos + chunkSamples, audioSamples.length);
-      const chunk = audioSamples.subarray(pos, end);
-      const outputs = await this.session.run({
-        waveform: new ort.Tensor('float32', chunk, [1, chunk.length]),
-      });
-
-      const frameT = outputs.ph_frame_logits;
-      const edgeT = outputs.ph_edge_logits;
-      if (!frameT || !edgeT) throw new Error('Missing expected logits in HuBERT model outputs');
-
-      const frameData = frameT.data as Float32Array;
-      const edgeData = edgeT.data as Float32Array;
+    for (const { pos, end, frame: frameData, edge: edgeData } of chunks) {
       const n = edgeData.length;
       const f0 = pos / this.hopSize;
       const isFirst = pos === 0;
@@ -229,12 +253,9 @@ export class HubertAligner {
     return { frameLogits, edgeLogits, totalFrames, vocabSize };
   }
 
-  public async extractPosteriorgram(
-    audioSamples: Float32Array,
-    options: { chunkSec?: number; overlapSec?: number } = {}
-  ): Promise<Posteriorgram> {
+  public async extractPosteriorgram(audioSamples: Float32Array): Promise<Posteriorgram> {
     await this.init();
-    const { frameLogits, totalFrames, vocabSize } = await this.stitchChunkedLogits(audioSamples, options);
+    const { frameLogits, totalFrames, vocabSize } = await this.stitchChunkedLogits(audioSamples);
     const data = new Uint8Array(totalFrames * vocabSize);
 
     for (let t = 0; t < totalFrames; t++) {
@@ -260,43 +281,22 @@ export class HubertAligner {
 
   public async extractAcousticPriors(
     audioSamples: Float32Array,
-    options: {
-      chunkSec?: number;
-      overlapSec?: number;
-      edgeThres?: number;
-      breathThres?: number;
-    } = {}
+    options: { edgeThres?: number; breathThres?: number } = {}
   ): Promise<{ breaths: AcousticBreath[]; edges: AcousticEdge[] }> {
     await this.init();
-    if (!this.session) throw new Error('HuBERT model failed to initialize');
-
-    const chunkSec = options.chunkSec ?? 30.0;
-    const overlapSec = options.overlapSec ?? 2.0;
     const edgeThres = options.edgeThres ?? 0.35;
     const breathThres = options.breathThres ?? 0.45;
-
-    const hopSamples = Math.round((chunkSec - overlapSec) * this.sampleRate);
-    const chunkSamples = Math.round(chunkSec * this.sampleRate);
-    const totalLen = audioSamples.length;
 
     const breathsRaw: AcousticBreath[] = [];
     const edgesRaw: AcousticEdge[] = [];
 
-    let pos = 0;
-    while (pos < totalLen) {
-      const end = Math.min(pos + chunkSamples, totalLen);
-      const chunk = audioSamples.subarray(pos, end);
+    for (const { pos, end, edge, cvnt } of await this.songChunks(audioSamples)) {
+      const chunkLength = end - pos;
       const chunkT0 = pos / this.sampleRate;
 
-      const waveformTensor = new ort.Tensor('float32', chunk, [1, chunk.length]);
-      const outputs = await this.session.run({ waveform: waveformTensor });
-
-      const phEdgeTensor = outputs.ph_edge_logits;
-      const cvntTensor = outputs.cvnt_logits;
-
-      if (cvntTensor && cvntTensor.data) {
-        const cvntData = cvntTensor.data as Float32Array;
-        const numFrames = Math.round((chunk.length * this.sampleRate) / this.hopSize);
+      if (cvnt) {
+        const cvntData = cvnt;
+        const numFrames = Math.round((chunkLength * this.sampleRate) / this.hopSize);
         const actualFrames = Math.min(numFrames, Math.floor(cvntData.length / 3));
         const apProb = extractApProbabilities(cvntData, actualFrames);
 
@@ -345,27 +345,17 @@ export class HubertAligner {
         }
       }
 
-      if (phEdgeTensor && phEdgeTensor.data) {
-        const phEdgeData = phEdgeTensor.data as Float32Array;
-        const numFrames = Math.min(
-          Math.round((chunk.length * this.sampleRate) / this.hopSize),
-          phEdgeData.length
-        );
-        const edgeProb = new Float32Array(numFrames);
-        for (let f = 0; f < numFrames; f++) {
-          edgeProb[f] = sigmoid(phEdgeData[f]!);
-        }
-
-        const peaks = detectEventPeaks(edgeProb, edgeThres, 4);
-        for (const pk of peaks) {
-          edgesRaw.push({
-            t: Math.round((chunkT0 + pk.index * 0.01) * 1000) / 1000,
-            prob: Math.round(pk.prob * 1000) / 1000,
-          });
-        }
+      const numFrames = Math.min(Math.round((chunkLength * this.sampleRate) / this.hopSize), edge.length);
+      const edgeProb = new Float32Array(numFrames);
+      for (let f = 0; f < numFrames; f++) {
+        edgeProb[f] = sigmoid(edge[f]!);
       }
-
-      pos += hopSamples;
+      for (const pk of detectEventPeaks(edgeProb, edgeThres, 4)) {
+        edgesRaw.push({
+          t: Math.round((chunkT0 + pk.index * 0.01) * 1000) / 1000,
+          prob: Math.round(pk.prob * 1000) / 1000,
+        });
+      }
     }
 
     // Deduplicate edges within 35ms (keep peak with max prob)
@@ -423,10 +413,7 @@ export class HubertAligner {
     if (flatWords.length === 0) return [];
 
     const { phSeq, wordSeq, phIdxToWordIdx } = this.g2p.g2pWords(flatWords.map((x) => x.word));
-    const { frameLogits, edgeLogits } = await this.stitchChunkedLogits(audioSamples, {
-      chunkSec: 30.0,
-      overlapSec: 2.0,
-    });
+    const { frameLogits, edgeLogits } = await this.stitchChunkedLogits(audioSamples);
     const wavLength = audioSamples.length / this.sampleRate;
     const { words: decodedWords } = this.decoder.decode(
       frameLogits,
