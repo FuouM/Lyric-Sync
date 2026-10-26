@@ -26,6 +26,7 @@ def main():
     ap.add_argument('--windows', default='truth')
     ap.add_argument('--pad', type=float, default=0.25)
     ap.add_argument('--model', default='TIFA-1.0')
+    ap.add_argument('--ved', action='store_true', help='insert AP/EP/GS events (needs --model TIFA-1.0-ST)')
     ap.add_argument('--skip-run', action='store_true')
     a = ap.parse_args()
     song = pathlib.Path(a.song).resolve()
@@ -60,6 +61,8 @@ def main():
         (out / 'offsets.json').write_text(json.dumps(offsets))
         cmd = [sys.executable, 'infer.py', str(work), '-m', f'weights/{a.model}/model.pt', '-l', 'ja', '--fill', 'SP', '-o', str(out / 'tg'),
                '--skip-handling', 'preserve', '--batch-size', '8', '--num-workers', '0']
+        if a.ved:
+            cmd += ['--ved-model', 'weights/VED-2026.10/model.pt']
         r = subprocess.run(cmd, cwd=TIFA, capture_output=True, text=True)
         print(r.stdout[-600:], r.stderr[-600:])
         if r.returncode != 0:

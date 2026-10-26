@@ -15,6 +15,7 @@ import numpy as np
 import textgrid
 
 VOWELS = {'a', 'i', 'u', 'e', 'o'}
+NON_SYLLABLE = {'SP', 'AP', 'EP', 'GS'}  # silence and the VED events TIFA-1.0-ST can insert
 
 
 def load_truth(song):
@@ -33,11 +34,11 @@ def load_truth(song):
 def load_tifa(tg_path):
     tg = textgrid.TextGrid.fromFile(str(tg_path))
     tiers = {t.name: t for t in tg}
-    words = [iv for iv in tiers['words'] if iv.mark and iv.mark != 'SP']
+    words = [iv for iv in tiers['words'] if iv.mark and iv.mark not in NON_SYLLABLE]
     phones = list(tiers['phones'])
     res = []
     for w in words:
-        inside = [p for p in phones if p.mark and p.mark != 'SP' and p.minTime >= w.minTime - 1e-6 and p.maxTime <= w.maxTime + 1e-6]
+        inside = [p for p in phones if p.mark and p.mark not in NON_SYLLABLE and p.minTime >= w.minTime - 1e-6 and p.maxTime <= w.maxTime + 1e-6]
         vowel = next((p.minTime for p in inside if p.mark.split('/')[-1] in VOWELS), None)
         if vowel is None and inside:
             vowel = inside[-1].minTime  # N / cl: the last phone
