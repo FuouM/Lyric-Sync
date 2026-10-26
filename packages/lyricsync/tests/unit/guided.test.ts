@@ -75,4 +75,15 @@ describe('solveGuided', () => {
     }
     expect(times(early.lines, 1)[1]).toBe(2.6);
   });
+
+  test('an unpinned line that would run past the next line\'s pinned start is moved to sit before it', () => {
+    const m = model([]);
+    // Line 0 sits at 1.0-3.0 in the evidence; line 1 is pinned to start at 2.0. The pin is the measurement, so line 0 moves, whole, before it.
+    const out = solveGuided({ evidence: evidence({ boundary: m }), anchors: { version: 1, lines: { '1': { start: 2.0 } } }, sliced: {}, guide: boundaryGuide(m) });
+    const t0 = times(out.lines, 0);
+    expect(times(out.lines, 1)[0]).toBe(2.0);
+    expect(t0.every(Number.isFinite)).toBe(true);
+    expect(t0.at(-1)!).toBeLessThanOrEqual(2.0);
+    for (let i = 1; i < t0.length; i++) expect(t0[i]!).toBeGreaterThan(t0[i - 1]!);
+  });
 });
