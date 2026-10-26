@@ -900,13 +900,15 @@ export function viterbiChain(cands: number[][], u: Float64Array[], pair: Float64
   const last = dp[n - 1]!;
   let best = 0;
   for (let k = 1; k < last.length; k++) if (last[k]! > last[best]!) best = k;
-  // No feasible path (pins and candidates that cannot satisfy the minimum syllable length): decode with the invalid pairs as a large penalty that
-  // grows with the overlap, so the line gets its least-violating times instead of NaN, which would also poison every line after it.
+  // No feasible path (pins and candidates that cannot satisfy the minimum syllable length, e.g. two pins 0.17 s apart with one boundary between
+  // them and no candidate in the 10 ms window that fits): decode with an invalid pair as a penalty on the squared shortfall from a 0.1 s syllable.
+  // Squared, so the shortfall is spread evenly over the syllables between the pins instead of piled into one, and the line gets its least-violating
+  // times instead of NaN, which would also poison every line after it.
   if (last[best] === -Infinity && !soft) {
     const relaxed = pair.map((table, j) => {
       const A = cands[j]!;
       const B = cands[j + 1]!;
-      return Float64Array.from(table, (v, p) => (v === -Infinity ? -1e4 * (1 + Math.max(0, A[Math.floor(p / B.length)]! - B[p % B.length]!)) : v));
+      return Float64Array.from(table, (v, p) => (v === -Infinity ? -1e5 * Math.max(0, 0.1 - (B[p % B.length]! - A[Math.floor(p / B.length)]!)) ** 2 : v));
     });
     return viterbiChain(cands, u, relaxed, true);
   }
