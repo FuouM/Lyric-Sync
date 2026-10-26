@@ -416,7 +416,11 @@ export function clipLineOverlaps(lines: ConsensusLine[], endPinned: Set<number>)
 function decodeChain(cands: number[][], u: Float64Array[], pair: Float64Array[], D: GuidedDesign): number[] {
   if (D.mbrTemp <= 0) return viterbiChain(cands, u, pair);
   const t = D.mbrTemp;
-  return mbrPath(cands, chainMarginals(cands, { u: u.map((r) => r.map((x) => x / t)), pair: pair.map((r) => r.map((x) => x / t)) }));
+  const marginals = chainMarginals(cands, { u: u.map((r) => r.map((x) => x / t)), pair: pair.map((r) => r.map((x) => x / t)) });
+  // No valid path (pins closer than the candidates allow): the posterior is empty and every candidate would tie. The Viterbi decode has the
+  // least-violating fallback; the minimum-expected-error decode would pile the boundaries up right after a pin.
+  if (marginals.every((row) => row.every((p) => p === 0))) return viterbiChain(cands, u, pair);
+  return mbrPath(cands, marginals);
 }
 
 /** The whole timing solve with the guided model. Same inputs and output shape as `solveSimple`, plus the guide (null = votes only) and optional constant overrides. */

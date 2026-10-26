@@ -3,6 +3,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Anchors, ConsensusLine, SongEvidence } from '../../packages/lyricsync/src/types.ts';
+import { boundaryGuide, GUIDED_DESIGN, solveGuided } from '../../packages/lyricsync/src/engine/guided.ts';
 import { emptyAnchors, setBoundary } from '../../packages/lyricsync/src/workspace/anchors.ts';
 import { Session } from '../../packages/lyricsync/src/workspace/session.ts';
 
@@ -80,9 +81,24 @@ export function flatten(lines: ConsensusLine[]): Times {
   return lines.flatMap((l) => l.words.flatMap((w) => w.syl!.map((s): [number, number] => [s[0], s[1]])));
 }
 
-export async function solve(song: Song, anchors: Anchors, snap = true): Promise<Times> {
-  const r = await song.session.solve({ anchors, snapToBeats: snap, device: argFlag('--device', 'gpu') === 'cpu' ? 'cpu' : 'gpu' });
-  return flatten(r.lyrics.lines);
+/** Design constants from `--set key=value` flags (any GUIDED_DESIGN key), applied to every solve. */
+export function designFlags(): Record<string, number> {
+  const design: Record<string, number> = {};
+  process.argv.forEach((a, i) => {
+    if (a !== '--set') return;
+    const [k, v] = process.argv[i + 1]!.split('=');
+    if (!(k! in GUIDED_DESIGN)) throw new Error(`unknown design constant ${k}`);
+    design[k!] = Number(v);
+  });
+  return design;
+}
+
+/** The guided solve of Session.solve, with `--set` design overrides and an optional post-hoc `design` merge. */
+export async function solve(song: Song, anchors: Anchors, snap = true, design: Record<string, number> = {}): Promise<Times> {
+  const device = argFlag('--device', 'gpu') === 'cpu' ? 'cpu' : 'gpu';
+  const sliced = await song.session.alignAnchored(anchors, song.evidence, () => {}, device);
+  const out = solveGuided({ evidence: song.evidence, anchors, sliced, guide: boundaryGuide(song.evidence.boundary), design: { ...(snap ? {} : { beatSnapSec: 0 }), ...designFlags(), ...design } });
+  return flatten(out.lines);
 }
 
 export interface Stat { n: number; mae: number; startMae: number; med: number; p90: number; gt50: number; gt150: number }
