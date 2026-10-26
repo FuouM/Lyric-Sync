@@ -3,6 +3,7 @@
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { calibrationStats, formatTimecode, type SylRef } from "../lib/doc-edit";
+import type { TempoMap } from "../lib/tempo-grid";
 import { GroupBox } from "./GroupBox";
 
 export interface InspectorProps {
@@ -23,6 +24,13 @@ export interface InspectorProps {
   analysedSplit: string[] | null;
   /** Re-splits the selected word from "syl|la|bles"; returns an error to show, or null when applied. */
   onResplit: (text: string) => string | null;
+  /** The song's tempo map from the dev server, or null when the song is not open through it. */
+  tempo: TempoMap | null;
+  tempoBusy: boolean;
+  /** Applies an edited tempo map (the server re-fits the beats). */
+  onTempoEdit: (map: TempoMap) => void;
+  onAddTempo: () => void;
+  onSeek: (t: number) => void;
 }
 
 const NUDGE = 0.01;
@@ -59,6 +67,56 @@ function TimeField(p: { label: string; value: number; onChange: (t: number) => v
       <button class="daw-btn daw-btn-sm" title={`Set ${p.label.toLowerCase()} to playhead (${p.hotkey})`} onClick={() => p.onPlayhead()}>
         Set ({p.hotkey})
       </button>
+    </div>
+  );
+}
+
+/** One row of the tempo map: where it starts (null for the start of the song) and its BPM. Enter, or leaving the row, applies an edit. */
+function TempoRow(p: {
+  label: string;
+  at: number | null;
+  bpm: number;
+  disabled: boolean;
+  onChange: (at: number, bpm: number) => void;
+  onGo?: () => void;
+  onRemove?: () => void;
+}) {
+  const [atDraft, setAtDraft] = createSignal<string | null>(null);
+  const [bpmDraft, setBpmDraft] = createSignal<string | null>(null);
+  const commit = () => {
+    const at = atDraft() === null ? p.at : Number(atDraft());
+    const bpm = bpmDraft() === null ? p.bpm : Number(bpmDraft());
+    setAtDraft(null);
+    setBpmDraft(null);
+    if (at === null || !Number.isFinite(at) || !Number.isFinite(bpm)) return;
+    if (at !== p.at || bpm !== p.bpm) p.onChange(at, bpm);
+  };
+  const keys = (e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") {
+      setAtDraft(null);
+      setBpmDraft(null);
+      e.currentTarget.blur();
+    }
+  };
+  return (
+    <div class="daw-prop-row" onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && commit()}>
+      <span class="daw-prop-label">{p.label}</span>
+      <Show when={p.at !== null}>
+        <input class="daw-num" title="Starts at (seconds)" disabled={p.disabled} value={atDraft() ?? p.at!.toFixed(3)} onInput={(e) => setAtDraft(e.currentTarget.value)} onKeyDown={keys} />
+      </Show>
+      <input class="daw-num" title="Tempo (BPM)" disabled={p.disabled} value={bpmDraft() ?? String(p.bpm)} onInput={(e) => setBpmDraft(e.currentTarget.value)} onKeyDown={keys} />
+      <span class="daw-muted">BPM</span>
+      <Show when={p.onGo}>
+        <button class="daw-icon-btn" title="Go to this change" onClick={() => p.onGo!()}>
+          <i class="bi bi-skip-backward-fill" />
+        </button>
+      </Show>
+      <Show when={p.onRemove}>
+        <button class="daw-icon-btn" title="Remove this change" disabled={p.disabled} onClick={() => p.onRemove!()}>
+          <i class="bi bi-x-lg" />
+        </button>
+      </Show>
     </div>
   );
 }
@@ -169,6 +227,41 @@ export function Inspector(props: InspectorProps) {
                     </button>
                   </b>
                 </div>
+              </GroupBox>
+
+              <GroupBox
+                title="Tempo Map"
+                actions={
+                  <button class="daw-icon-btn" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+                    <i class="bi bi-plus-lg" />
+                  </button>
+                }
+              >
+                <Show when={props.tempo} fallback={<div class="daw-empty-note">Open the song through the dev server to edit its tempo.</div>}>
+                  {(map) => (
+                    <>
+                      <TempoRow label="Start" at={null} bpm={map().nearestBpm} disabled={props.tempoBusy} onChange={(_, bpm) => props.onTempoEdit({ ...map(), nearestBpm: bpm })} />
+                      <For each={map().tempoChanges}>
+                        {(c, i) => (
+                          <TempoRow
+                            label={`Change ${i() + 1}`}
+                            at={c.at}
+                            bpm={c.bpm}
+                            disabled={props.tempoBusy}
+                            onChange={(at, bpm) =>
+                              props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.map((x, j) => (j === i() ? { at, bpm } : x)).sort((a, b) => a.at - b.at) })
+                            }
+                            onGo={() => props.onSeek(c.at)}
+                            onRemove={() => props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.filter((_, j) => j !== i()) })}
+                          />
+                        )}
+                      </For>
+                      <p class="daw-wizard-note">
+                        Drag a grip in the Tempo track, or type here. Put a change on the first beat of the new tempo. The beats follow at once; Re-analyze, then Auto-time, re-fits the lyric timing to them.
+                      </p>
+                    </>
+                  )}
+                </Show>
               </GroupBox>
 
               <Show

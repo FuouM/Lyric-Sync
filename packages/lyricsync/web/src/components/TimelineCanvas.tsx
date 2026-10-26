@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from
 import { theme } from "../stores/theme";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
+import type { TempoMap } from "../lib/tempo-grid";
 
 export type MonitorTrack = "vocal" | "mix";
 
@@ -48,10 +49,20 @@ export interface TimelineCanvasProps {
   /** `partner`: the touching syllable that moves along (roll edit), chosen when the drag starts; null to move this edge alone. */
   onBoundaryDrag: (ref: SylRef, edge: "start" | "end", t: number, partner: SylRef | null) => void;
   onSectionDrag: (sectionIdx: number, t: number) => void;
+  /** The song's tempo map from the dev server, or null when the song is not open through it. */
+  tempo: TempoMap | null;
+  /** A re-fit of the beats is running; the tempo changes cannot be dragged meanwhile. */
+  tempoBusy: boolean;
+  onAddTempo: () => void;
+  /** Moves tempo change `idx` to `t` (live while dragging). */
+  onTempoDrag: (idx: number, t: number) => void;
+  /** A drag of a tempo change ended: apply it. */
+  onTempoDrop: () => void;
 }
 
 const HEADER_W = 148;
 const RULER_H = 30;
+const TEMPO_H = 22;
 const MARKERS_H = 22;
 const MIX_H = 46;
 const LYRICS_H = 60;
@@ -62,13 +73,13 @@ const EDGE_HIT_PX = 6;
 const PITCH_FPS = 100;
 
 interface Lane {
-  id: "ruler" | "markers" | "mix" | "vocal" | "lyrics" | "lines";
+  id: "ruler" | "tempo" | "markers" | "mix" | "vocal" | "lyrics" | "lines";
   y: number;
   h: number;
 }
 
 function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overviewY: number } {
-  const vocalH = Math.max(MIN_VOCAL_H, height - RULER_H - MARKERS_H - MIX_H - LYRICS_H - LINES_H - OVERVIEW_H);
+  const vocalH = Math.max(MIN_VOCAL_H, height - RULER_H - TEMPO_H - MARKERS_H - MIX_H - LYRICS_H - LINES_H - OVERVIEW_H);
   let y = 0;
   const lane = (id: Lane["id"], h: number): Lane => {
     const l = { id, y, h };
@@ -77,6 +88,7 @@ function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overvie
   };
   const lanes = {
     ruler: lane("ruler", RULER_H),
+    tempo: lane("tempo", TEMPO_H),
     markers: lane("markers", MARKERS_H),
     mix: lane("mix", MIX_H),
     vocal: lane("vocal", vocalH),
@@ -157,6 +169,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   let drag:
     | { kind: "boundary"; ref: SylRef; edge: "start" | "end"; partner: SylRef | null }
     | { kind: "section"; idx: number }
+    | { kind: "tempo"; idx: number }
     | { kind: "scrub" }
     | { kind: "overview"; grabOffset: number }
     /** Press on empty space: a drag pans the view; a release without moving is a click (`click` runs then). */
@@ -319,6 +332,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
     drawRuler(ctx, W, lanes.ruler, downs);
     drawMarkers(ctx, W, lanes.markers);
+    drawTempo(ctx, W, lanes.tempo);
     drawWave(ctx, lanes.mix, props.mixPeaks, C.mixWave, props.monitor === "mix");
     drawWave(ctx, lanes.vocal, props.vocalPeaks, C.vocalWave, props.monitor === "vocal");
     if (props.showPitch) drawPitch(ctx, lanes.vocal);
@@ -415,6 +429,46 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         ctx.fillRect(x, lane.y, 1, 6);
         ctx.fillText(String(bar), x + 3, lane.y + 9);
       }
+    }
+  };
+
+  /** The tempo map as blocks (the starting tempo, then each change) with a grip on every change; a grip drags. */
+  const drawTempo = (ctx: CanvasRenderingContext2D, W: number, lane: Lane) => {
+    const tempo = props.tempo;
+    ctx.font = "600 11px 'Segoe UI', sans-serif";
+    if (!tempo) {
+      ctx.fillStyle = C.rulerText;
+      ctx.fillText("Open the song through the dev server to edit its tempo", 8, lane.y + 15);
+      return;
+    }
+    const starts = [0, ...tempo.tempoChanges.map((c) => c.at)];
+    const ends = [...tempo.tempoChanges.map((c) => c.at), total()];
+    const bpms = [tempo.nearestBpm, ...tempo.tempoChanges.map((c) => c.bpm)];
+    bpms.forEach((bpm, i) => {
+      const x1 = tToX(starts[i]!);
+      const x2 = tToX(ends[i]!);
+      if (x2 < 0 || x1 > W) return;
+      const hue = 295 + (i % 2) * 35;
+      ctx.fillStyle = `hsla(${hue}, 45%, 45%, 0.3)`;
+      ctx.fillRect(x1, lane.y + 2, x2 - x1, lane.h - 4);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x1, lane.y, x2 - x1, lane.h);
+      ctx.clip();
+      ctx.fillStyle = C.rulerText;
+      ctx.fillText(`${bpm} BPM`, Math.max(x1, 0) + 9, lane.y + 15);
+      ctx.restore();
+    });
+    for (const c of tempo.tempoChanges) {
+      const x = tToX(c.at);
+      if (x < -8 || x > W + 8) continue;
+      ctx.fillStyle = "#e879f9";
+      ctx.beginPath();
+      ctx.roundRect(x - 4, lane.y + 3, 8, lane.h - 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "hsl(300, 40%, 30%)";
+      ctx.fillRect(x - 2, lane.y + 7, 1, lane.h - 14);
+      ctx.fillRect(x + 1, lane.y + 7, 1, lane.h - 14);
     }
   };
 
@@ -658,7 +712,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     // Track every prop that affects pixels.
     void [theme(), props.doc, props.currentTime, props.viewStart, props.viewDuration, props.beats, props.downbeats, props.bar1Index,
       props.mixPeaks, props.vocalPeaks, props.pitchContour, props.showPitch, props.selectedSyl,
-      props.hotspots, props.monitor, props.duration, size()];
+      props.hotspots, props.monitor, props.duration, props.tempo, size()];
     requestDraw();
   });
 
@@ -698,6 +752,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     props.onViewChange(Math.max(0, Math.min(total() - props.viewDuration * 0.5, t)), props.viewDuration);
   };
 
+  /** Index of the tempo change whose grip is under x, or null. */
+  const tempoGripAt = (x: number): number | null => {
+    const i = (props.tempo?.tempoChanges ?? []).findIndex((c) => Math.abs(tToX(c.at) - x) <= EDGE_HIT_PX);
+    return i < 0 ? null : i;
+  };
+
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const { x, y } = local(e);
@@ -714,6 +774,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     } else if (lane === "ruler") {
       drag = { kind: "scrub" };
       props.onSeek(Math.max(0, t));
+    } else if (lane === "tempo" && !props.tempoBusy && tempoGripAt(x) !== null) {
+      drag = { kind: "tempo", idx: tempoGripAt(x)! };
     } else if (lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX)) {
       const idx = (props.doc?.sections ?? []).findIndex((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
       props.onEditBegin();
@@ -755,7 +817,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       hoverEdge = lane === "lyrics" ? edgeAt(x) : null;
       const onSection =
         lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
-      canvas.style.cursor = hoverEdge || onSection ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
+      const onTempo = lane === "tempo" && tempoGripAt(x) !== null;
+      canvas.style.cursor = hoverEdge || onSection || onTempo ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
       requestDraw();
       return;
     }
@@ -773,6 +836,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       props.onSeek(Math.max(0, Math.min(total(), t)));
     } else if (drag.kind === "overview") {
       overviewScroll(x, drag.grabOffset);
+    } else if (drag.kind === "tempo") {
+      props.onTempoDrag(drag.idx, Math.max(0, t));
     } else if (drag.kind === "section") {
       const s = findSnap(t);
       snapGuide = s.label ? s : null;
@@ -788,6 +853,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const onPointerUp = (e: PointerEvent) => {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     if (drag?.kind === "pan" && !drag.moved) drag.click();
+    if (drag?.kind === "tempo") props.onTempoDrop();
     drag = null;
     snapGuide = null;
     requestDraw();
@@ -830,6 +896,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         <div class="daw-track-header daw-ruler-header" style={{ top: "0px", height: `${RULER_H}px` }}>
           <span class="daw-track-title">Bars · Time</span>
         </div>
+        <Header lane={layout().lanes.tempo} title="Tempo" icon="speedometer2">
+          <button class="daw-icon-btn" title="Add tempo change at playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+            <i class="bi bi-plus-lg" />
+          </button>
+        </Header>
         <Header lane={layout().lanes.markers} title="Sections" icon="bookmark-fill">
           <button class="daw-icon-btn" title="Add section marker at playhead (M)" onClick={() => props.onAddSection()}>
             <i class="bi bi-plus-lg" />

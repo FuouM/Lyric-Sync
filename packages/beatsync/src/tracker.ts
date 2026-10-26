@@ -8,7 +8,7 @@ import { computeLogMelSpectrogram } from './spectrogram.ts';
 import { checkTempoChanges, postprocessBeats } from './postprocess.ts';
 import { modelPath } from './paths.ts';
 import { executionProviders, type InferenceDevice } from './device.ts';
-import type { BeatAnalysis, BeatTrackerOptions, TempoChange, TrackBeatsOptions } from './types.ts';
+import type { BeatAnalysis, BeatLogits, BeatTrackerOptions, TempoChange, TrackBeatsOptions } from './types.ts';
 
 /**
  * Beat This! beat and downbeat tracking engine.
@@ -57,9 +57,10 @@ export class BeatTracker {
   }
 
   /**
-   * Analyzes a 1D Float32Array PCM audio buffer (at 22,050 Hz mono).
+   * Runs the model over a 1D Float32Array PCM audio buffer (22,050 Hz mono) and returns its per-frame beat and downbeat logits.
+   * The expensive step of tracking: keep the logits to try other tempo priors with `beatsFromLogits`.
    */
-  async trackAudio(signal: Float32Array, firstDownbeatHint?: number): Promise<BeatAnalysis> {
+  async trackLogits(signal: Float32Array): Promise<BeatLogits> {
     if (!this.externalRunner) {
       await this.init();
       if (!this.session) throw new Error('Failed to initialize ONNX session');
@@ -71,14 +72,7 @@ export class BeatTracker {
     const durationSec = signal.length / 22050.0;
 
     if (numFrames === 0) {
-      return {
-        beats: [],
-        downbeats: [],
-        bpm: 0,
-        beatPeriod: 0,
-        durationSec: 0,
-        inferenceTimeMs: 0,
-      };
+      return { fps: this.fps, beat: new Float32Array(0), downbeat: new Float32Array(0), durationSec: 0, inferenceTimeMs: 0 };
     }
 
     // 2. Chunking & Overlapping Window Generation
@@ -136,50 +130,15 @@ export class BeatTracker {
       }
     }
 
-    // 4. Post-processing: peak picking & timestamp generation
-    const { beats, downbeats } = postprocessBeats(beatLogits, downbeatLogits, {
-      fps: this.fps,
-      targetBpm: this.targetBpm,
-      tempoChanges: this.tempoChanges,
-      useDP: true,
-      firstDownbeatHint,
-    });
+    return { fps: this.fps, beat: beatLogits, downbeat: downbeatLogits, durationSec: Math.round(durationSec * 1000) / 1000, inferenceTimeMs: Math.round(performance.now() - startTime) };
+  }
 
-    // 5. Estimate overall BPM and average beat period
-    let estimatedBpm = 0;
-    if (beats.length >= 2) {
-      const intervals: number[] = [];
-      for (let i = 1; i < beats.length; i++) {
-        const diff = beats[i]! - beats[i - 1]!;
-        if (diff > 0.2 && diff < 1.5) {
-          intervals.push(60.0 / diff);
-        }
-      }
-      if (intervals.length > 0) {
-        intervals.sort((a, b) => a - b);
-        estimatedBpm = intervals[Math.floor(intervals.length / 2)]!;
-      }
-    }
-
-    const intervals: number[] = [];
-    for (let i = 1; i < beats.length; i++) {
-      intervals.push(beats[i]! - beats[i - 1]!);
-    }
-    const avgInterval =
-      intervals.length > 0
-        ? intervals.reduce((a, b) => a + b, 0) / intervals.length
-        : 0.5;
-
-    const elapsed = performance.now() - startTime;
-
-    return {
-      beats,
-      downbeats,
-      bpm: Math.round(estimatedBpm * 10) / 10,
-      beatPeriod: parseFloat(avgInterval.toFixed(5)),
-      durationSec: Math.round(durationSec * 1000) / 1000,
-      inferenceTimeMs: Math.round(elapsed),
-    };
+  /**
+   * Analyzes a 1D Float32Array PCM audio buffer (at 22,050 Hz mono).
+   */
+  async trackAudio(signal: Float32Array, firstDownbeatHint?: number): Promise<BeatAnalysis> {
+    const logits = await this.trackLogits(signal);
+    return beatsFromLogits(logits, { targetBpm: this.targetBpm, tempoChanges: this.tempoChanges, firstDownbeat: firstDownbeatHint });
   }
 
   /**
@@ -189,6 +148,57 @@ export class BeatTracker {
     const audio = await loadAudioFile(filePath, 22050);
     return this.trackAudio(audio, firstDownbeatHint);
   }
+
+  /** The model's logits of an audio file on disk; see `trackLogits`. */
+  async trackLogitsFile(filePath: string): Promise<BeatLogits> {
+    const audio = await loadAudioFile(filePath, 22050);
+    return this.trackLogits(audio);
+  }
+}
+
+/**
+ * Beats and downbeats of a song from its model logits: the tempo prior (a tempo and its changes) and the first downbeat decide what
+ * the beat tracker's DP picks. Cheap (no model run), so a tempo map can be tried again and again on the same logits.
+ */
+export function beatsFromLogits(logits: BeatLogits, options: TrackBeatsOptions): BeatAnalysis {
+  const { beats, downbeats } = postprocessBeats(logits.beat, logits.downbeat, {
+    fps: logits.fps,
+    targetBpm: options.targetBpm,
+    ...(options.tempoChanges ? { tempoChanges: options.tempoChanges } : {}),
+    useDP: true,
+    firstDownbeatHint: options.firstDownbeat,
+  });
+
+  // Overall BPM (median beat tempo) and average beat period
+  let estimatedBpm = 0;
+  if (beats.length >= 2) {
+    const tempos: number[] = [];
+    for (let i = 1; i < beats.length; i++) {
+      const diff = beats[i]! - beats[i - 1]!;
+      if (diff > 0.2 && diff < 1.5) {
+        tempos.push(60.0 / diff);
+      }
+    }
+    if (tempos.length > 0) {
+      tempos.sort((a, b) => a - b);
+      estimatedBpm = tempos[Math.floor(tempos.length / 2)]!;
+    }
+  }
+
+  const intervals: number[] = [];
+  for (let i = 1; i < beats.length; i++) {
+    intervals.push(beats[i]! - beats[i - 1]!);
+  }
+  const avgInterval = intervals.length > 0 ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0.5;
+
+  return {
+    beats,
+    downbeats,
+    bpm: Math.round(estimatedBpm * 10) / 10,
+    beatPeriod: parseFloat(avgInterval.toFixed(5)),
+    durationSec: logits.durationSec,
+    inferenceTimeMs: logits.inferenceTimeMs,
+  };
 }
 
 /**

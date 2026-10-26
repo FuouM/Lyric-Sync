@@ -322,3 +322,32 @@ export function songInputs(roots: SongsRoots, id: string): SongInputs {
     beatsFile: paths.timingFile,
   };
 }
+
+/**
+ * `prompt` (the text of user_input/prompt.yaml) with its tempo map set: `nearest_bpm` is the tempo at the start, `changes` the
+ * `tempo_changes` block after it (and after `first_downbeat_s` when there is one); no changes removes the block. Every other line stays.
+ */
+export function withTempoMap(prompt: string, nearestBpm: number, changes: readonly TempoChange[]): string {
+  const eol = prompt.includes('\r\n') ? '\r\n' : '\n';
+  const lines = prompt.split(/\r?\n/);
+  const num = (v: number): string => String(Number(v.toFixed(3)));
+
+  const start = lines.findIndex((l) => /^tempo_changes\s*:/.test(l));
+  if (start !== -1) {
+    let end = start + 1;
+    while (end < lines.length && (/^\s+\S/.test(lines[end]!) || /^-\s/.test(lines[end]!))) end++;
+    lines.splice(start, end - start);
+  }
+
+  const bpmLine = `nearest_bpm: ${num(nearestBpm)}`;
+  const bpmAt = lines.findIndex((l) => /^nearest_bpm\s*:/.test(l));
+  if (bpmAt === -1) lines.unshift(bpmLine);
+  else lines[bpmAt] = bpmLine;
+
+  if (changes.length > 0) {
+    const downbeatAt = lines.findIndex((l) => /^first_downbeat(_s)?\s*:/.test(l));
+    const after = Math.max(lines.findIndex((l) => /^nearest_bpm\s*:/.test(l)), downbeatAt);
+    lines.splice(after + 1, 0, 'tempo_changes:', ...changes.flatMap((c) => [`  - at: ${num(c.at)}`, `    bpm: ${num(c.bpm)}`]));
+  }
+  return lines.join(eol);
+}

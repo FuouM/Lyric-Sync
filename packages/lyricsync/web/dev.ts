@@ -33,7 +33,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createServer, type Plugin } from "vite";
 import { handleRealign } from "./server/realign.ts";
-import { checkLyrics, createSong, currentJob, parsePronunciations, parseTempoChanges, resumeSong } from "./server/wizard.ts";
+import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
+import { parseTempoChanges, parseTempoMap, readTempoMap, refitTempoMap, SongNotFoundError } from "./server/beats.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
 import { findSongDir } from "../src/song-folder.ts";
@@ -332,6 +333,23 @@ const localApi: Plugin = {
 
     server.middlewares.use("/api/project", async (req, res) => {
       const raw = (req.url ?? "/").split("?")[0]!;
+      const tempo = /^\/([^/]+)\/tempo$/.exec(raw);
+      if (tempo) {
+        // The tempo map of a song: GET reads it, POST sets it and re-fits the beats (the model's logits are cached, so this is quick).
+        try {
+          const id = decodeURIComponent(tempo[1]!);
+          if (req.method === "GET") return send(res, 200, readTempoMap(ROOT_LIST, id));
+          if (req.method !== "POST") return send(res, 405, { error: "METHOD", message: "GET or POST" });
+          const map = parseTempoMap(await (await toRequest(req)).json());
+          const build = currentJob();
+          const analysis = currentReanalyzeJob();
+          const busy = build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : analysis?.state === "running" ? `Re-analysis of ${analysis.project} is running. Wait for it to finish.` : null;
+          return send(res, 200, await refitTempoMap(ROOT_LIST, id, map, busy));
+        } catch (e: unknown) {
+          if (e instanceof SongNotFoundError) return send(res, 404, { error: "NOT_FOUND", message: e.message });
+          return fail(res, 422, e);
+        }
+      }
       const m = /^\/([^/]+)\/file\/(.+)$/.exec(raw);
       if (!m) return send(res, 404, { error: "NOT_FOUND", message: req.url });
       const id = decodeURIComponent(m[1]!);

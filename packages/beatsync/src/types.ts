@@ -23,6 +23,15 @@ export interface PostprocessOptions {
   firstDownbeatHint?: number;
 }
 
+/** The beat model's output for a song: one beat and one downbeat logit per frame. */
+export interface BeatLogits {
+  fps: number;
+  beat: Float32Array;
+  downbeat: Float32Array;
+  durationSec: number;
+  inferenceTimeMs: number;
+}
+
 export interface BeatAnalysis {
   beats: number[];
   downbeats: number[];

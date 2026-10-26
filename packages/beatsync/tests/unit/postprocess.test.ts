@@ -1,6 +1,7 @@
 // packages/beatsync/tests/unit/postprocess.test.ts
 import { describe, expect, test } from 'bun:test';
 import { checkTempoChanges, postprocessBeats, postprocessMinimal } from '../../src/postprocess.ts';
+import { beatsFromLogits } from '../../src/tracker.ts';
 
 describe('postprocessBeats', () => {
   test('returns empty beats for empty input', () => {
@@ -56,6 +57,18 @@ describe('postprocessBeats', () => {
     // The DP also lays beats over the silent stretches at both ends; every peak must be a beat, and the stretch between the first and last peak keeps each tempo.
     for (const f of frames) expect(res.beats).toContain(f / fps);
     expect(res.beats.filter((b) => b >= 0.5 && b <= 12)).toEqual(frames.map((f) => f / fps));
+  });
+
+  test('beatsFromLogits tries another tempo prior on the same logits: median tempo, period and duration come with the beats', () => {
+    const beat = new Float32Array(400).fill(-10.0);
+    for (let f = 25; f < 400; f += 25) beat[f] = 10.0;
+    const logits = { fps: 50, beat, downbeat: new Float32Array(400).fill(-10.0), durationSec: 8, inferenceTimeMs: 0 };
+
+    const res = beatsFromLogits(logits, { targetBpm: 120 });
+    expect(res.bpm).toBe(120);
+    expect(res.beatPeriod).toBeCloseTo(0.5, 3);
+    expect(res.durationSec).toBe(8);
+    expect(res.beats).toContain(2.5);
   });
 
   test('checkTempoChanges rejects unusable tempos and unordered changes', () => {

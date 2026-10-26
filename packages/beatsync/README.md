@@ -120,6 +120,7 @@ const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] });
 
 - `--bpm` / `targetBpm` (required): the song's approximate tempo. It is a tight prior: beat spacing is confined to about +/-12% of it, so a wrong value yields wrong beats. There is deliberately no default.
 - `tempoChanges` (optional, API only): `[{ at: seconds, bpm }]`, strictly increasing in `at`, each `at` > 0. From each `at` the prior is that tempo, so a song that changes tempo in steps (120 BPM, then 150 from 20 s) is tracked correctly past the ±12% window of the first tempo. A beat pair that straddles a change expects the geometric mean of the two spacings. Without it the whole song uses `targetBpm`.
+- Trying tempo priors again: the model run is the slow step. `new BeatTracker({ targetBpm }).trackLogitsFile(path)` (or `trackLogits(samples)`) returns the model's per-frame beat and downbeat logits (`BeatLogits`); `beatsFromLogits(logits, { targetBpm, tempoChanges, firstDownbeat })` turns them into the same `BeatAnalysis` as `trackBeats` in milliseconds. Keep the logits to re-fit the beats as the tempo map changes (the lyricsync editor does).
 - `--first-downbeat` / `firstDownbeat` (optional): seconds; aligns downbeat phase to the beat nearest this time. Beat times are unchanged.
 - `--device` / `device` (optional): `gpu` (default) or `cpu`. `gpu` uses the GPU provider of the platform's onnxruntime-node build (DirectML on Windows; CUDA where the build has it) and runs on the CPU where there is none. Beat and downbeat times are the same on both (checked on a 194 s song).
 

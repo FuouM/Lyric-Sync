@@ -16,7 +16,8 @@
 // The build is a pipeline of stages; a stage whose result exists is skipped, so a failed build resumes where it stopped.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { checkTempoChanges, computeFeatures, trackBeats, type TempoChange } from "../../../beatsync/src/index.ts";
+import { checkTempoChanges, computeFeatures, type TempoChange } from "../../../beatsync/src/index.ts";
+import { beatsDocument, trackSongBeats } from "./beats.ts";
 import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
@@ -120,14 +121,6 @@ export function parsePronunciations(raw: unknown, language: Language): Pronuncia
     out[pronunciationKey(word)] = phones;
   }
   return out;
-}
-
-/** The `tempoChanges` form field: a JSON list of { at, bpm } numbers. */
-export function parseTempoChanges(raw: unknown): TempoChange[] {
-  if (!Array.isArray(raw) || !raw.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) {
-    throw new Error("Tempo changes must be a list of { at: seconds, bpm: number }.");
-  }
-  return raw.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm }));
 }
 
 export interface CreateInput {
@@ -253,21 +246,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
     const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
     say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
-    const a = await trackBeats(prompt.songPath, {
-      targetBpm: prompt.nearestBpm,
-      tempoChanges: prompt.tempoChanges,
-      firstDownbeat: prompt.firstDownbeat ?? undefined,
-      device: inferenceDevice(),
-    });
-    const doc: BeatsDocument = {
-      v: 1,
-      model: "beat_this",
-      duration: Number(a.durationSec.toFixed(3)),
-      bpm: a.bpm,
-      beat_period: a.beatPeriod,
-      beats: a.beats.map((b) => Number(b.toFixed(3))),
-      downbeats: a.downbeats.map((d) => Number(d.toFixed(3))),
-    };
+    const doc = beatsDocument(await trackSongBeats(dir, prompt));
     writeJson(beatsFile, doc);
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);
   }

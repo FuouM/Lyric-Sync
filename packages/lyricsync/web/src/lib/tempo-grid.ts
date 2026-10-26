@@ -1,7 +1,8 @@
 // packages/lyricsync/web/src/lib/tempo-grid.ts
-// The new-song wizard's tempo preview: the beat grid that a base tempo, tempo changes and a first downbeat give.
-// The beat tracker gets the same base tempo and changes (a tempo prior per stretch of the song); this grid only shows
-// whether those values land on the music.
+// Tempo maps in the web UI: the new-song wizard's preview (the beat grid that a base tempo, tempo changes and a first downbeat give;
+// the beat tracker gets the same values as its tempo prior, so the grid only shows whether they land on the music) and the editor's
+// tempo map from the dev server.
+import { isRecord } from "../../../src/guards";
 
 export const MIN_BPM = 40;
 export const MAX_BPM = 260;
@@ -16,6 +17,20 @@ export interface TempoRow {
 export interface TempoChange {
   at: number;
   bpm: number;
+}
+
+/** A song's tempo map (the dev server's /api/project/<id>/tempo): the BPM at the start, then the changes in time order. */
+export interface TempoMap {
+  nearestBpm: number;
+  tempoChanges: TempoChange[];
+}
+
+/** A tempo map from a server answer, or null when it has another shape. */
+export function readTempoMap(raw: unknown): TempoMap | null {
+  if (!isRecord(raw) || typeof raw.nearestBpm !== "number" || !Array.isArray(raw.tempoChanges)) return null;
+  const changes = raw.tempoChanges;
+  if (!changes.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) return null;
+  return { nearestBpm: raw.nearestBpm, tempoChanges: changes.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm })) };
 }
 
 /** The rows as changes sorted by time, or the first problem. */

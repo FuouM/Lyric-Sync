@@ -12,6 +12,7 @@ import {
   readTimingAi,
   songFolderPaths,
   songInputs,
+  withTempoMap,
 } from '../../src/song-folder.ts';
 
 let root: string;
@@ -121,6 +122,30 @@ describe('song folder paths and prompt', () => {
   test('a tempo change without a number is an error', () => {
     put('user_input/prompt.yaml', PROMPT.replace('files:', 'tempo_changes:\n  - at: 62.5\nfiles:'));
     expect(() => readSongPrompt(dir)).toThrow('tempo_changes');
+  });
+
+  test('withTempoMap sets the tempo and the changes, replaces an old block and keeps every other line', () => {
+    const once = withTempoMap(PROMPT, 98.5, [{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }]);
+    put('user_input/prompt.yaml', once);
+    const prompt = readSongPrompt(dir);
+    expect(prompt.nearestBpm).toBe(98.5);
+    expect(prompt.tempoChanges).toEqual([{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }]);
+    expect(prompt.firstDownbeat).toBe(0.25);
+    expect(prompt.stems.other.length).toBe(2);
+    // the block follows first_downbeat_s, nothing else moved
+    expect(once.split('\n').slice(0, 7)).toEqual(['project_code: demo', 'song_name: "demo"', 'nearest_bpm: 98.5', 'first_downbeat_s: 0.25', 'tempo_changes:', '  - at: 62.5', '    bpm: 140']);
+
+    const twice = withTempoMap(once, 120, [{ at: 40, bpm: 90 }]);
+    expect(twice.match(/tempo_changes/g)).toHaveLength(1);
+    put('user_input/prompt.yaml', twice);
+    expect(readSongPrompt(dir).tempoChanges).toEqual([{ at: 40, bpm: 90 }]);
+
+    expect(withTempoMap(twice, 120, [])).toBe(PROMPT);
+  });
+
+  test('withTempoMap keeps CRLF line endings and adds a missing nearest_bpm', () => {
+    const out = withTempoMap('song_name: "x"\r\nfiles:\r\n  song: a.wav\r\n', 110, [{ at: 5, bpm: 130 }]);
+    expect(out).toBe('nearest_bpm: 110\r\ntempo_changes:\r\n  - at: 5\r\n    bpm: 130\r\nsong_name: "x"\r\nfiles:\r\n  song: a.wav\r\n');
   });
 
   test('readPromptManifest and songInputs keep the editor contract', () => {

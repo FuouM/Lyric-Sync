@@ -12,12 +12,13 @@ import { NewSongWizard } from "./components/NewSongWizard";
 import { EditLyricsModal } from "./components/EditLyricsModal";
 import { Logo } from "./components/Logo";
 import type { LineReview } from "../../src/types";
-import { isRecord, isStringArray } from "../../src/guards";
+import { isNumber, isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, extractPeaks } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
 import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSongFiles, serverStore, type SongStore } from "./lib/song-files";
 import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "../../src/calibration-doc";
-import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, writeFirstDownbeat } from "./lib/beat-grid";
+import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat, writeFirstDownbeat } from "./lib/beat-grid";
+import { readTempoMap, tempoAt, type TempoMap } from "./lib/tempo-grid";
 import { persistedSignal } from "./lib/persisted-signal";
 import { theme, setTheme } from "./stores/theme";
 import {
@@ -77,6 +78,10 @@ export function App() {
   const [downbeats, setDownbeats] = createSignal<number[] | undefined>();
   const [bar1Index, setBar1Index] = createSignal(0);
   const [reviewLines, setReviewLines] = createSignal<LineReview[]>([]);
+  // Tempo map from the dev server (null when the song is not open through it) and the last one it confirmed
+  const [tempoMap, setTempoMap] = createSignal<TempoMap | null>(null);
+  const [tempoBusy, setTempoBusy] = createSignal(false);
+  let appliedTempo: TempoMap | null = null;
 
   // Playback
   const [currentTime, setCurrentTime] = createSignal(0);
@@ -453,6 +458,90 @@ export function App() {
     }
   };
 
+  // ── Tempo map (dev server): where the tempo changes and what the tempos are; the beats follow ──
+  const tempoUrl = (name: string) => `/api/project/${encodeURIComponent(getProjectPath(name))}/tempo`;
+
+  const loadTempo = async (name: string) => {
+    setTempoMap(null);
+    appliedTempo = null;
+    try {
+      const res = await fetch(tempoUrl(name));
+      if (!res.ok) return;
+      const body: unknown = await res.json();
+      const map = readTempoMap(body);
+      if (map) {
+        appliedTempo = map;
+        setTempoMap(map);
+      }
+    } catch (e: unknown) {
+      console.warn(`Could not read the tempo map of ${name}:`, e);
+    }
+  };
+
+  /** Moves tempo change `idx` while its grip is dragged (kept between its neighbours); `applyTempo` sends the result when it is dropped. */
+  const dragTempoChange = (idx: number, t: number) => {
+    const map = tempoMap();
+    if (!map || tempoBusy()) return;
+    const lo = (map.tempoChanges[idx - 1]?.at ?? 0) + 0.5;
+    const hi = (map.tempoChanges[idx + 1]?.at ?? duration()) - 0.5;
+    const at = Number(Math.max(lo, Math.min(hi, t)).toFixed(3));
+    setTempoMap({ ...map, tempoChanges: map.tempoChanges.map((c, i) => (i === idx ? { ...c, at } : c)) });
+  };
+
+  /**
+   * Sends a tempo map (the given one, else the one on screen) to the server, which re-fits the beats; the new beats replace the grid.
+   * The lyric timing is not touched: Re-analyze (the beats are part of the analysis) and Auto-time re-time it to the new beats.
+   */
+  const applyTempo = async (next?: TempoMap) => {
+    const s = song();
+    const map = next ?? tempoMap();
+    if (!s || !map || tempoBusy()) return;
+    if (JSON.stringify(map) === JSON.stringify(appliedTempo)) {
+      setTempoMap(map);
+      return;
+    }
+    setTempoBusy(true);
+    setTempoMap(map);
+    setStatus("Re-fitting the beats to the tempo map…");
+    try {
+      const res = await fetch(tempoUrl(s.name), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(map) });
+      const body: unknown = await res.json();
+      if (!res.ok || !isRecord(body)) throw new Error(isRecord(body) && typeof body.message === "string" ? body.message : `HTTP ${res.status}`);
+      const applied = readTempoMap(body.tempoMap);
+      const doc = body.beats;
+      if (!applied || !isRecord(doc) || !Array.isArray(doc.beats) || !doc.beats.every(isNumber) || !Array.isArray(doc.downbeats) || !doc.downbeats.every(isNumber)) {
+        throw new Error("The tempo endpoint answered with an unexpected body.");
+      }
+      const prompt = await s.store.read(PROMPT_PATH);
+      const first = prompt ? readFirstDownbeat(await prompt.text()) : null;
+      const grid = first === null ? { downbeats: doc.downbeats, bar1Index: 0 } : gridFromBar1(doc.beats, nearestBeatIndex(doc.beats, first));
+      setBeats(doc.beats);
+      setDownbeats(grid.downbeats);
+      setBar1Index(grid.bar1Index);
+      appliedTempo = applied;
+      setTempoMap(applied);
+      setStatus(`Tempo map applied: ${doc.beats.length} beats. Re-analyze, then Auto-time, to re-fit the lyric timing to them.`);
+    } catch (e: unknown) {
+      setTempoMap(appliedTempo);
+      setStatus(`Tempo map not applied: ${errorMessage(e)}`);
+    } finally {
+      setTempoBusy(false);
+    }
+  };
+
+  /** A tempo change at the playhead (put it on the first beat of the new tempo), starting at the tempo in force there; then set its BPM. */
+  const addTempoChange = () => {
+    const map = tempoMap();
+    if (!map || tempoBusy()) return;
+    const at = Number(currentTime().toFixed(3));
+    if (at < 0.5 || at > duration() - 0.5 || map.tempoChanges.some((c) => Math.abs(c.at - at) < 0.5)) {
+      setStatus("Put the playhead on the first beat of the new tempo, away from the start, the end and other tempo changes.");
+      return;
+    }
+    const bpm = Number(tempoAt(at, map.nearestBpm, map.tempoChanges).toFixed(1));
+    void applyTempo({ ...map, tempoChanges: [...map.tempoChanges, { at, bpm }].sort((a, b) => a.at - b.at) });
+  };
+
   const addSection = () => {
     if (!calDoc()) return;
     const t = currentTime();
@@ -703,6 +792,7 @@ export function App() {
       setPitchContour(files.f0Hz);
       setReviewLines(sortReview(files.review));
       void loadAnalysed(name);
+      void loadTempo(name);
       setVocalUrl(vUrl);
       setMixUrl(mUrl);
       setVocalPeaks(undefined);
@@ -870,6 +960,7 @@ export function App() {
       case "m": case "M": addSection(); break;
       case "e": case "E": focusSplit(); break;
       case "b": case "B": void setBar1Here(); break;
+      case "t": case "T": addTempoChange(); break;
       case "s": case "S": setSnap(!snap()); setStatus(`Snap ${snap() ? "on" : "off"}`); break;
       case "f": case "F": setFollow(!follow()); setStatus(`Follow playhead ${follow() ? "on" : "off"}`); break;
       case "+": case "=": zoom(1 / 1.5); break;
@@ -1000,6 +1091,7 @@ export function App() {
           { label: "Edit Syllable Split", shortcut: "E", action: focusSplit, disabled: !hasSel },
           { label: "Add Section Marker at Playhead", shortcut: "M", action: addSection, disabled: !hasDoc },
           { label: "Set Bar 1 at Playhead", shortcut: "B", action: () => void setBar1Here(), disabled: !beats() },
+          { label: "Add Tempo Change at Playhead", shortcut: "T", action: addTempoChange, disabled: !tempoMap() || tempoBusy() },
         ],
       },
       {
@@ -1194,6 +1286,11 @@ export function App() {
             onStep={stepSyllable}
             analysedSplit={selectedAnalysedSplit()}
             onResplit={resplitSelected}
+            tempo={tempoMap()}
+            tempoBusy={tempoBusy()}
+            onTempoEdit={(map) => void applyTempo(map)}
+            onAddTempo={addTempoChange}
+            onSeek={seek}
           />
         </div>
       </div>
@@ -1244,6 +1341,11 @@ export function App() {
             edit((d) => moveEdge(d, ref, edge, t, partner), `${edge === "start" ? "Start" : "End"} → ${t.toFixed(3)} s${partner ? "" : " (alone)"}`, false);
           }}
           onSectionDrag={(si, t) => edit((d) => moveSectionStart(d, si, t), `Section start → ${t.toFixed(2)} s`, false)}
+          tempo={tempoMap()}
+          tempoBusy={tempoBusy()}
+          onAddTempo={addTempoChange}
+          onTempoDrag={dragTempoChange}
+          onTempoDrop={() => void applyTempo()}
         />
       </div>
 
