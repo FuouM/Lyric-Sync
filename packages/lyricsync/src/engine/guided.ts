@@ -391,11 +391,26 @@ function keepAfter(sk: LineSkeleton, pins: Array<number | undefined>, bound: num
   pins.forEach((t, k) => {
     if (t !== undefined) limit = Math.min(limit, t - k * D.minSylSec);
   });
+  // Each unpinned boundary also lies between its neighbouring pins, a minimal syllable per boundary away from each. The candidates come from the
+  // alignment's own idea of the line, which a pin can contradict; with no candidate inside the window the chain has no feasible path, so the window's
+  // nearest time stands in for them.
+  const n = pins.length;
+  const before = new Array<number>(n).fill(-Infinity);
+  const after = new Array<number>(n).fill(Infinity);
+  for (let j = 0, p = -1; j < n; j++) {
+    if (pins[j] !== undefined) p = j;
+    else if (p >= 0) before[j] = pins[p]! + (j - p) * D.minSylSec;
+  }
+  for (let j = n - 1, p = -1; j >= 0; j--) {
+    if (pins[j] !== undefined) p = j;
+    else if (p >= 0) after[j] = pins[p]! - (p - j) * D.minSylSec;
+  }
   sk.cands.forEach((cands, j) => {
     if (pins[j] !== undefined) return;
-    const lo = limit + j * D.minSylSec;
-    const kept = cands.filter((t) => t >= lo);
-    sk.cands[j] = kept.length > 0 ? kept : [lo];
+    const lo = Math.max(limit + j * D.minSylSec, before[j]!);
+    const hi = after[j]!;
+    const kept = cands.filter((t) => t >= lo && t <= hi);
+    sk.cands[j] = kept.length > 0 ? kept : [lo <= hi ? Math.min(Math.max(sk.prior[j]!, lo), hi) : (lo + hi) / 2];
   });
 }
 
