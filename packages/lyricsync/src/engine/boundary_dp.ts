@@ -873,7 +873,7 @@ function tracePath(bp: Int32Array[], lastBest: number): number[] {
 }
 
 /** Best path of a max-sum chain given the candidate lists, unary rows and pair tables (-Infinity marks an invalid pair). */
-export function viterbiChain(cands: number[][], u: Float64Array[], pair: Float64Array[]): number[] {
+export function viterbiChain(cands: number[][], u: Float64Array[], pair: Float64Array[], soft = false): number[] {
   const n = cands.length;
   const dp: Float64Array[] = [Float64Array.from(u[0]!)];
   const bp: Int32Array[] = [new Int32Array(u[0]!.length).fill(-1)];
@@ -900,6 +900,16 @@ export function viterbiChain(cands: number[][], u: Float64Array[], pair: Float64
   const last = dp[n - 1]!;
   let best = 0;
   for (let k = 1; k < last.length; k++) if (last[k]! > last[best]!) best = k;
+  // No feasible path (pins and candidates that cannot satisfy the minimum syllable length): decode with the invalid pairs as a large penalty that
+  // grows with the overlap, so the line gets its least-violating times instead of NaN, which would also poison every line after it.
+  if (last[best] === -Infinity && !soft) {
+    const relaxed = pair.map((table, j) => {
+      const A = cands[j]!;
+      const B = cands[j + 1]!;
+      return Float64Array.from(table, (v, p) => (v === -Infinity ? -1e4 * (1 + Math.max(0, A[Math.floor(p / B.length)]! - B[p % B.length]!)) : v));
+    });
+    return viterbiChain(cands, u, relaxed, true);
+  }
   return tracePath(bp, best);
 }
 
@@ -1066,7 +1076,9 @@ export function mbrPath(cands: number[][], marginals: Float64Array[]): number[] 
     const A = cands[j - 1]!;
     const B = cands[j]!;
     const tbl = new Float64Array(A.length * B.length).fill(-Infinity);
-    for (let q = 0; q < A.length; q++) for (let k = 0; k < B.length; k++) if (B[k]! - A[q]! >= MIN_SYL_SEC) tbl[q * B.length + k] = 0;
+    // Two pinned boundaries (one candidate each) are the user's word, however short the syllable between them.
+    const forced = A.length === 1 && B.length === 1;
+    for (let q = 0; q < A.length; q++) for (let k = 0; k < B.length; k++) if (B[k]! - A[q]! >= (forced ? 0 : MIN_SYL_SEC)) tbl[q * B.length + k] = 0;
     pair.push(tbl);
   }
   return viterbiChain(cands, loss, pair);
