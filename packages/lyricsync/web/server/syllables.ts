@@ -18,7 +18,7 @@ import {
 } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { findSongDir, songInputs, type SongsRoots } from "../../src/song-folder.ts";
-import { calibrationFromSolve, checkLyrics } from "./wizard.ts";
+import { calibrationFromSolve, checkLyrics, syncLines } from "./wizard.ts";
 import { inferenceDevice } from "./device.ts";
 
 export interface ReanalyzeJob {
@@ -121,6 +121,8 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
     session.setSyllables(changes);
     changes.forEach((c, k) => {
       syncWords[k]!.syllables = session.definition.lines[c.line]!.words[c.word]!.syllables;
+      // A re-split word has other syllables than the "+" joins were written for.
+      delete syncWords[k]!.sylJoin;
     });
     fs.writeFileSync(project.syncFile, `${JSON.stringify(sync, null, 2)}\n`, "utf8");
   }
@@ -206,14 +208,7 @@ export function updateLyrics(
 
   // Write user_input/lyrics.sync.json
   const syncFile = path.join(dir, "user_input", "lyrics.sync.json");
-  const syncData = {
-    language: def.language,
-    lines: def.lines.map((l) => ({
-      ...(l.section ? { section: l.section } : {}),
-      text: l.text,
-      words: l.words.map((w) => ({ w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}) })),
-    })),
-  };
+  const syncData = { language: def.language, lines: syncLines(parsed) };
   fs.writeFileSync(syncFile, `${JSON.stringify(syncData, null, 2)}\n`, "utf8");
 
   // Derive preserved anchors from oldCal
@@ -288,7 +283,7 @@ export function updateLyrics(
           ? beats.duration
           : result.lyrics.lines.at(-1)!.end;
       const outline = lyricsSectionOutline(input.text);
-      const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd) as Record<string, unknown> & {
+      const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd, parsed.sylJoin) as Record<string, unknown> & {
         lines: Array<{
           i: number;
           text: string;

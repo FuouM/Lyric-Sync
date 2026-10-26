@@ -20,6 +20,8 @@ export interface CalWord {
   syl: Array<[number, number]>;
   sylText: string[];
   sylCalibrated?: boolean[];
+  /** Japanese: gap i is true when syllables i and i+1 are shown as one unit ("ko+n"). Display only; the timing stays per syllable. */
+  sylJoin?: boolean[];
   calibrated?: boolean;
   [key: string]: unknown;
 }
@@ -76,8 +78,9 @@ export function parseCalibrationDoc(raw: unknown): CalibrationDoc {
         w.sylText.length === w.syl.length &&
         isOptionalFlag(w.calibrated) &&
         (w.sylCalibrated === undefined ||
-          (Array.isArray(w.sylCalibrated) && w.sylCalibrated.length === w.syl.length && w.sylCalibrated.every((f: unknown) => typeof f === "boolean")));
-      if (!ok) throw new Error(`${where}: line ${k} word ${wi} needs w, start, end and equally long syl / sylText (/ sylCalibrated) arrays.`);
+          (Array.isArray(w.sylCalibrated) && w.sylCalibrated.length === w.syl.length && w.sylCalibrated.every((f: unknown) => typeof f === "boolean"))) &&
+        (w.sylJoin === undefined || (Array.isArray(w.sylJoin) && w.sylJoin.length === w.syl.length - 1 && w.sylJoin.every((f: unknown) => typeof f === "boolean")));
+      if (!ok) throw new Error(`${where}: line ${k} word ${wi} needs w, start, end and equally long syl / sylText (/ sylCalibrated) arrays (sylJoin: one flag per gap).`);
     });
   });
   // Every field the editor reads was checked above.

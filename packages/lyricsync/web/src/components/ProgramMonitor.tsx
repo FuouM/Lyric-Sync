@@ -5,7 +5,7 @@
 // and a metronome click.
 import { createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-js";
 import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
-import { barBeatAt, floorIndex, formatTimecode, lineAt } from "../lib/doc-edit";
+import { barBeatAt, floorIndex, formatTimecode, lineAt, sylUnits } from "../lib/doc-edit";
 
 export interface ProgramMonitorProps {
   doc: CalibrationDoc | null;
@@ -86,13 +86,15 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
   const section = () => props.doc?.sections.find((s) => props.currentTime >= s.start && props.currentTime < s.end);
   const pos = () => barBeatAt(props.currentTime, props.beats, props.downbeats, props.bar1Index);
 
-  const Syllable = (p: { line: CalLine; w: CalWord; si: number }) => {
-    const pair = () => p.w.syl[p.si]!;
+  /** One unit of a word: syllables `from`..`to` (more than one when the lyrics join them with "+"). It fills over their whole span. */
+  const Syllable = (p: { line: CalLine; w: CalWord; from: number; to: number }) => {
+    const pair = (): [number, number] => [p.w.syl[p.from]![0], p.w.syl[p.to]![1]];
     const state = () => (props.currentTime >= pair()[1] ? "past" : props.currentTime >= pair()[0] ? "active" : "future");
     const fill = () => (state() === "past" ? 1 : state() === "active" ? clamp01((props.currentTime - pair()[0]) / Math.max(1e-3, pair()[1] - pair()[0])) : 0);
+    const pinned = () => Array.from({ length: p.to - p.from + 1 }, (_, k) => isSylPinned(p.line, p.w, p.from + k)).every(Boolean);
     return (
-      <span class={`kara-syl kara-syl--${state()}`} classList={{ "kara-syl--pinned": isSylPinned(p.line, p.w, p.si) }}>
-        <span class="kara-syl-text">{p.w.sylText[p.si]}</span>
+      <span class={`kara-syl kara-syl--${state()}`} classList={{ "kara-syl--pinned": pinned() }}>
+        <span class="kara-syl-text">{p.w.sylText.slice(p.from, p.to + 1).join("")}</span>
         <span class="kara-syl-bar">
           <span class="kara-syl-fill" style={{ width: `${fill() * 100}%` }} />
         </span>
@@ -125,7 +127,7 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
                   <For each={line().words}>
                     {(w) => (
                       <span class="kara-word">
-                        <For each={w.syl}>{(_, si) => <Syllable line={line()} w={w} si={si()} />}</For>
+                        <For each={sylUnits(w)}>{([from, to]) => <Syllable line={line()} w={w} from={from} to={to} />}</For>
                       </span>
                     )}
                   </For>

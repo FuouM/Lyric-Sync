@@ -73,7 +73,7 @@ The calibrated file is the important artefact: it is the only place human (or ag
 **`<song>/lyrics.calibrated.json` (human-owned):**
 - Shape: the one the video project's editor already uses, so it can be copied into a project's `user_input/` as is.
   - Lines: `{i, text, start, end, calibrated, words[]}`.
-  - Words: `{w, start, end, calibrated, syl: [s, e][], sylText[], sylCalibrated: boolean[]}`.
+  - Words: `{w, start, end, calibrated, syl: [s, e][], sylText[], sylCalibrated: boolean[], sylJoin?: boolean[]}`. `sylJoin[k]` is true when syllables k and k+1 are shown as one unit (Japanese `+` in the lyrics text; display only, see formats.md).
   - Top level: `sections[]`.
 - **The flags are the truth:**
   - `line.calibrated` means every syllable of the line is confirmed.

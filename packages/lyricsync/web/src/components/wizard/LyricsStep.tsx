@@ -70,6 +70,8 @@ interface LyricsMeta {
   issuesByLine: Map<number, Map<string, LyricsIssue>>;
   pronunciations: Pronunciations;
   hoveredAutoSplit: { line: number; word: string } | null;
+  /** Japanese: "+" joins two syllables into one shown unit (ko+n), so it is marked apart from "|". */
+  joinMark: boolean;
 }
 
 const setLyricsMeta = StateEffect.define<LyricsMeta>();
@@ -120,7 +122,9 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
         phonesStart = tokStart + wordPart.length;
       }
 
-      const cleanWord = wordPart.replace(/\|/g, "");
+      const sepGlobal = meta.joinMark ? /[|+]/g : /\|/g;
+      const seps = wordPart.match(sepGlobal) ?? [];
+      const cleanWord = wordPart.replace(sepGlobal, "");
       const issue = lineIssues?.get(cleanWord);
       const custom = !issue && (phonesPart !== null || meta.pronunciations[pronunciationKey(cleanWord)] !== undefined);
 
@@ -139,7 +143,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
       } else if (custom) {
         wordClass = "daw-cm-custom";
       }
-      const wordParts = wordPart.includes("|") ? wordPart.split("|") : null;
+      const wordParts = seps.length > 0 ? wordPart.split(meta.joinMark ? /[|+]/ : "|") : null;
       const innerPhones = phonesPart && phonesPart.startsWith("{") && phonesPart.endsWith("}") ? phonesPart.slice(1, -1) : null;
       const phoneChunks = innerPhones && innerPhones.includes("|") ? innerPhones.split("|") : null;
       const linked = wordParts !== null && phoneChunks !== null && wordParts.length === phoneChunks.length;
@@ -150,7 +154,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
           const part = wordParts[pi]!;
           const linkId = linked ? `syl_${line.from}_${match.index}_${pi}` : undefined;
           if (part.length > 0) {
-            const cls = (wordClass ? wordClass + " " : "") + (linked ? "daw-cm-syl" : "");
+            const cls = [wordClass, linked ? "daw-cm-syl" : "", seps[pi - 1] === "+" || seps[pi] === "+" ? "daw-cm-joined" : ""].filter(Boolean).join(" ");
             builder.add(
               cur,
               cur + part.length,
@@ -159,7 +163,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
             cur += part.length;
           }
           if (pi < wordParts.length - 1) {
-            builder.add(cur, cur + 1, Decoration.mark({ class: "daw-cm-pipe" }));
+            builder.add(cur, cur + 1, Decoration.mark({ class: seps[pi] === "+" ? "daw-cm-join" : "daw-cm-pipe" }));
             cur += 1;
           }
         }
@@ -205,7 +209,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
 
 const lyricsMetaField = StateField.define<LyricsMeta>({
   create() {
-    return { issuesByLine: new Map(), pronunciations: {}, hoveredAutoSplit: null };
+    return { issuesByLine: new Map(), pronunciations: {}, hoveredAutoSplit: null, joinMark: false };
   },
   update(meta, tr) {
     for (const e of tr.effects) {
@@ -364,6 +368,10 @@ function lyricsCompletionSource(lang: "en" | "ja") {
         validFor: /^\[[A-Za-z0-9 -]*$/,
       };
     }
+
+    // Japanese words are split into morae automatically (the "split automatically" pills), so the pipe suggestions are English-only.
+    // A popup would also take Enter and Tab away from the text.
+    if (lang === "ja") return null;
 
     // 2. Word matching
     const wordMatch = context.matchBefore(/[A-Za-z|']+/);
@@ -661,7 +669,7 @@ export function LyricsStep(props: LyricsStepProps) {
     const hovered = hoveredAutoSplit();
     if (view) {
       view.dispatch({
-        effects: setLyricsMeta.of({ issuesByLine, pronunciations, hoveredAutoSplit: hovered }),
+        effects: setLyricsMeta.of({ issuesByLine, pronunciations, hoveredAutoSplit: hovered, joinMark: props.language === "ja" }),
       });
     }
   });

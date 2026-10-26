@@ -47,7 +47,7 @@ export {
   syllabifyEnglish,
   syllabifyJapanese,
 } from './lyrics/index.ts';
-export type { AutoSplitNote, LyricsIssue, ParsedLyrics, Pronunciations, SectionOutline } from './lyrics/index.ts';
+export type { AutoSplitNote, LyricsIssue, ParsedLyrics, Pronunciations, SectionOutline, SylJoins } from './lyrics/index.ts';
 
 export { alignAnchoredLines, computeQueries, extractEvidence, loadEvidence, readBoundaryConfig, saveEvidence } from './evidence/index.ts';
 export type { ExtractOptions } from './evidence/index.ts';

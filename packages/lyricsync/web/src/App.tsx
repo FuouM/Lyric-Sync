@@ -36,6 +36,7 @@ import {
   sameSyl,
   setLinePinned,
   setPinned,
+  splitText,
   sylPair,
   switchSolvedTimes,
   tempoBpm,
@@ -391,7 +392,7 @@ export function App() {
         curSection = sec.name;
         out.push(`[${sec.name}]`);
       }
-      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? w.sylText.join("|") : w.w)).join(" ");
+      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? splitText(w) : w.w)).join(" ");
       out.push(words);
     }
     return out.join("\n");

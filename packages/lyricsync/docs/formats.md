@@ -16,7 +16,8 @@ re|con|cil|i|a|tion (oh) any      "|" gives explicit syllables; "(oh)" is a back
 - Words with no `|` get their syllables automatically: the **count** comes from the dictionary pronunciation (one per vowel phone), the **split** from a maximal-onset rule (`loo|king`, `de|spair`).
 - Auto-split is a heuristic. Measured against three human-annotated songs: syllable count agrees on 100% (English) / 99% (Japanese romaji) of words; the exact split of multi-syllable words agrees on ~72-75% (English) / 99% (Japanese). `init` prints every auto-split word so you can override the ones that matter with `|`.
 - Syllable *texts* only feed an onset/coda letter class, so a respelling such as `fay|ding` is fine. The syllable **count** is what the timing granularity is.
-- Japanese is romaji, split into morae (`ko|yo|i`); explicit syllables must be single morae whose phones add up to the word's pronunciation.
+- Japanese is romaji, split into morae (`ko|yo|i`); explicit syllables must be single morae, and the automatic split written out with `|` is always valid (also `ko|n|ni|chi|wa`, where the doubled `n` is a closure mora).
+- Japanese `+` is a `|` whose two syllables the editor shows as one unit (`ko+n|ni|chi|wa`: `kon`, `ni`, `chi`, `wa`; `ni+i` for a held `nii`). It is display only: the syllables and the solver are the same as with `|`. The join is stored as `sylJoin` (one boolean per gap between a word's syllables) in `lyrics.sync.json` and `lyrics.calibrated.json`, never in the workspace definition. The karaoke monitor draws a joined run as one unit that fills over its whole span; the timeline and the lines panel keep one box per syllable.
 - A word the dictionary does not know is an error naming the word.
 
 ### JSON (`.json`)

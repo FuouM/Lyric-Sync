@@ -95,6 +95,31 @@ describe('parseLyricsText', () => {
     expect(definition.lines[0]!.words.map((w) => w.syllables)).toEqual([['ko', 'yo', 'i'], ['ka', 'ze']]);
     expect(() => parseLyricsText('ko|yoi', 'ja')).toThrow(/not a single mora/);
   });
+
+  test('the auto split written out with pipes is valid, also where a doubled consonant is a closure mora', () => {
+    const piped = parseLyricsText('ko|n|ni|chi|wa wa|ka|re|p|po|i', 'ja').definition;
+    expect(piped.lines[0]!.words.map((w) => w.syllables)).toEqual([['ko', 'n', 'ni', 'chi', 'wa'], ['wa', 'ka', 're', 'p', 'po', 'i']]);
+    expect(() => parseLyricsText('kon|ni|chi|wa', 'ja')).toThrow(/not a single mora/);
+  });
+
+  test('japanese "+" gives the same syllables as "|" and only records the join', () => {
+    const joined = parseLyricsText('ko+n|ni|chi|wa nii ni+i', 'ja');
+    const piped = parseLyricsText('ko|n|ni|chi|wa nii ni|i', 'ja');
+    expect(joined.definition).toEqual(piped.definition);
+    expect(joined.sylJoin).toEqual([[[true, false, false, false], null, [true]]]);
+    expect(piped.sylJoin).toEqual([[null, null, null]]);
+  });
+
+  test('"+" is not a syllable separator in English', () => {
+    expect(() => parseLyricsText('re+con+cile', 'en')).toThrow(/re\+con\+cile/);
+  });
+
+  test('sylJoin in lyrics JSON needs explicit syllables and one flag per gap', () => {
+    const lyric = (word: object) => ({ language: 'ja', lines: [{ text: 'kon', words: [word] }] });
+    expect(parseLyricsJson(lyric({ w: 'kon', syllables: ['ko', 'n'], sylJoin: [true] }), 'ja').sylJoin).toEqual([[[true]]]);
+    expect(() => parseLyricsJson(lyric({ w: 'kon', syllables: ['ko', 'n'], sylJoin: [true, false] }), 'ja')).toThrow(/sylJoin/);
+    expect(() => parseLyricsJson(lyric({ w: 'kon', sylJoin: [true] }), 'ja')).toThrow(/sylJoin/);
+  });
 });
 
 describe('lyrics text extras', () => {

@@ -1,6 +1,6 @@
 // packages/lyricsync/web/src/lib/doc-edit.ts
 // Pure edit operations and musical-time helpers for the lyrics timing editor.
-import { isSylPinned, type CalibrationDoc, type CalLine } from "../../../src/calibration-doc";
+import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
 
 export interface SylRef {
   lineIdx: number;
@@ -179,6 +179,7 @@ export function resplitWord(doc: CalibrationDoc, lineIdx: number, wordIdx: numbe
     word.sylText = [...parts];
     return;
   }
+  delete word.sylJoin; // the joins were written for the old split
   updateLine(line, (pins) => {
     const n = parts.length;
     const edges = parts.map((_, k) => (k === 0 ? word.start : Number((word.start + ((word.end - word.start) * k) / n).toFixed(3))));
@@ -186,6 +187,22 @@ export function resplitWord(doc: CalibrationDoc, lineIdx: number, wordIdx: numbe
     word.sylText = [...parts];
     pins[wordIdx] = parts.map(() => false);
   });
+}
+
+/** The runs of syllables a word shows as one unit, as [first, last] indices: one run per syllable unless `sylJoin` joins neighbours ("ko+n"). */
+export function sylUnits(word: CalWord): Array<[number, number]> {
+  const units: Array<[number, number]> = [];
+  for (let i = 0; i < word.syl.length; i++) {
+    const last = units[units.length - 1];
+    if (last && word.sylJoin?.[i - 1] === true) last[1] = i;
+    else units.push([i, i]);
+  }
+  return units;
+}
+
+/** The word's syllables as lyrics text: "ko+n|ni|chi|wa", with "+" where two syllables are shown as one unit. */
+export function splitText(word: CalWord): string {
+  return word.sylText.map((s, i) => (i === 0 ? s : (word.sylJoin?.[i - 1] === true ? "+" : "|") + s)).join("");
 }
 
 /** Split the section under `time` (or append one) so a new section starts at `time`. */

@@ -24,13 +24,16 @@ import {
   lyricsSectionOutline,
   parseLyricsText,
   pronunciationKey,
+  readLyricsFile,
   Session,
   type AutoSplitNote,
   type Language,
   type LyricsDefinition,
   type LyricsIssue,
+  type ParsedLyrics,
   type Pronunciations,
   type SectionOutline,
+  type SylJoins,
 } from "../../src/index.ts";
 import type { BeatsDocument, ConsensusLine } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
@@ -89,7 +92,7 @@ export function checkLyrics(text: string, language: Language, pronunciations: Pr
       const words = norm.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
       for (const w of words) {
         const clean = w.replace(/\{[^}]*\}/g, "");
-        syllablesCount += clean.includes("|") ? clean.split("|").length : 1;
+        syllablesCount += clean.split(language === "ja" ? /[|+]/ : "|").length;
       }
     }
   }
@@ -147,6 +150,18 @@ const safeName = (name: string, what: string) => {
   return base;
 };
 
+/** The `lines` of user_input/lyrics.sync.json: the definition, plus the `+` joins of the text (display only; the solver reads the syllables). */
+export function syncLines(parsed: ParsedLyrics) {
+  return parsed.definition.lines.map((l, li) => ({
+    ...(l.section ? { section: l.section } : {}),
+    text: l.text,
+    words: l.words.map((w, wi) => {
+      const join = parsed.sylJoin[li]![wi];
+      return { w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}), ...(join ? { sylJoin: join } : {}) };
+    }),
+  }));
+}
+
 /** Validates everything that can be checked up front, writes the inputs, then starts the build. */
 export async function createSong(songsRoot: string, input: CreateInput): Promise<void> {
   if (job?.state === "running") throw new Error(`A build is already running (${job.project}). Wait for it to finish.`);
@@ -182,15 +197,8 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
     "",
   ].join("\n");
   fs.writeFileSync(path.join(dir, "user_input", "prompt.yaml"), prompt, "utf8");
-  const definition = parseLyricsText(input.lyrics, input.language, input.pronunciations).definition;
-  writeJson(path.join(dir, "user_input", "lyrics.sync.json"), {
-    language: definition.language,
-    lines: definition.lines.map((l) => ({
-      ...(l.section ? { section: l.section } : {}),
-      text: l.text,
-      words: l.words.map((w) => ({ w: w.w, syllables: w.syllables, ...(w.phones ? { phones: w.phones } : {}) })),
-    })),
-  });
+  const parsed = parseLyricsText(input.lyrics, input.language, input.pronunciations);
+  writeJson(path.join(dir, "user_input", "lyrics.sync.json"), { language: parsed.definition.language, lines: syncLines(parsed) });
   writeJson(path.join(dir, "project.json"), {
     v: 1,
     id: input.id,
@@ -306,12 +314,16 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
   const beats: unknown = JSON.parse(fs.readFileSync(inputs.beatsFile, "utf8"));
   const songEnd = typeof beats === "object" && beats !== null && "duration" in beats && typeof beats.duration === "number" ? beats.duration : result.lyrics.lines.at(-1)!.end;
   const outline = lyricsSectionOutline(fs.readFileSync(path.join(dir, "user_input", "lyrics.txt"), "utf8"));
-  writeJson(calibrated, calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd));
+  const sylJoin = readLyricsFile(inputs.lyricsFile, inputs.language).sylJoin;
+  writeJson(calibrated, calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd, sylJoin));
   say(`Wrote user_input/lyrics.calibrated.json (${result.lyrics.lines.length} lines, mean expected error ${result.meanExpectedErrorMs.toFixed(0)} ms).`);
 }
 
-/** The project calibration file for a free solve: solver times, no pins, sections from the lyrics' headers (sectionsFromOutline). */
-export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number) {
+/**
+ * The project calibration file for a free solve: solver times, no pins, sections from the lyrics' headers (sectionsFromOutline).
+ * `sylJoin` (from the lyrics text) is display only: the syllables stay the solver's.
+ */
+export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLine[], outline: SectionOutline[], songEnd: number, sylJoin: SylJoins) {
   if (solved.length !== def.lines.length) throw new Error(`The solver returned ${solved.length} lines for ${def.lines.length} lyric lines.`);
   const lines = def.lines.map((l, i) => {
     const s = solved[i]!;
@@ -323,7 +335,8 @@ export function calibrationFromSolve(def: LyricsDefinition, solved: ConsensusLin
       words: l.words.map((w, wi) => {
         const sw = s.words[wi];
         if (!sw?.syl || sw.syl.length !== w.syllables.length) throw new Error(`The solver returned no syllable times for "${w.w}" in line ${i}.`);
-        return { w: w.w, start: sw.start, end: sw.end, syl: sw.syl, sylText: w.syllables };
+        const join = sylJoin[i]?.[wi];
+        return { w: w.w, start: sw.start, end: sw.end, syl: sw.syl, sylText: w.syllables, ...(join ? { sylJoin: join } : {}) };
       }),
     };
   });
