@@ -11,6 +11,7 @@ import {
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  hoverTooltip,
   type DecorationSet,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -25,6 +26,7 @@ import {
 } from "@codemirror/autocomplete";
 import { isRecord } from "../../../../src/guards.ts";
 import { stripPunctuation } from "../../../../src/lyrics/clean.ts";
+import { applyPattern, findRepeatSuggestions, type RepeatSuggestion, type RepeatTarget } from "../../../../src/lyrics/repeats.ts";
 
 export interface LyricsIssue {
   line: number;
@@ -71,7 +73,11 @@ interface LyricsMeta {
   pronunciations: Pronunciations;
   hoveredAutoSplit: { line: number; word: string } | null;
   /** Japanese: "+" joins two syllables into one shown unit (ko+n), so it is marked apart from "|". */
-  joinMark: boolean;
+  language: "en" | "ja";
+  /** The parser's auto-split words: a suggestion that would change nothing is not offered. */
+  autoSplit: Array<{ line: number; word: string; syllables: string[] }>;
+  /** The word whose chip in the side panel is hovered. */
+  hoveredRepeat: string | null;
 }
 
 const setLyricsMeta = StateEffect.define<LyricsMeta>();
@@ -79,6 +85,8 @@ const setLyricsMeta = StateEffect.define<LyricsMeta>();
 function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   let lyricLine = -1;
+  const repeatAt = new Map<number, string>();
+  for (const r of findRepeatSuggestions(state.doc.toString(), meta.language, meta.autoSplit)) for (const t of r.targets) repeatAt.set(t.tokenFrom, r.word);
 
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i);
@@ -122,7 +130,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
         phonesStart = tokStart + wordPart.length;
       }
 
-      const sepGlobal = meta.joinMark ? /[|+]/g : /\|/g;
+      const sepGlobal = meta.language === "ja" ? /[|+]/g : /\|/g;
       const seps = wordPart.match(sepGlobal) ?? [];
       const cleanWord = wordPart.replace(sepGlobal, "");
       const issue = lineIssues?.get(cleanWord);
@@ -143,7 +151,9 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
       } else if (custom) {
         wordClass = "daw-cm-custom";
       }
-      const wordParts = seps.length > 0 ? wordPart.split(meta.joinMark ? /[|+]/ : "|") : null;
+      const repeat = repeatAt.get(tokStart);
+      if (repeat !== undefined) wordClass = [wordClass, "daw-cm-repeat", meta.hoveredRepeat === repeat ? "daw-cm-repeat-hovered" : ""].filter(Boolean).join(" ");
+      const wordParts = seps.length > 0 ? wordPart.split(meta.language === "ja" ? /[|+]/ : "|") : null;
       const innerPhones = phonesPart && phonesPart.startsWith("{") && phonesPart.endsWith("}") ? phonesPart.slice(1, -1) : null;
       const phoneChunks = innerPhones && innerPhones.includes("|") ? innerPhones.split("|") : null;
       const linked = wordParts !== null && phoneChunks !== null && wordParts.length === phoneChunks.length;
@@ -209,7 +219,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
 
 const lyricsMetaField = StateField.define<LyricsMeta>({
   create() {
-    return { issuesByLine: new Map(), pronunciations: {}, hoveredAutoSplit: null, joinMark: false };
+    return { issuesByLine: new Map(), pronunciations: {}, hoveredAutoSplit: null, language: "en", autoSplit: [], hoveredRepeat: null };
   },
   update(meta, tr) {
     for (const e of tr.effects) {
@@ -232,6 +242,44 @@ const lyricsField = StateField.define<DecorationSet>({
   },
   provide: (f) => EditorView.decorations.from(f),
 });
+
+/** The text edits that give each of `targets` the markup of `suggestion`. */
+function repeatChanges(state: EditorState, suggestion: RepeatSuggestion, targets: readonly RepeatTarget[]) {
+  return targets.map((t) => ({ from: t.from, to: t.to, insert: applyPattern(suggestion.pattern, state.sliceDoc(t.from, t.to)) }));
+}
+
+/** Hovering a dotted (unmarked, marked-elsewhere) word offers its markup: for this copy, or for every copy. */
+const repeatTooltip = hoverTooltip(
+  (view, pos) => {
+    const meta = view.state.field(lyricsMetaField);
+    for (const suggestion of findRepeatSuggestions(view.state.doc.toString(), meta.language, meta.autoSplit)) {
+      const target = suggestion.targets.find((t) => pos >= t.from && pos <= t.to);
+      if (!target) continue;
+      return {
+        pos: target.from,
+        end: target.to,
+        above: true,
+        create(v: EditorView) {
+          const dom = document.createElement("div");
+          dom.className = "daw-cm-repeat-tip";
+          const add = (label: string, targets: readonly RepeatTarget[]) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "daw-btn daw-btn-sm";
+            b.textContent = label;
+            b.onclick = () => v.dispatch({ changes: repeatChanges(v.state, suggestion, targets) });
+            dom.append(b);
+          };
+          add(`Use ${applyPattern(suggestion.pattern, view.state.sliceDoc(target.from, target.to))}`, [target]);
+          if (suggestion.targets.length > 1) add(`All ${suggestion.targets.length}`, suggestion.targets);
+          return { dom };
+        },
+      };
+    }
+    return null;
+  },
+  { hideOnChange: true }
+);
 
 const wrapCompartment = new Compartment();
 
@@ -455,6 +503,8 @@ export function LyricsStep(props: LyricsStepProps) {
   const [wordWrap, setWordWrap] = createSignal(true);
   const [copied, setCopied] = createSignal(false);
   const [hoveredAutoSplit, setHoveredAutoSplit] = createSignal<{ line: number; word: string } | null>(null);
+  const [hoveredRepeat, setHoveredRepeat] = createSignal<string | null>(null);
+  const repeats = createMemo(() => findRepeatSuggestions(props.text, props.language ?? "en", props.check?.autoSplit ?? []));
   const [drafts, setDrafts] = createSignal<Record<string, string>>({});
   const [errors, setErrors] = createSignal<Record<string, string>>({});
   const issueIndex = createMemo(() => {
@@ -616,6 +666,7 @@ export function LyricsStep(props: LyricsStepProps) {
         editorTheme,
         lyricsMetaField,
         lyricsField,
+        repeatTooltip,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             props.onText(update.state.doc.toString());
@@ -667,9 +718,12 @@ export function LyricsStep(props: LyricsStepProps) {
     const issuesByLine = issueIndex();
     const pronunciations = props.pronunciations;
     const hovered = hoveredAutoSplit();
+    const language = props.language ?? "en";
+    const autoSplit = props.check?.autoSplit ?? [];
+    const hoveredWord = hoveredRepeat();
     if (view) {
       view.dispatch({
-        effects: setLyricsMeta.of({ issuesByLine, pronunciations, hoveredAutoSplit: hovered, joinMark: props.language === "ja" }),
+        effects: setLyricsMeta.of({ issuesByLine, pronunciations, hoveredAutoSplit: hovered, language, autoSplit, hoveredRepeat: hoveredWord }),
       });
     }
   });
@@ -706,6 +760,16 @@ export function LyricsStep(props: LyricsStepProps) {
         }
       }
     }
+  };
+
+  /** Gives every unmarked copy of `word` the markup it has elsewhere (the suggestion is recomputed from the text as it is now). */
+  const applyRepeat = (word: string) => {
+    if (!view) return;
+    const suggestion = findRepeatSuggestions(view.state.doc.toString(), props.language ?? "en", props.check?.autoSplit ?? []).find((r) => r.word === word);
+    if (!suggestion) return;
+    view.focus();
+    view.dispatch({ changes: repeatChanges(view.state, suggestion, suggestion.targets) });
+    setHoveredRepeat(null);
   };
 
   // Toggle word wrap
@@ -958,6 +1022,27 @@ export function LyricsStep(props: LyricsStepProps) {
                         onMouseLeave={() => setHoveredAutoSplit(null)}
                       >
                         {a.syllables.join("|")}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={repeats().length > 0}>
+                <p class="daw-wizard-note">
+                  Marked elsewhere. Click to give every unmarked copy the same markup, or hover a dotted word in the text:
+                </p>
+                <div class="daw-chip-row daw-chip-row-flush">
+                  <For each={repeats()}>
+                    {(r) => (
+                      <button
+                        type="button"
+                        class="daw-chip daw-chip-clickable"
+                        title={`Use "${r.pattern}" for the ${r.targets.length} unmarked "${r.word}" in the text`}
+                        onClick={() => applyRepeat(r.word)}
+                        onMouseEnter={() => setHoveredRepeat(r.word)}
+                        onMouseLeave={() => setHoveredRepeat(null)}
+                      >
+                        {r.pattern} ×{r.targets.length}
                       </button>
                     )}
                   </For>

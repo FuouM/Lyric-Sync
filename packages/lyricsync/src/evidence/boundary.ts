@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as ort from 'onnxruntime-node';
 import type { InferenceDevice } from 'beatsync';
 import { resampleBandLimited } from '../audio/audio.ts';
+import { stripPunctuation } from '../lyrics/clean.ts';
 import { dictionaryG2P } from '../lyrics/dictionary.ts';
 import { modelFile } from '../paths.ts';
 import { openSplitModel } from './split-model.ts';
@@ -94,8 +95,12 @@ export function boundaryContexts(definition: LyricsDefinition): Array<{ index: n
         if (!phones) throw new Error(`No pronunciation for "${word.w}": the boundary model needs every word's phones.`);
         return splitEnglish(phones, word.syllables).map((ph, k) => ({ phones: ph, wordStart: k === 0 }));
       }
+      // The word's own mora split gives every syllable its phones, including a closure mora ("p" of "ppoi" is "cl"), which has none as a text
+      // on its own. Words with hand-written phones have only their syllable texts to look up.
+      const morae = word.phones ? null : g2p.splitMoraeStrict(stripPunctuation(word.w));
+      const byMora = morae !== null && morae.length === word.syllables.length ? morae.map((m) => m.phones.map(bare)) : null;
       return word.syllables.map((text, k) => {
-        const ph = g2p.phonesForWord(text.replace(/[()]/g, ''))?.map(bare);
+        const ph = byMora?.[k] ?? g2p.phonesForWord(text.replace(/[()]/g, ''))?.map(bare);
         if (!ph) throw new Error(`No pronunciation for mora "${text}" of "${word.w}".`);
         return { phones: ph, wordStart: k === 0 };
       });

@@ -2152,6 +2152,24 @@
   box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 var(--daw-accent);
 }
 
+/* A word that is marked elsewhere in the text but not here: dotted, with a tooltip to use the same markup. */
+.daw-cm-repeat {
+  text-decoration: underline dotted #f59e0b;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.daw-cm-repeat-hovered {
+  background: rgba(245, 158, 11, 0.3);
+  border-radius: 2px;
+}
+
+.daw-cm-repeat-tip {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+}
+
 /* CodeMirror autocomplete tooltip */
 .cm-tooltip.cm-tooltip-autocomplete {
   background: var(--sys-window-bg, #ffffff) !important;
