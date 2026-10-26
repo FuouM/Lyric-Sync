@@ -19,18 +19,30 @@ export interface TempoChange {
   bpm: number;
 }
 
-/** A song's tempo map (the dev server's /api/project/<id>/tempo): the BPM at the start, then the changes in time order. */
+/** Beat number `beat` (0 = the first beat of the song) is fixed at `at` seconds: a bar line dragged onto the music. */
+export interface BeatPin {
+  beat: number;
+  at: number;
+}
+
+/** A song's beat map (the dev server's /api/project/<id>/tempo): the BPM at the start, the tempo changes in time order, the fixed beats. */
 export interface TempoMap {
   nearestBpm: number;
   tempoChanges: TempoChange[];
+  beatPins: BeatPin[];
 }
 
 /** A tempo map from a server answer, or null when it has another shape. */
 export function readTempoMap(raw: unknown): TempoMap | null {
-  if (!isRecord(raw) || typeof raw.nearestBpm !== "number" || !Array.isArray(raw.tempoChanges)) return null;
-  const changes = raw.tempoChanges;
-  if (!changes.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) return null;
-  return { nearestBpm: raw.nearestBpm, tempoChanges: changes.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm })) };
+  if (!isRecord(raw) || typeof raw.nearestBpm !== "number" || !Array.isArray(raw.tempoChanges) || !Array.isArray(raw.beatPins)) return null;
+  const { tempoChanges, beatPins } = raw;
+  if (!tempoChanges.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) return null;
+  if (!beatPins.every((p) => isRecord(p) && typeof p.beat === "number" && typeof p.at === "number")) return null;
+  return {
+    nearestBpm: raw.nearestBpm,
+    tempoChanges: tempoChanges.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm })),
+    beatPins: beatPins.map((p: { beat: number; at: number }) => ({ beat: p.beat, at: p.at })),
+  };
 }
 
 /** The rows as changes sorted by time, or the first problem. */

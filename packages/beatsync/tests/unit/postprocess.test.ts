@@ -1,6 +1,6 @@
 // packages/beatsync/tests/unit/postprocess.test.ts
 import { describe, expect, test } from 'bun:test';
-import { checkTempoChanges, postprocessBeats, postprocessMinimal } from '../../src/postprocess.ts';
+import { checkBeatPins, checkTempoChanges, postprocessBeats, postprocessMinimal } from '../../src/postprocess.ts';
 import { beatsFromLogits } from '../../src/tracker.ts';
 
 describe('postprocessBeats', () => {
@@ -69,6 +69,46 @@ describe('postprocessBeats', () => {
     expect(res.beatPeriod).toBeCloseTo(0.5, 3);
     expect(res.durationSec).toBe(8);
     expect(res.beats).toContain(2.5);
+  });
+
+  describe('beat pins', () => {
+    // On-beat peaks every 25 frames (0.5 s) and weaker off-beat peaks 12 frames later: a click track with a syncopated shadow.
+    const frames = 400;
+    const beat = new Float32Array(frames).fill(-10.0);
+    for (let f = 25; f < frames; f += 25) beat[f] = 10.0;
+    for (let f = 12; f < frames; f += 25) beat[f] = 2.0;
+    const down = new Float32Array(frames).fill(-10.0);
+    const track = (beatPins?: Array<{ beat: number; at: number }>) => postprocessBeats(beat, down, { fps: 50, targetBpm: 120, useDP: true, ...(beatPins ? { beatPins } : {}) }).beats;
+
+    test('a pin on the beat the tracker found changes nothing', () => {
+      const free = track();
+      expect(track([{ beat: 2, at: free[2]! }, { beat: 6, at: free[6]! }])).toEqual(free);
+    });
+
+    test('a pinned beat is exactly where the pin says, even between frames; the counts before and between pins stay', () => {
+      const free = track();
+      const moved = track([{ beat: 4, at: 2.243 }, { beat: 8, at: 4.5 }]);
+      expect(moved[4]).toBe(2.243);
+      expect(moved[8]).toBe(4.5);
+      // Beats 0..4 end on the pin; the stretch after it follows the off-beat train the pin sits on
+      expect(moved.slice(0, 5)).toHaveLength(5);
+      expect(moved.slice(5, 8).every((t, k) => t > moved[4 + k]! && t < moved[8]!)).toBe(true);
+      for (let i = 1; i < moved.length; i++) expect(moved[i]!).toBeGreaterThan(moved[i - 1]!);
+      expect(free[8]).not.toBe(4.5);
+    });
+
+    test('pins that leave no room for the beats between them are an error', () => {
+      expect(() => track([{ beat: 10, at: 0.2 }])).toThrow(/no room/);
+      expect(() => track([{ beat: 2, at: 1.0 }, { beat: 40, at: 1.5 }])).toThrow(/no room/);
+    });
+
+    test('checkBeatPins wants whole, increasing beat numbers and increasing times', () => {
+      expect(() => checkBeatPins([{ beat: 0, at: 0 }, { beat: 4, at: 2 }])).not.toThrow();
+      expect(() => checkBeatPins([{ beat: 1.5, at: 1 }])).toThrow('whole beat');
+      expect(() => checkBeatPins([{ beat: 4, at: 2 }, { beat: 4, at: 3 }])).toThrow('increasing');
+      expect(() => checkBeatPins([{ beat: 4, at: 2 }, { beat: 5, at: 2 }])).toThrow('increasing');
+      expect(() => checkBeatPins([{ beat: 4, at: -1 }])).toThrow('increasing');
+    });
   });
 
   test('checkTempoChanges rejects unusable tempos and unordered changes', () => {

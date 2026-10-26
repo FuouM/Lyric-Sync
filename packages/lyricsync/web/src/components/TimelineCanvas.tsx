@@ -58,6 +58,10 @@ export interface TimelineCanvasProps {
   onTempoDrag: (idx: number, t: number) => void;
   /** A drag of a tempo change ended: apply it. */
   onTempoDrop: () => void;
+  /** A bar line was dragged to `t`: fix that bar's beat there (`idx` indexes `downbeats`). */
+  onBarDrop: (idx: number, t: number) => void;
+  /** Alt+click on a bar line: free its beat again. */
+  onBarUnpin: (idx: number) => void;
 }
 
 const HEADER_W = 148;
@@ -70,6 +74,8 @@ const LINES_H = 20;
 const OVERVIEW_H = 18;
 const MIN_VOCAL_H = 64;
 const EDGE_HIT_PX = 6;
+/** The top strip of the ruler holds the bar lines you can drag. */
+const BAR_GRIP_H = 12;
 const PITCH_FPS = 100;
 
 interface Lane {
@@ -170,6 +176,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | { kind: "boundary"; ref: SylRef; edge: "start" | "end"; partner: SylRef | null }
     | { kind: "section"; idx: number }
     | { kind: "tempo"; idx: number }
+    | { kind: "bar"; idx: number; lo: number; hi: number }
     | { kind: "scrub" }
     | { kind: "overview"; grabOffset: number }
     /** Press on empty space: a drag pans the view; a release without moving is a click (`click` runs then). */
@@ -177,6 +184,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | null = null;
   let hoverEdge: { ref: SylRef; edge: "start" | "end" } | null = null;
   let snapGuide: { time: number; label: string } | null = null;
+  let barGhost: { idx: number; t: number } | null = null;
   let frame = 0;
 
   const canvasW = () => size().w - HEADER_W;
@@ -340,6 +348,18 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     drawLines(ctx, lanes.lines);
     drawOverview(ctx, W, overviewY);
 
+    // The bar line being dragged
+    if (barGhost) {
+      const gx = Math.round(tToX(barGhost.t)) + 0.5;
+      ctx.strokeStyle = "#e879f9";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(gx, lanes.ruler.y);
+      ctx.lineTo(gx, contentBottom);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
     // Snap guide
     if (snapGuide && snapGuide.label) {
       const sx = Math.round(tToX(snapGuide.time)) + 0.5;
@@ -428,6 +448,23 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         if (((bar % every) + every) % every !== 1 % every) continue;
         ctx.fillRect(x, lane.y, 1, 6);
         ctx.fillText(String(bar), x + 3, lane.y + 9);
+      }
+    }
+    // Fixed (pinned) bars: a diamond on the bar line
+    const beatTimes = props.beats ?? [];
+    const pinned = new Set((props.tempo?.beatPins ?? []).map((p) => beatTimes[p.beat]));
+    if (pinned.size > 0) {
+      ctx.fillStyle = "#e879f9";
+      for (let i = Math.max(0, floorIndex(downs, props.viewStart)); i < downs.length && downs[i]! <= props.viewStart + props.viewDuration; i++) {
+        if (!pinned.has(downs[i]!)) continue;
+        const x = Math.round(tToX(downs[i]!)) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, lane.y + 1);
+        ctx.lineTo(x + 5, lane.y + 6);
+        ctx.lineTo(x, lane.y + 11);
+        ctx.lineTo(x - 5, lane.y + 6);
+        ctx.closePath();
+        ctx.fill();
       }
     }
   };
@@ -752,6 +789,18 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     props.onViewChange(Math.max(0, Math.min(total() - props.viewDuration * 0.5, t)), props.viewDuration);
   };
 
+  /** Index in `downbeats` of the bar line under x, or null. */
+  const barAt = (x: number): number | null => {
+    const downs = props.downbeats ?? [];
+    const i = floorIndex(downs, xToT(x));
+    let best: number | null = null;
+    for (const k of [i, i + 1]) {
+      const d = downs[k];
+      if (d !== undefined && Math.abs(tToX(d) - x) <= EDGE_HIT_PX && (best === null || Math.abs(tToX(d) - x) < Math.abs(tToX(downs[best]!) - x))) best = k;
+    }
+    return best;
+  };
+
   /** Index of the tempo change whose grip is under x, or null. */
   const tempoGripAt = (x: number): number | null => {
     const i = (props.tempo?.tempoChanges ?? []).findIndex((c) => Math.abs(tToX(c.at) - x) <= EDGE_HIT_PX);
@@ -771,6 +820,17 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const grabOffset = inside ? tAtX - vx0 : props.viewDuration / 2;
       drag = { kind: "overview", grabOffset };
       overviewScroll(x, grabOffset);
+    } else if (lane === "ruler" && y <= BAR_GRIP_H && !props.tempoBusy && props.tempo && barAt(x) !== null) {
+      // The top of the ruler holds the bar lines: drag one onto the music to fix that beat (Alt+click unpins it).
+      const idx = barAt(x)!;
+      if (e.altKey) props.onBarUnpin(idx);
+      else {
+        const downs = props.downbeats ?? [];
+        const beats = props.beats ?? [];
+        const bi = floorIndex(beats, downs[idx]! + 1e-4);
+        drag = { kind: "bar", idx, lo: (beats[bi - 1] ?? 0) + 0.05, hi: (beats[bi + 1] ?? total()) - 0.05 };
+        barGhost = { idx, t: downs[idx]! };
+      }
     } else if (lane === "ruler") {
       drag = { kind: "scrub" };
       props.onSeek(Math.max(0, t));
@@ -818,7 +878,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const onSection =
         lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
       const onTempo = lane === "tempo" && tempoGripAt(x) !== null;
-      canvas.style.cursor = hoverEdge || onSection || onTempo ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
+      const onBar = lane === "ruler" && y <= BAR_GRIP_H && !!props.tempo && barAt(x) !== null;
+      canvas.style.cursor = hoverEdge || onSection || onTempo || onBar ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
       requestDraw();
       return;
     }
@@ -838,6 +899,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       overviewScroll(x, drag.grabOffset);
     } else if (drag.kind === "tempo") {
       props.onTempoDrag(drag.idx, Math.max(0, t));
+    } else if (drag.kind === "bar") {
+      barGhost = { idx: drag.idx, t: Math.max(drag.lo, Math.min(drag.hi, t)) };
     } else if (drag.kind === "section") {
       const s = findSnap(t);
       snapGuide = s.label ? s : null;
@@ -854,6 +917,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     if (drag?.kind === "pan" && !drag.moved) drag.click();
     if (drag?.kind === "tempo") props.onTempoDrop();
+    if (drag?.kind === "bar" && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
+    barGhost = null;
     drag = null;
     snapGuide = null;
     requestDraw();

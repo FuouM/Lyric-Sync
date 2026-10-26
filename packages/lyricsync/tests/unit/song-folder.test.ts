@@ -12,7 +12,7 @@ import {
   readTimingAi,
   songFolderPaths,
   songInputs,
-  withTempoMap,
+  withBeatMap,
 } from '../../src/song-folder.ts';
 
 let root: string;
@@ -124,8 +124,8 @@ describe('song folder paths and prompt', () => {
     expect(() => readSongPrompt(dir)).toThrow('tempo_changes');
   });
 
-  test('withTempoMap sets the tempo and the changes, replaces an old block and keeps every other line', () => {
-    const once = withTempoMap(PROMPT, 98.5, [{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }]);
+  test('withBeatMap sets the tempo and the changes, replaces an old block and keeps every other line', () => {
+    const once = withBeatMap(PROMPT, 98.5, [{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }], []);
     put('user_input/prompt.yaml', once);
     const prompt = readSongPrompt(dir);
     expect(prompt.nearestBpm).toBe(98.5);
@@ -135,17 +135,36 @@ describe('song folder paths and prompt', () => {
     // the block follows first_downbeat_s, nothing else moved
     expect(once.split('\n').slice(0, 7)).toEqual(['project_code: demo', 'song_name: "demo"', 'nearest_bpm: 98.5', 'first_downbeat_s: 0.25', 'tempo_changes:', '  - at: 62.5', '    bpm: 140']);
 
-    const twice = withTempoMap(once, 120, [{ at: 40, bpm: 90 }]);
+    const twice = withBeatMap(once, 120, [{ at: 40, bpm: 90 }], []);
     expect(twice.match(/tempo_changes/g)).toHaveLength(1);
     put('user_input/prompt.yaml', twice);
     expect(readSongPrompt(dir).tempoChanges).toEqual([{ at: 40, bpm: 90 }]);
 
-    expect(withTempoMap(twice, 120, [])).toBe(PROMPT);
+    expect(withBeatMap(twice, 120, [], [])).toBe(PROMPT);
   });
 
-  test('withTempoMap keeps CRLF line endings and adds a missing nearest_bpm', () => {
-    const out = withTempoMap('song_name: "x"\r\nfiles:\r\n  song: a.wav\r\n', 110, [{ at: 5, bpm: 130 }]);
+  test('withBeatMap keeps CRLF line endings and adds a missing nearest_bpm', () => {
+    const out = withBeatMap('song_name: "x"\r\nfiles:\r\n  song: a.wav\r\n', 110, [{ at: 5, bpm: 130 }], []);
     expect(out).toBe('nearest_bpm: 110\r\ntempo_changes:\r\n  - at: 5\r\n    bpm: 130\r\nsong_name: "x"\r\nfiles:\r\n  song: a.wav\r\n');
+  });
+
+  test('beat_pins follow the tempo changes in prompt.yaml, are read back, replaced and removed', () => {
+    const changes = [{ at: 40, bpm: 90 }];
+    const out = withBeatMap(PROMPT, 120, changes, [{ beat: 16, at: 8.25 }, { beat: 64, at: 31.5 }]);
+    put('user_input/prompt.yaml', out);
+    const prompt = readSongPrompt(dir);
+    expect(prompt.beatPins).toEqual([{ beat: 16, at: 8.25 }, { beat: 64, at: 31.5 }]);
+    expect(prompt.tempoChanges).toEqual(changes);
+    expect(out.split('\n').slice(2, 11)).toEqual(['nearest_bpm: 120', 'first_downbeat_s: 0.25', 'tempo_changes:', '  - at: 40', '    bpm: 90', 'beat_pins:', '  - beat: 16', '    at: 8.25', '  - beat: 64']);
+
+    const again = withBeatMap(out, 120, changes, [{ beat: 16, at: 8.3 }]);
+    expect(again.match(/beat_pins/g)).toHaveLength(1);
+    expect(withBeatMap(again, 120, changes, [])).toBe(withBeatMap(PROMPT, 120, changes, []));
+  });
+
+  test('a beat pin without a number is an error', () => {
+    put('user_input/prompt.yaml', PROMPT.replace('files:', 'beat_pins:\n  - beat: 4\nfiles:'));
+    expect(() => readSongPrompt(dir)).toThrow('beat_pins');
   });
 
   test('readPromptManifest and songInputs keep the editor contract', () => {

@@ -1,7 +1,7 @@
 // src/song-folder.ts
 // The song folder: the layout the New Song wizard writes, also the input of the pve video editor.
 //   <dir>/project.json                       marks the folder as a song
-//   <dir>/user_input/prompt.yaml             mix and stem file names, nearest_bpm, tempo_changes, first_downbeat_s
+//   <dir>/user_input/prompt.yaml             mix and stem file names, nearest_bpm, tempo_changes, beat_pins, first_downbeat_s
 //   <dir>/user_input/lyrics.sync.json        the lyricsync lyrics contract; optional "unannotatedLines"
 //   <dir>/user_input/lyrics.calibrated.json  the human calibration and the sections (lyrics editor)
 //   <dir>/generated/timing.ai.json           the beat grid (beatsync)
@@ -12,7 +12,7 @@
 // (subpath export "lyricsync/song-folder"). prompt.yaml is parsed with Bun.YAML, so the prompt readers need Bun.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { FeaturesDocument, TempoChange } from 'beatsync';
+import type { BeatPin, FeaturesDocument, TempoChange } from 'beatsync';
 import { parseCalibrationDoc, type CalibrationDoc } from './calibration-doc.ts';
 import { isNumber, isRecord } from './guards.ts';
 import type { Language } from './types.ts';
@@ -65,6 +65,8 @@ export interface SongPrompt {
   nearestBpm: number | null;
   /** tempo_changes: from each `at` seconds the tempo is `bpm`. Empty when the song has one tempo. */
   tempoChanges: TempoChange[];
+  /** beat_pins: beat number `beat` (0 = the first beat) is at `at` seconds, set by dragging bar lines in the editor. Empty when none is fixed. */
+  beatPins: BeatPin[];
   firstDownbeat: number | null;
 }
 
@@ -85,6 +87,8 @@ export interface PromptManifest {
   nearestBpm: number | null;
   /** Tempo changes after the start of the song (see SongPrompt.tempoChanges). */
   tempoChanges: TempoChange[];
+  /** Fixed beats (see SongPrompt.beatPins). */
+  beatPins: BeatPin[];
   firstDownbeat: number | null;
 }
 
@@ -181,6 +185,15 @@ function stemList(value: unknown, key: string, file: string): string[] {
   throw new Error(`${file}: files.stems.${key} must be a file name or a list of file names.`);
 }
 
+/** `beat_pins` of prompt.yaml: a list of `{ beat: beat number, at: seconds }`; absent means no beat is fixed. Order is checked by the beat tracker. */
+function beatPins(value: unknown, file: string): BeatPin[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || !value.every((p) => isRecord(p) && isNumber(p.beat) && isNumber(p.at))) {
+    throw new Error(`${file}: beat_pins must be a list of { beat: number, at: seconds }.`);
+  }
+  return value.map((p: { beat: number; at: number }) => ({ beat: p.beat, at: p.at }));
+}
+
 /** `tempo_changes` of prompt.yaml: a list of `{ at: seconds, bpm }`; absent means the song keeps nearest_bpm throughout. Order is checked by the beat tracker. */
 function tempoChanges(value: unknown, file: string): TempoChange[] {
   if (value === undefined || value === null) return [];
@@ -230,6 +243,7 @@ export function readSongPrompt(dir: string): SongPrompt {
     },
     nearestBpm: isNumber(prompt.nearest_bpm) ? prompt.nearest_bpm : null,
     tempoChanges: tempoChanges(prompt.tempo_changes, promptFile),
+    beatPins: beatPins(prompt.beat_pins, promptFile),
     firstDownbeat: isNumber(prompt.first_downbeat_s) ? prompt.first_downbeat_s : null,
   };
 }
@@ -296,7 +310,7 @@ export function readFeatures(dir: string): FeaturesDocument {
 export function readPromptManifest(roots: SongsRoots, id: string): PromptManifest {
   const prompt = readSongPrompt(existingSongDir(roots, id));
   if (!fs.existsSync(prompt.mixPath)) throw new Error(`Full mix not found: ${prompt.mixPath}`);
-  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, tempoChanges: prompt.tempoChanges, firstDownbeat: prompt.firstDownbeat };
+  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, tempoChanges: prompt.tempoChanges, beatPins: prompt.beatPins, firstDownbeat: prompt.firstDownbeat };
 }
 
 /** The lyricsync inputs of song `id`: lyrics contract, language, vocal and beat grid. */
@@ -324,16 +338,18 @@ export function songInputs(roots: SongsRoots, id: string): SongInputs {
 }
 
 /**
- * `prompt` (the text of user_input/prompt.yaml) with its tempo map set: `nearest_bpm` is the tempo at the start, `changes` the
- * `tempo_changes` block after it (and after `first_downbeat_s` when there is one); no changes removes the block. Every other line stays.
+ * `prompt` (the text of user_input/prompt.yaml) with its beat map set: `nearest_bpm` is the tempo at the start, `changes` the
+ * `tempo_changes` block and `pins` the `beat_pins` block after it (and after `first_downbeat_s` when there is one); none removes
+ * the block. Every other line stays.
  */
-export function withTempoMap(prompt: string, nearestBpm: number, changes: readonly TempoChange[]): string {
+export function withBeatMap(prompt: string, nearestBpm: number, changes: readonly TempoChange[], pins: readonly BeatPin[]): string {
   const eol = prompt.includes('\r\n') ? '\r\n' : '\n';
   const lines = prompt.split(/\r?\n/);
   const num = (v: number): string => String(Number(v.toFixed(3)));
 
-  const start = lines.findIndex((l) => /^tempo_changes\s*:/.test(l));
-  if (start !== -1) {
+  for (const key of ['tempo_changes', 'beat_pins']) {
+    const start = lines.findIndex((l) => new RegExp(`^${key}\\s*:`).test(l));
+    if (start === -1) continue;
     let end = start + 1;
     while (end < lines.length && (/^\s+\S/.test(lines[end]!) || /^-\s/.test(lines[end]!))) end++;
     lines.splice(start, end - start);
@@ -344,10 +360,14 @@ export function withTempoMap(prompt: string, nearestBpm: number, changes: readon
   if (bpmAt === -1) lines.unshift(bpmLine);
   else lines[bpmAt] = bpmLine;
 
-  if (changes.length > 0) {
+  const blocks = [
+    ...(changes.length > 0 ? ['tempo_changes:', ...changes.flatMap((c) => [`  - at: ${num(c.at)}`, `    bpm: ${num(c.bpm)}`])] : []),
+    ...(pins.length > 0 ? ['beat_pins:', ...pins.flatMap((p) => [`  - beat: ${p.beat}`, `    at: ${num(p.at)}`])] : []),
+  ];
+  if (blocks.length > 0) {
     const downbeatAt = lines.findIndex((l) => /^first_downbeat(_s)?\s*:/.test(l));
     const after = Math.max(lines.findIndex((l) => /^nearest_bpm\s*:/.test(l)), downbeatAt);
-    lines.splice(after + 1, 0, 'tempo_changes:', ...changes.flatMap((c) => [`  - at: ${num(c.at)}`, `    bpm: ${num(c.bpm)}`]));
+    lines.splice(after + 1, 0, ...blocks);
   }
   return lines.join(eol);
 }

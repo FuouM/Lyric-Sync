@@ -31,6 +31,10 @@ export interface InspectorProps {
   onTempoEdit: (map: TempoMap) => void;
   onAddTempo: () => void;
   onSeek: (t: number) => void;
+  /** The beats fixed by hand, with the bar each is on. */
+  pins: Array<{ beat: number; at: number; bar: number | null }>;
+  onRemovePin: (beat: number) => void;
+  onClearPins: () => void;
 }
 
 const NUDGE = 0.01;
@@ -263,6 +267,37 @@ export function Inspector(props: InspectorProps) {
                   )}
                 </Show>
               </GroupBox>
+
+              <Show when={props.tempo}>
+                <GroupBox
+                  title="Fixed Bars"
+                  actions={
+                    <button class="daw-btn daw-btn-sm" title="Free every fixed beat" disabled={props.pins.length === 0 || props.tempoBusy} onClick={() => props.onClearPins()}>
+                      Clear
+                    </button>
+                  }
+                >
+                  <Show when={props.pins.length > 0} fallback={<div class="daw-empty-note">Drag a bar line (the top of the ruler) onto the music to fix it.</div>}>
+                    <For each={props.pins}>
+                      {(p) => (
+                        <div class="daw-prop-row">
+                          <span class="daw-prop-label">{p.bar === null ? `Beat ${p.beat + 1}` : `Bar ${p.bar}`}</span>
+                          <b>{formatTimecode(p.at)}</b>
+                          <button class="daw-icon-btn" title="Go to this bar" onClick={() => props.onSeek(p.at)}>
+                            <i class="bi bi-skip-backward-fill" />
+                          </button>
+                          <button class="daw-icon-btn" title="Free this beat" disabled={props.tempoBusy} onClick={() => props.onRemovePin(p.beat)}>
+                            <i class="bi bi-x-lg" />
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+                  <p class="daw-wizard-note">
+                    Drag a bar line in the top strip of the ruler to where the bar starts in the music; Alt+click frees it. The beats between fixed bars are re-fitted, the count between them stays.
+                  </p>
+                </GroupBox>
+              </Show>
 
               <Show
                 when={sel()}

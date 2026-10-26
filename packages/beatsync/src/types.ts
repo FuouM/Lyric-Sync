@@ -14,11 +14,19 @@ export interface TempoChange {
   bpm: number;
 }
 
+/** Beat number `beat` (0 = the first beat of the song) is at `at` seconds. The beats between pins are re-fitted with their count kept. */
+export interface BeatPin {
+  beat: number;
+  at: number;
+}
+
 export interface PostprocessOptions {
   fps?: number;
   targetBpm?: number;
   /** Tempo changes after the start, strictly increasing in `at`, each `at` > 0. Validate with `checkTempoChanges`. */
   tempoChanges?: readonly TempoChange[];
+  /** Beats fixed in time (a bar line dragged onto the music), strictly increasing in both fields. */
+  beatPins?: readonly BeatPin[];
   useDP?: boolean;
   firstDownbeatHint?: number;
 }
@@ -61,6 +69,12 @@ export interface TrackBeatsOptions {
   firstDownbeat?: number;
   /** See BeatTrackerOptions.device. */
   device?: InferenceDevice;
+}
+
+/** What `beatsFromLogits` takes: the tracking options and beat pins. */
+export interface BeatsFromLogitsOptions extends TrackBeatsOptions {
+  /** Fixed beats; see BeatPin. Validate with `checkBeatPins`. */
+  beatPins?: readonly BeatPin[];
 }
 
 export interface DecodedAudio {

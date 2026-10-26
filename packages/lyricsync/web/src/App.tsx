@@ -520,6 +520,8 @@ export function App() {
       setBar1Index(grid.bar1Index);
       appliedTempo = applied;
       setTempoMap(applied);
+      // The beats are part of the analysis: it is stale now, which turns Auto-time off and shows Re-analyze.
+      await loadAnalysed(s.name);
       setStatus(`Tempo map applied: ${doc.beats.length} beats. Re-analyze, then Auto-time, to re-fit the lyric timing to them.`);
     } catch (e: unknown) {
       setTempoMap(appliedTempo);
@@ -540,6 +542,41 @@ export function App() {
     }
     const bpm = Number(tempoAt(at, map.nearestBpm, map.tempoChanges).toFixed(1));
     void applyTempo({ ...map, tempoChanges: [...map.tempoChanges, { at, bpm }].sort((a, b) => a.at - b.at) });
+  };
+
+  /** The fixed beats with the bar each is on (the Inspector lists them). */
+  const pinRows = createMemo(() => (tempoMap()?.beatPins ?? []).map((p) => ({ ...p, bar: barBeatAt(p.at, beats(), downbeats(), bar1Index())?.bar ?? null })));
+
+  /** Bar line `idx` was dragged to `t`: its beat is fixed there (replacing an older pin on the same beat); the beats around it are re-fitted. */
+  const pinBar = (idx: number, t: number) => {
+    const map = tempoMap();
+    const b = beats();
+    const time = downbeats()?.[idx];
+    if (!map || !b || time === undefined || tempoBusy()) return;
+    const beat = nearestBeatIndex(b, time);
+    const beatPins = [...map.beatPins.filter((p) => p.beat !== beat), { beat, at: Number(t.toFixed(3)) }].sort((x, y) => x.beat - y.beat);
+    void applyTempo({ ...map, beatPins });
+  };
+
+  /** Frees the beat of bar line `idx` again. */
+  const unpinBar = (idx: number) => {
+    const map = tempoMap();
+    const b = beats();
+    const time = downbeats()?.[idx];
+    if (!map || !b || time === undefined) return;
+    const beat = nearestBeatIndex(b, time);
+    if (!map.beatPins.some((p) => p.beat === beat)) return;
+    void applyTempo({ ...map, beatPins: map.beatPins.filter((p) => p.beat !== beat) });
+  };
+
+  const removePin = (beat: number) => {
+    const map = tempoMap();
+    if (map) void applyTempo({ ...map, beatPins: map.beatPins.filter((p) => p.beat !== beat) });
+  };
+
+  const clearPins = () => {
+    const map = tempoMap();
+    if (map && map.beatPins.length > 0) void applyTempo({ ...map, beatPins: [] });
   };
 
   const addSection = () => {
@@ -1291,6 +1328,9 @@ export function App() {
             onTempoEdit={(map) => void applyTempo(map)}
             onAddTempo={addTempoChange}
             onSeek={seek}
+            pins={pinRows()}
+            onRemovePin={removePin}
+            onClearPins={clearPins}
           />
         </div>
       </div>
@@ -1346,6 +1386,8 @@ export function App() {
           onAddTempo={addTempoChange}
           onTempoDrag={dragTempoChange}
           onTempoDrop={() => void applyTempo()}
+          onBarDrop={pinBar}
+          onBarUnpin={unpinBar}
         />
       </div>
 

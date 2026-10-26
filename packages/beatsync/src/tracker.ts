@@ -8,7 +8,7 @@ import { computeLogMelSpectrogram } from './spectrogram.ts';
 import { checkTempoChanges, postprocessBeats } from './postprocess.ts';
 import { modelPath } from './paths.ts';
 import { executionProviders, type InferenceDevice } from './device.ts';
-import type { BeatAnalysis, BeatLogits, BeatTrackerOptions, TempoChange, TrackBeatsOptions } from './types.ts';
+import type { BeatAnalysis, BeatLogits, BeatsFromLogitsOptions, BeatTrackerOptions, TempoChange, TrackBeatsOptions } from './types.ts';
 
 /**
  * Beat This! beat and downbeat tracking engine.
@@ -160,11 +160,12 @@ export class BeatTracker {
  * Beats and downbeats of a song from its model logits: the tempo prior (a tempo and its changes) and the first downbeat decide what
  * the beat tracker's DP picks. Cheap (no model run), so a tempo map can be tried again and again on the same logits.
  */
-export function beatsFromLogits(logits: BeatLogits, options: TrackBeatsOptions): BeatAnalysis {
+export function beatsFromLogits(logits: BeatLogits, options: BeatsFromLogitsOptions): BeatAnalysis {
   const { beats, downbeats } = postprocessBeats(logits.beat, logits.downbeat, {
     fps: logits.fps,
     targetBpm: options.targetBpm,
     ...(options.tempoChanges ? { tempoChanges: options.tempoChanges } : {}),
+    ...(options.beatPins ? { beatPins: options.beatPins } : {}),
     useDP: true,
     firstDownbeatHint: options.firstDownbeat,
   });
