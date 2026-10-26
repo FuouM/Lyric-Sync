@@ -187,9 +187,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   let barGhost: { idx: number; t: number } | null = null;
   let frame = 0;
 
-  const canvasW = () => size().w - HEADER_W;
-  const tToX = (t: number) => ((t - props.viewStart) / props.viewDuration) * canvasW();
-  const xToT = (x: number) => props.viewStart + (x / canvasW()) * props.viewDuration;
+  /** The view a paint pass renders; null is the live view. The cached scene is painted over a wider span (see `paintScene`). */
+  let rv: { start: number; dur: number; w: number } | null = null;
+  const vStart = () => rv?.start ?? props.viewStart;
+  const vDur = () => rv?.dur ?? props.viewDuration;
+  const canvasW = () => rv?.w ?? size().w - HEADER_W;
+  const tToX = (t: number) => ((t - vStart()) / vDur()) * canvasW();
+  const xToT = (x: number) => vStart() + (x / canvasW()) * vDur();
   const total = () => Math.max(props.duration, props.doc?.lines.at(-1)?.end ?? 0, 1);
 
   /** Song-level pitch display range (log Hz), from voiced-frame percentiles padded by 3 semitones. */
@@ -275,6 +279,46 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   // ── Drawing ──────────────────────────────────────────────────────────────
 
+  // What stays put while the playhead moves (lanes, grid, ruler, waves, clips) is painted into `scene`, a canvas about twice as wide as
+  // the view, and blitted per frame at the current scroll offset; the playhead, guides and overview are drawn live over it. A frame so
+  // costs one drawImage however far the view is zoomed out. The scene is repainted when its data change or the view leaves it.
+  const SCENE_MAX_DEVICE_PX = 8192;
+  let scene: HTMLCanvasElement | null = null;
+  let sceneSpan: { start: number; pps: number; w: number; dpr: number; h: number } | null = null;
+  let sceneDirty = true;
+
+  const sceneCovers = (W: number, H: number, dpr: number) => {
+    const s = sceneSpan;
+    if (!s || sceneDirty || s.dpr !== dpr || s.h !== H || s.w < W) return false;
+    const pps = W / props.viewDuration;
+    return Math.abs(s.pps - pps) <= 1e-9 * pps && props.viewStart >= s.start - 1e-9 && props.viewStart + props.viewDuration <= s.start + s.w / s.pps + 1e-9;
+  };
+
+  const paintScene = (W: number, H: number, dpr: number) => {
+    const pps = W / props.viewDuration;
+    const sceneW = Math.max(W, Math.min(W * 2, Math.floor(SCENE_MAX_DEVICE_PX / dpr)));
+    // Spare room: a quarter behind the view, three quarters ahead (the playhead mostly moves forward).
+    const start = Math.max(0, props.viewStart - ((sceneW - W) / pps) * 0.25);
+    scene ??= document.createElement("canvas");
+    const dw = Math.max(1, Math.floor(sceneW * dpr));
+    const dh = Math.max(1, Math.floor(H * dpr));
+    if (scene.width !== dw || scene.height !== dh) {
+      scene.width = dw;
+      scene.height = dh;
+    }
+    const ctx = scene.getContext("2d");
+    if (!ctx) return;
+    rv = { start, dur: sceneW / pps, w: sceneW };
+    try {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintLanes(ctx, sceneW, H);
+    } finally {
+      rv = null;
+    }
+    sceneSpan = { start, pps, w: sceneW, dpr, h: H };
+    sceneDirty = false;
+  };
+
   const draw = () => {
     frame = 0;
     const ctx = canvas.getContext("2d");
@@ -284,13 +328,25 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const H = size().h;
     isDarkCurrent = theme() !== "light";
     C = isDarkCurrent ? C_DARK : C_LIGHT;
+    if (!sceneCovers(W, H, dpr)) paintScene(W, H, dpr);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const s = sceneSpan;
+    if (scene && s) {
+      const x0 = Math.min(scene.width - canvas.width, Math.max(0, Math.round((props.viewStart - s.start) * s.pps * dpr)));
+      ctx.drawImage(scene, x0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintOverlay(ctx, W);
+  };
+
+  /** The scrolling content, painted over the span of the current paint view (`rv`). */
+  const paintLanes = (ctx: CanvasRenderingContext2D, W: number, H: number) => {
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
 
     const { lanes, overviewY } = layout();
-    const v0 = props.viewStart;
-    const v1 = props.viewStart + props.viewDuration;
+    const v0 = vStart();
+    const v1 = vStart() + vDur();
     const contentTop = lanes.markers.y;
     const contentBottom = overviewY;
 
@@ -318,7 +374,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     // Beat grid
     const beats = props.beats ?? [];
     const downs = props.downbeats ?? [];
-    const pxPerBeat = beats.length > 1 ? (W / props.viewDuration) * (beats[1]! - beats[0]!) : 0;
+    const pxPerBeat = beats.length > 1 ? (W / vDur()) * (beats[1]! - beats[0]!) : 0;
     if (pxPerBeat > 6) {
       ctx.strokeStyle = C.beat;
       ctx.beginPath();
@@ -346,7 +402,24 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (props.showPitch) drawPitch(ctx, lanes.vocal);
     drawLyrics(ctx, lanes.lyrics);
     drawLines(ctx, lanes.lines);
+  };
+
+  /** What moves with the pointer or the playhead, drawn over the blitted scene in the live view. */
+  const paintOverlay = (ctx: CanvasRenderingContext2D, W: number) => {
+    const { lanes, overviewY } = layout();
+    const contentTop = lanes.markers.y;
+    const contentBottom = overviewY;
     drawOverview(ctx, W, overviewY);
+
+    // Hovered / dragged syllable edge
+    const doc = props.doc;
+    const he = drag?.kind === "boundary" ? drag : hoverEdge;
+    const hp = he ? doc?.lines[he.ref.lineIdx]?.words[he.ref.wordIdx]?.syl[he.ref.sylIdx] : undefined;
+    if (he && hp) {
+      const x = tToX(he.edge === "start" ? hp[0] : hp[1]);
+      ctx.fillStyle = C.edgeHover;
+      ctx.fillRect(Math.round(x) - 1, lanes.lyrics.y + 1, 3, lanes.lyrics.h - 2);
+    }
 
     // The bar line being dragged
     if (barGhost) {
@@ -402,13 +475,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const drawRuler = (ctx: CanvasRenderingContext2D, W: number, lane: Lane, downs: number[]) => {
     ctx.fillStyle = C.ruler;
     ctx.fillRect(0, lane.y, W, lane.h);
-    const pxPerSec = W / props.viewDuration;
+    const pxPerSec = W / vDur();
     const step = RULER_STEPS.find((s) => s * pxPerSec >= 70) ?? 300;
     const minor = step / 5;
     ctx.strokeStyle = "#4a5160";
     ctx.beginPath();
-    const first = Math.floor(props.viewStart / minor) * minor;
-    for (let t = first; t <= props.viewStart + props.viewDuration; t += minor) {
+    const first = Math.floor(vStart() / minor) * minor;
+    for (let t = first; t <= vStart() + vDur(); t += minor) {
       const x = Math.round(tToX(t)) + 0.5;
       const isMajor = Math.abs(t / step - Math.round(t / step)) < 1e-6;
       ctx.moveTo(x, lane.y + lane.h - (isMajor ? 12 : 5));
@@ -417,8 +490,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ctx.stroke();
     ctx.fillStyle = C.rulerText;
     ctx.font = "10px 'Cascadia Mono', Consolas, monospace";
-    const firstMajor = Math.ceil(props.viewStart / step) * step;
-    for (let t = firstMajor; t <= props.viewStart + props.viewDuration; t += step) {
+    const firstMajor = Math.ceil(vStart() / step) * step;
+    for (let t = firstMajor; t <= vStart() + vDur(); t += step) {
       const m = Math.floor(t / 60);
       const s = t - m * 60;
       const label = step < 1 ? `${m}:${s.toFixed(step < 0.1 ? 2 : 1).padStart(step < 0.1 ? 5 : 4, "0")}` : `${m}:${String(Math.round(s)).padStart(2, "0")}`;
@@ -430,7 +503,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const every = pxPerBar >= 28 ? 1 : pxPerBar >= 14 ? 2 : pxPerBar >= 7 ? 4 : 8;
       ctx.fillStyle = "#e0b45c";
       ctx.font = "600 9px 'Segoe UI', sans-serif";
-      for (let i = Math.max(0, floorIndex(downs, props.viewStart)); i < downs.length && downs[i]! <= props.viewStart + props.viewDuration; i++) {
+      for (let i = Math.max(0, floorIndex(downs, vStart())); i < downs.length && downs[i]! <= vStart() + vDur(); i++) {
         const bar = i + 1 - props.bar1Index;
         const x = tToX(downs[i]!);
         if (bar === 1) {
@@ -455,7 +528,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const pinned = new Set((props.tempo?.beatPins ?? []).map((p) => beatTimes[p.beat]));
     if (pinned.size > 0) {
       ctx.fillStyle = "#e879f9";
-      for (let i = Math.max(0, floorIndex(downs, props.viewStart)); i < downs.length && downs[i]! <= props.viewStart + props.viewDuration; i++) {
+      for (let i = Math.max(0, floorIndex(downs, vStart())); i < downs.length && downs[i]! <= vStart() + vDur(); i++) {
         if (!pinned.has(downs[i]!)) continue;
         const x = Math.round(tToX(downs[i]!)) + 0.5;
         ctx.beginPath();
@@ -569,8 +642,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const f0 = props.pitchContour;
     const range = pitchRange();
     if (!f0 || !range) return;
-    const a = Math.max(0, Math.floor(props.viewStart * PITCH_FPS));
-    const b = Math.min(f0.length, Math.ceil((props.viewStart + props.viewDuration) * PITCH_FPS) + 1);
+    const a = Math.max(0, Math.floor(vStart() * PITCH_FPS));
+    const b = Math.min(f0.length, Math.ceil((vStart() + vDur()) * PITCH_FPS) + 1);
     ctx.strokeStyle = C.pitch;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
@@ -605,7 +678,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const h = lane.h - 8;
     const headH = 14;
     doc.lines.forEach((line, li) => {
-      if (line.end < props.viewStart || line.start > props.viewStart + props.viewDuration) return;
+      if (line.end < vStart() || line.start > vStart() + vDur()) return;
       line.words.forEach((w, wi) => {
         if (w.syl.length === 0) return;
         const wx1 = tToX(w.syl[0]![0]);
@@ -673,18 +746,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       ctx.lineWidth = 1;
     }
 
-    // Hovered / dragged edge
-    const he = drag?.kind === "boundary" ? drag : hoverEdge;
-    const hp = he ? doc.lines[he.ref.lineIdx]?.words[he.ref.wordIdx]?.syl[he.ref.sylIdx] : undefined;
-    if (he && hp) {
-      const x = tToX(he.edge === "start" ? hp[0] : hp[1]);
-      ctx.fillStyle = C.edgeHover;
-      ctx.fillRect(Math.round(x) - 1, lane.y + 1, 3, lane.h - 2);
-    }
-
     // Uncertainty hotspots
     for (const hs of props.hotspots) {
-      if (hs.time < props.viewStart || hs.time > props.viewStart + props.viewDuration) continue;
+      if (hs.time < vStart() || hs.time > vStart() + vDur()) continue;
       const x = tToX(hs.time);
       ctx.globalAlpha = Math.min(1, 0.35 + hs.expectedErrorMs / 60);
       ctx.fillStyle = C.hotspot;
@@ -703,7 +767,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (!doc) return;
     const selLine = props.selectedSyl?.lineIdx;
     doc.lines.forEach((line, li) => {
-      if (line.end < props.viewStart || line.start > props.viewStart + props.viewDuration) return;
+      if (line.end < vStart() || line.start > vStart() + vDur()) return;
       const x1 = tToX(line.start);
       const w = Math.max(2, tToX(line.end) - x1);
       ctx.fillStyle = li === selLine ? (isDarkCurrent ? "#8a5a22" : "#f59e0b") : line.calibrated ? (isDarkCurrent ? "#2a5a3c" : "#86efac") : (isDarkCurrent ? "#2a3a52" : "#bfdbfe");
@@ -745,11 +809,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (!frame) frame = requestAnimationFrame(draw);
   };
 
+  // Scene data: anything that changes the painted lanes (not the playhead or the scroll, which only move the blit).
   createEffect(() => {
-    // Track every prop that affects pixels.
-    void [theme(), props.doc, props.currentTime, props.viewStart, props.viewDuration, props.beats, props.downbeats, props.bar1Index,
-      props.mixPeaks, props.vocalPeaks, props.pitchContour, props.showPitch, props.selectedSyl,
-      props.hotspots, props.monitor, props.duration, props.tempo, size()];
+    void [theme(), props.doc, props.viewDuration, props.beats, props.downbeats, props.bar1Index, props.mixPeaks, props.vocalPeaks,
+      props.peaksPerSec, props.pitchContour, props.showPitch, props.selectedSyl, props.hotspots, props.monitor, props.duration, props.tempo, size()];
+    sceneDirty = true;
+    requestDraw();
+  });
+
+  createEffect(() => {
+    void [props.currentTime, props.viewStart];
     requestDraw();
   });
 

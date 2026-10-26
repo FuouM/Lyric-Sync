@@ -947,8 +947,24 @@
 }
 
 /* ── Program monitor ──────────────────────────────────────────────────── */
+/* A WinForms karaoke stage: a sunken 3D panel, a GroupBox with an etched border, a white TextBox-like well for the lyrics, the current
+ * syllable shown selected, classic ProgressBar fills and StatusStrip panels. Flat and instant: no blur, glow, gradient or transition, and
+ * the fill of the syllable being sung is a transform, so a frame repaints only what moved. */
 
 .daw-monitor {
+  --k-face: #f0f0f0;
+  --k-well: #ffffff;
+  --k-dark: #a0a0a0;
+  --k-darker: #696969;
+  --k-light: #ffffff;
+  --k-text: #000000;
+  --k-gray: #6d6d6d;
+  --k-hl: #0078d7;
+  --k-hl-text: #ffffff;
+  --k-sung: #0078d7;
+  --k-pinned: #06b025;
+  --k-active: #ffb900;
+  --k-trough: #e6e6e6;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
@@ -956,6 +972,18 @@
   justify-content: center;
   padding: 8px;
   background: var(--sys-control-bg, #ececec);
+}
+
+:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor {
+  --k-face: #2b2b2b;
+  --k-well: #1c1c1c;
+  --k-dark: #151515;
+  --k-darker: #000000;
+  --k-light: #4d4d4d;
+  --k-text: #ffffff;
+  --k-gray: #9d9d9d;
+  --k-sung: #4cc2ff;
+  --k-trough: #383838;
 }
 
 .daw-monitor-stage {
@@ -966,34 +994,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--sys-window-bg, #ffffff);
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-radius: 0;
+  background: var(--k-face);
+  border: 2px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+  box-shadow: inset 1px 1px 0 var(--k-darker);
   overflow: hidden;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor-stage {
-  background: radial-gradient(ellipse at 50% 40%, #151a22 0%, #050608 75%);
+  contain: layout paint;
+  container-type: size;
+  padding: 30px 0;
 }
 
 .daw-monitor-overlay-tl,
 .daw-monitor-overlay-tr {
   position: absolute;
   top: 8px;
-  padding: 2px 8px;
-  border-radius: 2px;
-  background: var(--sys-control-bg, #f3f3f3);
-  border: 1px solid var(--sys-border-medium, #cccccc);
+  padding: 1px 8px;
+  background: var(--k-well);
+  border: 1px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
   font-family: var(--daw-mono);
   font-size: 12px;
-  color: var(--sys-control-text, #000000);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor-overlay-tl,
-:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor-overlay-tr {
-  background: rgba(0, 0, 0, 0.55);
-  border-color: transparent;
-  color: #b8c4d4;
+  color: var(--k-text);
+  contain: layout paint style;
 }
 
 .daw-monitor-overlay-tl {
@@ -1012,65 +1034,60 @@
   display: none;
 }
 
-/* Karaoke card, after the video editor's placeholder stage: cyan sung, amber glowing current syllable, dim coming. */
+/* The GroupBox: etched border (a dark and a light line), caption on the border. */
 .kara-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
   width: min(92%, 980px);
-  padding: 16px 24px 18px;
-  background: var(--sys-window-bg, #ffffff);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  color: var(--sys-window-text, #000000);
+  padding: 16px 14px 10px;
+  border: 1px solid var(--k-dark);
+  box-shadow: 1px 1px 0 var(--k-light), inset 1px 1px 0 var(--k-light);
+  color: var(--k-text);
 }
 
-:is(:root[data-theme="dark"], body.ds-dark) .kara-card {
-  background: rgba(15, 18, 24, 0.9);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-  color: #ffffff;
+.kara-title {
+  position: absolute;
+  top: -0.7em;
+  left: 10px;
+  padding: 0 4px;
+  background: var(--k-face);
+  color: var(--k-text);
 }
 
 .kara-head {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font: 700 11px var(--daw-mono);
-  letter-spacing: 0.04em;
+  justify-content: flex-end;
+  min-height: 1.2em;
+  font-family: var(--daw-mono);
+  color: var(--k-gray);
 }
 
-.kara-title {
-  color: #15803d;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-title {
-  color: #4caf50;
-}
-
-.kara-line-info {
-  color: var(--sys-text-secondary, #666666);
-  font-weight: 500;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-line-info {
-  color: rgba(255, 255, 255, 0.4);
-}
-
+/* The lyrics sit in a sunken white well, like a read-only TextBox. */
 .kara-line {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 4px 0.45em;
   min-height: 1.6em;
-  font-size: clamp(22px, 2.9vw, 38px);
-  font-weight: 800;
+  padding: 12px 14px 8px;
+  background: var(--k-well);
+  border: 2px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+  box-shadow: inset 1px 1px 0 var(--k-darker);
+  font-size: clamp(16px, min(3.2cqw, 10cqh), 38px);
+  font-weight: 700;
   line-height: 1.25;
 }
 
+/* The base stylesheet sets `* { font-size: 12px }`; everything in the line takes the line's size instead. */
+.kara-line * {
+  font: inherit;
+}
+
 .kara-rest {
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--k-gray);
 }
 
 .kara-word {
@@ -1088,100 +1105,75 @@
   margin-left: 2px;
 }
 
-/* The base stylesheet sets `* { font-size: 12px }`; everything in the line takes the line's size instead. */
-.kara-line * {
-  font: inherit;
-}
-
 .kara-syl-text {
-  transition: color 60ms linear;
-  color: var(--sys-window-text, #000000);
+  color: var(--k-text);
 }
 
 .kara-syl--future .kara-syl-text {
-  color: var(--sys-text-muted, #9ca3af);
+  color: var(--k-gray);
 }
 
 .kara-syl--past .kara-syl-text {
-  color: #0284c7;
+  color: var(--k-sung);
 }
 
+/* The syllable being sung is shown selected: the system highlight behind its text (a spread, not a blur, so no layout shift). */
 .kara-syl--active .kara-syl-text {
-  color: #d97706;
-  text-shadow: 0 0 10px rgba(217, 119, 6, 0.35);
+  background: var(--k-hl);
+  color: var(--k-hl-text);
+  box-shadow: 0 0 0 2px var(--k-hl);
 }
 
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl--future .kara-syl-text {
-  color: rgba(255, 255, 255, 0.35);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl--past .kara-syl-text {
-  color: #26c6da;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl--active .kara-syl-text {
-  color: #ffb703;
-  text-shadow: 0 0 14px rgba(255, 183, 3, 0.85);
-}
-
+/* The ProgressBar: a sunken trough and a flat fill scaled from the left (a transform: no layout). */
 .kara-syl-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.1);
+  height: 6px;
+  box-sizing: border-box;
+  background: var(--k-trough);
+  border: 1px solid var(--k-dark);
   overflow: hidden;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl-bar {
-  background: rgba(255, 255, 255, 0.16);
+  contain: paint;
 }
 
 .kara-syl-fill {
   display: block;
+  width: 100%;
   height: 100%;
-  background: #0284c7;
+  background: var(--k-sung);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
 }
 
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl-fill {
-  background: #26c6da;
+.kara-syl--past .kara-syl-fill {
+  transform: scaleX(1);
 }
 
 .kara-syl--pinned.kara-syl--past .kara-syl-fill {
-  background: #16a34a;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl--pinned.kara-syl--past .kara-syl-fill {
-  background: #4caf50;
+  background: var(--k-pinned);
 }
 
 .kara-syl--active .kara-syl-fill {
-  background: #d97706;
-  box-shadow: 0 0 6px rgba(217, 119, 6, 0.6);
+  background: var(--k-active);
+  will-change: transform;
 }
 
-:is(:root[data-theme="dark"], body.ds-dark) .kara-syl--active .kara-syl-fill {
-  background: #ffb703;
-  box-shadow: 0 0 6px rgba(255, 183, 3, 0.85);
-}
-
-.kara-pill-row {
+/* The StatusStrip panel: what is being sung and how far. */
+.kara-status {
   display: flex;
-  justify-content: center;
-  min-height: 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+  contain: layout paint;
 }
 
-.kara-pill {
-  padding: 4px 12px;
-  border: 1px solid #f97316;
-  background: #fff7ed;
-  color: #c2410c;
-  font: 700 10px var(--daw-mono);
-  letter-spacing: 0.04em;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-pill {
-  border-color: #eb5e28;
-  background: rgba(235, 94, 40, 0.15);
-  color: #fff;
+.kara-pct {
+  margin-left: auto;
+  min-width: 4ch;
+  text-align: right;
+  font-family: var(--daw-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .kara-next {
@@ -1189,72 +1181,47 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--sys-text-secondary, #666666);
-  font-size: 15px;
-  font-weight: 500;
+  color: var(--k-gray);
+  font-size: 14px;
   text-align: center;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .kara-next {
-  color: rgba(255, 255, 255, 0.35);
 }
 
 .daw-monitor-beats {
   position: absolute;
-  bottom: 10px;
+  bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: 10px;
-  background: var(--sys-control-bg, #ececec);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor-beats {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: transparent;
+  padding: 2px 8px;
+  background: var(--k-face);
+  border: 1px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
 }
 
 .daw-monitor-bar {
   margin-right: 4px;
   font-family: var(--daw-mono);
-  font-size: 10px;
-  color: var(--sys-text-secondary, #555555);
+  color: var(--k-gray);
 }
 
 .daw-beat-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--sys-border-medium, #cccccc);
-  transition: background 50ms linear, box-shadow 50ms linear;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-beat-dot {
-  background: #2c313a;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  background: var(--k-trough);
+  border: 1px solid var(--k-dark);
 }
 
 .daw-beat-dot--on {
-  background: #0284c7;
-  box-shadow: 0 0 6px rgba(2, 132, 199, 0.75);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-beat-dot--on {
-  background: #6fb6ff;
-  box-shadow: 0 0 6px #6fb6ff;
+  background: var(--k-hl);
+  border-color: var(--k-hl);
 }
 
 .daw-beat-dot--down.daw-beat-dot--on {
-  background: #d97706;
-  box-shadow: 0 0 6px rgba(217, 119, 6, 0.85);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-beat-dot--down.daw-beat-dot--on {
-  background: #ffc35a;
-  box-shadow: 0 0 8px #ffc35a;
+  background: var(--k-active);
+  border-color: var(--k-active);
 }
 
 .daw-welcome {
