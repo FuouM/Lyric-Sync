@@ -111,6 +111,18 @@ describe('song folder paths and prompt', () => {
     expect(() => readSongPrompt(dir)).toThrow('needs files.song');
   });
 
+  test('tempo_changes, as the wizard writes them, are read in order; without them there are none', () => {
+    expect(readSongPrompt(dir).tempoChanges).toEqual([]);
+    put('user_input/prompt.yaml', PROMPT.replace('files:', 'tempo_changes:\n  - at: 62.5\n    bpm: 140\n  - at: 130\n    bpm: 96.5\nfiles:'));
+    expect(readSongPrompt(dir).tempoChanges).toEqual([{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }]);
+    expect(readPromptManifest(root, 'demo').tempoChanges).toEqual([{ at: 62.5, bpm: 140 }, { at: 130, bpm: 96.5 }]);
+  });
+
+  test('a tempo change without a number is an error', () => {
+    put('user_input/prompt.yaml', PROMPT.replace('files:', 'tempo_changes:\n  - at: 62.5\nfiles:'));
+    expect(() => readSongPrompt(dir)).toThrow('tempo_changes');
+  });
+
   test('readPromptManifest and songInputs keep the editor contract', () => {
     const manifest = readPromptManifest(root, 'demo');
     expect(manifest.songPath).toBe(path.join(dir, 'user_input', '[full] Demo.wav'));

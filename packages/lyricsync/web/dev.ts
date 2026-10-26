@@ -10,7 +10,7 @@
 //   POST /api/wizard/check { text, language, pronunciations }   lints lyrics: every word problem (unknown words), or counts,
 //                                          sections and automatic syllable splits. Always 200; `ok` says whether they are usable.
 //   POST /api/wizard/pronounce { language, input }   phones for a hand-added pronunciation ("sounds like" words, or phones).
-//   POST /api/wizard/create  (multipart: id, language, bpm, firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
+//   POST /api/wizard/create  (multipart: id, language, bpm, tempoChanges (JSON [{at, bpm}]), firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
 //   POST /api/wizard/resume { id }        continues a failed build.
 //   GET  /api/wizard/job                  the current or last build: state and log.
 //   GET/PUT /api/project/<id>/file/<path> song folder files (server/project-files.ts), for songs opened without the folder picker.
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createServer, type Plugin } from "vite";
 import { handleRealign } from "./server/realign.ts";
-import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
+import { checkLyrics, createSong, currentJob, parsePronunciations, parseTempoChanges, resumeSong } from "./server/wizard.ts";
 import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
 import { findSongDir } from "../src/song-folder.ts";
@@ -293,14 +293,16 @@ const localApi: Plugin = {
           const vocal = form.get("vocal");
           const downbeat = form.get("firstDownbeat");
           const pronunciations = form.get("pronunciations");
-          if (typeof id !== "string" || !isLanguage(language) || typeof lyrics !== "string" || typeof pronunciations !== "string" || !(mix instanceof File) || !(vocal instanceof File)) {
-            return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, mix and vocal." });
+          const tempoChanges = form.get("tempoChanges");
+          if (typeof id !== "string" || !isLanguage(language) || typeof lyrics !== "string" || typeof pronunciations !== "string" || typeof tempoChanges !== "string" || !(mix instanceof File) || !(vocal instanceof File)) {
+            return send(res, 400, { error: "BAD_REQUEST", message: "Needs id, language, lyrics, pronunciations, tempoChanges, mix and vocal." });
           }
           try {
             await createSong(PRIMARY_SONGS, {
               id,
               language,
               bpm: Number(form.get("bpm")),
+              tempoChanges: parseTempoChanges(JSON.parse(tempoChanges)),
               firstDownbeat: typeof downbeat === "string" && downbeat.trim() !== "" ? Number(downbeat) : null,
               lyrics,
               pronunciations: parsePronunciations(JSON.parse(pronunciations), language),

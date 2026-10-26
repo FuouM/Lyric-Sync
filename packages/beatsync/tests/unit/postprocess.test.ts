@@ -1,6 +1,6 @@
 // packages/beatsync/tests/unit/postprocess.test.ts
 import { describe, expect, test } from 'bun:test';
-import { postprocessBeats, postprocessMinimal } from '../../src/postprocess.ts';
+import { checkTempoChanges, postprocessBeats, postprocessMinimal } from '../../src/postprocess.ts';
 
 describe('postprocessBeats', () => {
   test('returns empty beats for empty input', () => {
@@ -39,6 +39,32 @@ describe('postprocessBeats', () => {
     expect(res.beats).toContain(1.5);
     expect(res.beats).toContain(2.0);
     expect(res.downbeats).toContain(0.5);
+  });
+
+  test('follows a stepped tempo change given as tempoChanges', () => {
+    const fps = 50;
+    // 120 BPM (25 frames) until 6 s, then 150 BPM (20 frames) until 12 s.
+    const frames: number[] = [];
+    for (let f = 25; f <= 300; f += 25) frames.push(f);
+    for (let f = 320; f <= 600; f += 20) frames.push(f);
+    const beatLogits = new Float32Array(650).fill(-10.0);
+    const downbeatLogits = new Float32Array(650).fill(-10.0);
+    for (const f of frames) beatLogits[f] = 10.0;
+
+    const res = postprocessBeats(beatLogits, downbeatLogits, { fps, targetBpm: 120, tempoChanges: [{ at: 6, bpm: 150 }], useDP: true });
+
+    // The DP also lays beats over the silent stretches at both ends; every peak must be a beat, and the stretch between the first and last peak keeps each tempo.
+    for (const f of frames) expect(res.beats).toContain(f / fps);
+    expect(res.beats.filter((b) => b >= 0.5 && b <= 12)).toEqual(frames.map((f) => f / fps));
+  });
+
+  test('checkTempoChanges rejects unusable tempos and unordered changes', () => {
+    expect(() => checkTempoChanges(120, [{ at: 30, bpm: 90 }, { at: 60, bpm: 100 }])).not.toThrow();
+    expect(() => checkTempoChanges(0)).toThrow('targetBpm');
+    expect(() => checkTempoChanges(120, [{ at: 0, bpm: 90 }])).toThrow('increasing');
+    expect(() => checkTempoChanges(120, [{ at: 60, bpm: 90 }, { at: 30, bpm: 100 }])).toThrow('increasing');
+    expect(() => checkTempoChanges(120, [{ at: 60, bpm: 90 }, { at: 60, bpm: 100 }])).toThrow('increasing');
+    expect(() => checkTempoChanges(120, [{ at: 30, bpm: -5 }])).toThrow('positive');
   });
 
   test('postprocessMinimal extracts local peaks properly', () => {

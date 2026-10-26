@@ -4,7 +4,7 @@
 //
 // <songs>/<id>/
 //   project.json                       video project with only the song asset (assets.song.src = the mix)
-//   user_input/prompt.yaml             song and stem names, nearest_bpm, first_downbeat_s
+//   user_input/prompt.yaml             song and stem names, nearest_bpm, tempo_changes, first_downbeat_s
 //   user_input/<mix>, user_input/stems/<vocal>
 //   user_input/lyrics.txt              the lyrics as typed;  user_input/lyrics.sync.json  the parsed lyrics contract
 //   generated/timing.ai.json           beat grid (beatsync)
@@ -16,7 +16,7 @@
 // The build is a pipeline of stages; a stage whose result exists is skipped, so a failed build resumes where it stopped.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { computeFeatures, trackBeats } from "../../../beatsync/src/index.ts";
+import { checkTempoChanges, computeFeatures, trackBeats, type TempoChange } from "../../../beatsync/src/index.ts";
 import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
@@ -119,10 +119,20 @@ export function parsePronunciations(raw: unknown, language: Language): Pronuncia
   return out;
 }
 
+/** The `tempoChanges` form field: a JSON list of { at, bpm } numbers. */
+export function parseTempoChanges(raw: unknown): TempoChange[] {
+  if (!Array.isArray(raw) || !raw.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) {
+    throw new Error("Tempo changes must be a list of { at: seconds, bpm: number }.");
+  }
+  return raw.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm }));
+}
+
 export interface CreateInput {
   id: string;
   language: Language;
   bpm: number;
+  /** Tempo changes after the start of the song, increasing in time. */
+  tempoChanges: TempoChange[];
   firstDownbeat: number | null;
   lyrics: string;
   pronunciations: Pronunciations;
@@ -143,6 +153,8 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
   if (!SONG_ID_RE.test(input.id)) throw new Error("The song id must be lowercase letters, digits, - or _, starting with a letter or digit.");
   if (!Number.isFinite(input.bpm) || input.bpm < 40 || input.bpm > 260) throw new Error("The tempo must be between 40 and 260 BPM.");
   if (input.firstDownbeat !== null && !(input.firstDownbeat >= 0)) throw new Error("The first downbeat must be a time in seconds, 0 or more.");
+  checkTempoChanges(input.bpm, input.tempoChanges);
+  for (const c of input.tempoChanges) if (c.bpm < 40 || c.bpm > 260) throw new Error(`The tempo from ${c.at} s must be between 40 and 260 BPM.`);
   const dir = songDir(songsRoot, input.id);
   if (fs.existsSync(dir)) throw new Error(`${dir} already exists. Choose another id, or resume its build.`);
   const check = checkLyrics(input.lyrics, input.language, input.pronunciations);
@@ -160,6 +172,7 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
     "timing_mode: ai",
     `nearest_bpm: ${input.bpm}`,
     ...(input.firstDownbeat === null ? [] : [`first_downbeat_s: ${input.firstDownbeat}`]),
+    ...(input.tempoChanges.length === 0 ? [] : ["tempo_changes:", ...input.tempoChanges.flatMap((c) => [`  - at: ${c.at}`, `    bpm: ${c.bpm}`])]),
     "files:",
     `  song: ${yamlString(mixName)}`,
     "  lyrics: lyrics.txt",
@@ -230,8 +243,14 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
   else {
     const prompt = readPromptManifest(roots, id);
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
-    say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${prompt.nearestBpm} BPM)…`);
-    const a = await trackBeats(prompt.songPath, { targetBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat ?? undefined, device: inferenceDevice() });
+    const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
+    say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
+    const a = await trackBeats(prompt.songPath, {
+      targetBpm: prompt.nearestBpm,
+      tempoChanges: prompt.tempoChanges,
+      firstDownbeat: prompt.firstDownbeat ?? undefined,
+      device: inferenceDevice(),
+    });
     const doc: BeatsDocument = {
       v: 1,
       model: "beat_this",

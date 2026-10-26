@@ -5,10 +5,10 @@ import * as fs from 'node:fs';
 import * as ort from 'onnxruntime-node';
 import { loadAudioFile, toMono, resample } from './audio.ts';
 import { computeLogMelSpectrogram } from './spectrogram.ts';
-import { postprocessBeats } from './postprocess.ts';
+import { checkTempoChanges, postprocessBeats } from './postprocess.ts';
 import { modelPath } from './paths.ts';
 import { executionProviders, type InferenceDevice } from './device.ts';
-import type { BeatAnalysis, BeatTrackerOptions, TrackBeatsOptions } from './types.ts';
+import type { BeatAnalysis, BeatTrackerOptions, TempoChange, TrackBeatsOptions } from './types.ts';
 
 /**
  * Beat This! beat and downbeat tracking engine.
@@ -21,19 +21,19 @@ export class BeatTracker {
   private readonly fps: number;
   private readonly device: InferenceDevice;
   private readonly targetBpm: number;
+  private readonly tempoChanges: readonly TempoChange[];
   private externalRunner?: (spectrogram: Float32Array, chunkSize: number) => Promise<{ beat: Float32Array; downbeat: Float32Array }>;
 
   constructor(options: BeatTrackerOptions & {
     runner?: (spectrogram: Float32Array, chunkSize: number) => Promise<{ beat: Float32Array; downbeat: Float32Array }>;
   }) {
-    if (!Number.isFinite(options.targetBpm) || options.targetBpm <= 0) {
-      throw new Error(`targetBpm must be a positive number (the song's approximate tempo in BPM), got ${String(options.targetBpm)}.`);
-    }
+    checkTempoChanges(options.targetBpm, options.tempoChanges);
     this.chunkSize = options.chunkSize ?? 1500; // 30 seconds at 50 fps
     this.borderSize = options.borderSize ?? 6;   // 120 ms overlap boundary
     this.fps = options.fps ?? 50;
     this.device = options.device ?? 'gpu';
     this.targetBpm = options.targetBpm;
+    this.tempoChanges = options.tempoChanges ?? [];
     this.externalRunner = options.runner;
     this.modelPath = modelPath('beat_this.onnx');
   }
@@ -140,6 +140,7 @@ export class BeatTracker {
     const { beats, downbeats } = postprocessBeats(beatLogits, downbeatLogits, {
       fps: this.fps,
       targetBpm: this.targetBpm,
+      tempoChanges: this.tempoChanges,
       useDP: true,
       firstDownbeatHint,
     });
@@ -199,6 +200,7 @@ export async function trackBeats(
 ): Promise<BeatAnalysis> {
   const tracker = new BeatTracker({
     targetBpm: options.targetBpm,
+    ...(options.tempoChanges ? { tempoChanges: options.tempoChanges } : {}),
     ...(options.device ? { device: options.device } : {}),
   });
 

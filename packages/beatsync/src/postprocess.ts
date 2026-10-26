@@ -3,7 +3,18 @@
 // Implements regularized Dynamic Programming (Viterbi) beat tracking with tempo priors
 // to eliminate erratic jumps, skipped beats, and syncopated double-peaks.
 
-import type { BeatResult, PostprocessOptions } from './types.ts';
+import type { BeatResult, PostprocessOptions, TempoChange } from './types.ts';
+
+/** Throws unless `bpm` and every change are usable: positive tempos, `at` > 0 and strictly increasing. */
+export function checkTempoChanges(bpm: number, changes: readonly TempoChange[] = []): void {
+  if (!Number.isFinite(bpm) || bpm <= 0) throw new Error(`targetBpm must be a positive number (the song's approximate tempo in BPM), got ${String(bpm)}.`);
+  let prev = 0;
+  for (const c of changes) {
+    if (!Number.isFinite(c.at) || c.at <= prev) throw new Error(`Tempo changes must have increasing times above 0 s; got ${String(c.at)} s after ${prev} s.`);
+    if (!Number.isFinite(c.bpm) || c.bpm <= 0) throw new Error(`The tempo from ${c.at} s must be a positive number of BPM, got ${String(c.bpm)}.`);
+    prev = c.at;
+  }
+}
 
 /**
  * Extracts beat and downbeat timestamps from framewise logits.
@@ -40,10 +51,23 @@ export function postprocessBeats(
     return postprocessMinimal(beatLogits, downbeatLogits, fps);
   }
 
-  // Dynamic programming beat tracker with tight tempo prior around targetBpm
-  const targetLag = (fps * 60) / targetBpm;
-  const minLag = Math.max(1, Math.floor(targetLag * 0.88));
-  const maxLag = Math.ceil(targetLag * 1.12);
+  // Dynamic programming beat tracker with a tight tempo prior around the tempo in force (targetBpm, then each tempo change).
+  // lagAt[f] is the prior beat spacing in frames at frame f. A beat pair (j, i) expects the geometric mean of lagAt[j] and
+  // lagAt[i], so a pair that straddles a change is allowed either spacing.
+  checkTempoChanges(targetBpm, options.tempoChanges);
+  const changes = options.tempoChanges ?? [];
+  const lagAt = new Float64Array(len);
+  let seg = -1;
+  let lagMin = Infinity;
+  let lagMax = 0;
+  for (let f = 0; f < len; f++) {
+    while (seg + 1 < changes.length && changes[seg + 1]!.at <= f / fps) seg++;
+    lagAt[f] = (fps * 60) / (seg < 0 ? targetBpm : changes[seg]!.bpm);
+    if (lagAt[f]! < lagMin) lagMin = lagAt[f]!;
+    if (lagAt[f]! > lagMax) lagMax = lagAt[f]!;
+  }
+  const minLag = Math.max(1, Math.floor(lagMin * 0.88));
+  const maxLag = Math.ceil(lagMax * 1.12);
   const lambda = 25.0;
 
   const D = new Float32Array(len);
@@ -61,8 +85,9 @@ export function postprocessBeats(
 
     for (let j = searchStart; j <= searchEnd; j++) {
       const lag = i - j;
-      const ratio = lag / targetLag;
-      const logRatio = Math.log(ratio);
+      const targetLag = lagAt[j] === lagAt[i] ? lagAt[i]! : Math.sqrt(lagAt[j]! * lagAt[i]!);
+      if (lag < Math.max(1, Math.floor(targetLag * 0.88)) || lag > Math.ceil(targetLag * 1.12)) continue;
+      const logRatio = Math.log(lag / targetLag);
       const score = D[j]! - lambda * (logRatio * logRatio);
       if (score > bestScore) {
         bestScore = score;

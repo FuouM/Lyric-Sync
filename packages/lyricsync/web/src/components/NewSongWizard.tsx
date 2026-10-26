@@ -8,6 +8,7 @@ import { extractPeaks } from "../lib/audio-player";
 import { errorMessage } from "../lib/song-files";
 import { LyricsStep, pronunciationKey, type LyricsCheck, type Pronunciations } from "./wizard/LyricsStep";
 import { TEMPO_PEAKS_PER_SEC, TempoStep } from "./wizard/TempoStep";
+import { parseTempoRows, type TempoRow } from "../lib/tempo-grid";
 
 export interface NewSongWizardProps {
   onClose: () => void;
@@ -61,6 +62,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
   const [checking, setChecking] = createSignal(false);
   const [bpm, setBpm] = createSignal("");
   const [downbeat, setDownbeat] = createSignal("");
+  const [tempoRows, setTempoRows] = createSignal<TempoRow[]>([]);
   const [job, setJob] = createSignal<Job | null>(null);
   const [submitError, setSubmitError] = createSignal<string | null>(null);
   let idInput: HTMLInputElement | undefined;
@@ -185,6 +187,8 @@ export function NewSongWizard(props: NewSongWizardProps) {
       const b = Number(bpm());
       if (!(b >= 40 && b <= 260)) return "Tempo: 40–260 BPM (type it, or tap along).";
       if (downbeat().trim() !== "" && !(Number(downbeat()) >= 0)) return "First downbeat: seconds, or leave empty.";
+      const rows = parseTempoRows(tempoRows());
+      if (rows.error !== null) return rows.error;
     }
     return null;
   };
@@ -200,6 +204,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
     form.set("language", language());
     form.set("bpm", bpm());
     form.set("firstDownbeat", downbeat());
+    form.set("tempoChanges", JSON.stringify(parseTempoRows(tempoRows()).changes));
     form.set("lyrics", lyrics());
     form.set("pronunciations", JSON.stringify(pronunciations()));
     form.set("mix", mix()!);
@@ -351,7 +356,16 @@ export function NewSongWizard(props: NewSongWizardProps) {
 
             <Show when={step() === 3}>
               <h2>Tempo and first beat</h2>
-              <TempoStep mixUrl={mixUrl()} peaks={mixPeaks()} bpm={bpm()} onBpm={setBpm} downbeat={downbeat()} onDownbeat={setDownbeat} />
+              <TempoStep
+                mixUrl={mixUrl()}
+                peaks={mixPeaks()}
+                bpm={bpm()}
+                onBpm={setBpm}
+                downbeat={downbeat()}
+                onDownbeat={setDownbeat}
+                changes={tempoRows()}
+                onChanges={setTempoRows}
+              />
             </Show>
 
             <Show when={step() === 4}>
@@ -367,6 +381,9 @@ export function NewSongWizard(props: NewSongWizardProps) {
                     <div class="daw-kv"><span>Lyrics</span><b>{readyLyrics() ? `${readyLyrics()!.lines} lines` : "—"}</b></div>
                     <div class="daw-kv"><span>Added pronunciations</span><b>{Object.keys(pronunciations()).length}</b></div>
                     <div class="daw-kv"><span>Tempo</span><b>{bpm()} BPM{downbeat() ? `, beat 1 at ${downbeat()} s` : ""}</b></div>
+                    <For each={parseTempoRows(tempoRows()).changes}>
+                      {(c) => <div class="daw-kv"><span>Tempo change</span><b>{c.bpm} BPM from {c.at} s</b></div>}
+                    </For>
                     <p class="daw-wizard-note">
                       The build tracks the beats, extracts the audio evidence (a few minutes) and makes a first timing with nothing pinned. The song then opens in the editor.
                     </p>

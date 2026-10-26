@@ -47,6 +47,7 @@ import { trackBeats, BeatTracker } from 'beatsync';
 // 1. Convenience one-shot function from audio file path
 const analysis = await trackBeats('path/to/audio.wav', {
   targetBpm: 120,       // Required: the song's approximate tempo; beats are confined to about +/-12% of it
+  tempoChanges: [{ at: 20, bpm: 150 }], // Optional: from 20 s the prior is 150 BPM (stepped tempo changes; `at` increasing, > 0)
   firstDownbeat: 0.32,   // Optional: seconds; aligns downbeat phase to the beat nearest this time
 });
 

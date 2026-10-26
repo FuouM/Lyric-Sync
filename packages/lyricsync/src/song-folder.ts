@@ -1,7 +1,7 @@
 // src/song-folder.ts
 // The song folder: the layout the New Song wizard writes, also the input of the pve video editor.
 //   <dir>/project.json                       marks the folder as a song
-//   <dir>/user_input/prompt.yaml             mix and stem file names, nearest_bpm, first_downbeat_s
+//   <dir>/user_input/prompt.yaml             mix and stem file names, nearest_bpm, tempo_changes, first_downbeat_s
 //   <dir>/user_input/lyrics.sync.json        the lyricsync lyrics contract; optional "unannotatedLines"
 //   <dir>/user_input/lyrics.calibrated.json  the human calibration and the sections (lyrics editor)
 //   <dir>/generated/timing.ai.json           the beat grid (beatsync)
@@ -12,7 +12,7 @@
 // (subpath export "lyricsync/song-folder"). prompt.yaml is parsed with Bun.YAML, so the prompt readers need Bun.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { FeaturesDocument } from 'beatsync';
+import type { FeaturesDocument, TempoChange } from 'beatsync';
 import { parseCalibrationDoc, type CalibrationDoc } from './calibration-doc.ts';
 import { isNumber, isRecord } from './guards.ts';
 import type { Language } from './types.ts';
@@ -63,6 +63,8 @@ export interface SongPrompt {
   stemsDir: string;
   stems: SongStems;
   nearestBpm: number | null;
+  /** tempo_changes: from each `at` seconds the tempo is `bpm`. Empty when the song has one tempo. */
+  tempoChanges: TempoChange[];
   firstDownbeat: number | null;
 }
 
@@ -81,6 +83,8 @@ export interface PromptManifest {
   /** The full mix. */
   songPath: string;
   nearestBpm: number | null;
+  /** Tempo changes after the start of the song (see SongPrompt.tempoChanges). */
+  tempoChanges: TempoChange[];
   firstDownbeat: number | null;
 }
 
@@ -177,6 +181,15 @@ function stemList(value: unknown, key: string, file: string): string[] {
   throw new Error(`${file}: files.stems.${key} must be a file name or a list of file names.`);
 }
 
+/** `tempo_changes` of prompt.yaml: a list of `{ at: seconds, bpm }`; absent means the song keeps nearest_bpm throughout. Order is checked by the beat tracker. */
+function tempoChanges(value: unknown, file: string): TempoChange[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || !value.every((c) => isRecord(c) && isNumber(c.at) && isNumber(c.bpm))) {
+    throw new Error(`${file}: tempo_changes must be a list of { at: seconds, bpm: number }.`);
+  }
+  return value.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm }));
+}
+
 /** Reads and checks user_input/prompt.yaml of the song folder `dir`. Needs files.song. */
 export function readSongPrompt(dir: string): SongPrompt {
   const { promptFile, userInputDir } = songFolderPaths(dir);
@@ -216,6 +229,7 @@ export function readSongPrompt(dir: string): SongPrompt {
       other: stemList(stems.other, 'other', promptFile).map(inStems),
     },
     nearestBpm: isNumber(prompt.nearest_bpm) ? prompt.nearest_bpm : null,
+    tempoChanges: tempoChanges(prompt.tempo_changes, promptFile),
     firstDownbeat: isNumber(prompt.first_downbeat_s) ? prompt.first_downbeat_s : null,
   };
 }
@@ -282,7 +296,7 @@ export function readFeatures(dir: string): FeaturesDocument {
 export function readPromptManifest(roots: SongsRoots, id: string): PromptManifest {
   const prompt = readSongPrompt(existingSongDir(roots, id));
   if (!fs.existsSync(prompt.mixPath)) throw new Error(`Full mix not found: ${prompt.mixPath}`);
-  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat };
+  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, tempoChanges: prompt.tempoChanges, firstDownbeat: prompt.firstDownbeat };
 }
 
 /** The lyricsync inputs of song `id`: lyrics contract, language, vocal and beat grid. */

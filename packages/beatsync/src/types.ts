@@ -8,9 +8,17 @@ export interface BeatResult {
   downbeats: number[];
 }
 
+/** From `at` seconds on, the song's tempo is `bpm`. */
+export interface TempoChange {
+  at: number;
+  bpm: number;
+}
+
 export interface PostprocessOptions {
   fps?: number;
   targetBpm?: number;
+  /** Tempo changes after the start, strictly increasing in `at`, each `at` > 0. Validate with `checkTempoChanges`. */
+  tempoChanges?: readonly TempoChange[];
   useDP?: boolean;
   firstDownbeatHint?: number;
 }
@@ -32,11 +40,15 @@ export interface BeatTrackerOptions {
   device?: InferenceDevice;
   /** Tempo prior in BPM (required, see TrackBeatsOptions.targetBpm). */
   targetBpm: number;
+  /** See TrackBeatsOptions.tempoChanges. */
+  tempoChanges?: readonly TempoChange[];
 }
 
 export interface TrackBeatsOptions {
-  /** Tempo prior in BPM. Required: beats are confined to about +/-12% of this tempo, so a wrong value yields wrong beats. */
+  /** Tempo prior in BPM at the start of the song. Required: beats are confined to about +/-12% of the tempo in force, so a wrong value yields wrong beats. */
   targetBpm: number;
+  /** Tempo changes later in the song (a bridge in double time, a key-change ritardando...): from each `at` (seconds, increasing, > 0) the prior is that `bpm`. Around a change the prior is the geometric mean of the two tempos. */
+  tempoChanges?: readonly TempoChange[];
   firstDownbeat?: number;
   /** See BeatTrackerOptions.device. */
   device?: InferenceDevice;

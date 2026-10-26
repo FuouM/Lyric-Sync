@@ -1,8 +1,10 @@
 // packages/lyricsync/web/src/components/wizard/TempoStep.tsx
-// Tempo and first downbeat for the new-song wizard: the mix's waveform with the beat grid the current values give, a tap
-// pad (Space) that measures the tempo, and the first downbeat ("1" of the first bar) set by double-click, drag or the D key.
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { formatTimecode } from "../../lib/doc-edit";
+// Tempo, tempo changes and first downbeat for the new-song wizard: the mix's waveform with the beat grid the current values give, a
+// tap pad (Space) that measures the tempo, tempo changes put at the play position, and the first downbeat ("1" of the first bar) set
+// by double-click, drag or the D key.
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
+import { floorIndex, formatTimecode } from "../../lib/doc-edit";
+import { MAX_BPM, MIN_BPM, parseTempoRows, tempoAt, tempoGrid, type TempoRow } from "../../lib/tempo-grid";
 import { LcdDigits } from "../LcdDigits";
 import { persistedSignal } from "../../lib/persisted-signal";
 import { theme } from "../../stores/theme";
@@ -15,6 +17,9 @@ export interface TempoStepProps {
   onBpm: (v: string) => void;
   downbeat: string;
   onDownbeat: (v: string) => void;
+  /** Tempo changes after the start of the song, as typed. */
+  changes: TempoRow[];
+  onChanges: (rows: TempoRow[]) => void;
 }
 
 export const TEMPO_PEAKS_PER_SEC = 100;
@@ -38,15 +43,40 @@ export function TempoStep(props: TempoStepProps) {
   const [width, setWidth] = createSignal(600);
 
   const bpmNum = () => Number(props.bpm);
-  const period = () => (bpmNum() >= 40 && bpmNum() <= 260 ? 60 / bpmNum() : null);
   const downbeatNum = () => (props.downbeat.trim() === "" ? null : Number(props.downbeat));
+
+  const parsed = createMemo(() => parseTempoRows(props.changes));
+  const songEnd = createMemo(() => duration() || (props.peaks ? props.peaks.length / TEMPO_PEAKS_PER_SEC : 0));
+  /** The beat grid of the tempo, its changes and the first downbeat, or null while one of them is missing or invalid. */
+  const grid = createMemo(() => {
+    const d = downbeatNum();
+    const b = bpmNum();
+    const { changes, error } = parsed();
+    if (d === null || !(d >= 0) || !(b >= MIN_BPM && b <= MAX_BPM) || error !== null || songEnd() === 0) return null;
+    return tempoGrid(d, b, changes, songEnd());
+  });
 
   /** Beat index at t from the grid (0 = the first downbeat), or null without a grid. */
   const beatAt = (t: number) => {
-    const p = period();
-    const d = downbeatNum();
-    return p === null || d === null ? null : Math.floor((t - d) / p + 1e-6);
+    const g = grid();
+    return g === null ? null : floorIndex(g.times, t + 1e-6) - g.first;
   };
+
+  const setRow = (i: number, patch: Partial<TempoRow>) => props.onChanges(props.changes.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const addChange = () => {
+    const current = tempoAt(time(), bpmNum(), parsed().changes);
+    props.onChanges([...props.changes, { at: time().toFixed(3), bpm: current >= MIN_BPM ? String(current) : "" }]);
+  };
+  /** Index of the change in force at the play position, or -1 while the starting tempo is. */
+  const tapTarget = () => {
+    let best = -1;
+    for (const [i, r] of props.changes.entries()) {
+      const at = r.at.trim() === "" ? NaN : Number(r.at);
+      if (at > 0 && at <= time() && (best < 0 || at > Number(props.changes[best]!.at))) best = i;
+    }
+    return best;
+  };
+  const tapTargetLabel = () => (tapTarget() < 0 ? "the starting tempo" : `the tempo change at ${props.changes[tapTarget()]!.at} s`);
 
   const tapStats = createMemo(() => {
     const t = taps();
@@ -66,7 +96,11 @@ export function TempoStep(props: TempoStepProps) {
     setTaps(next);
     setFlash(flash() + 1);
     const s = tapStats();
-    if (next.length >= 4 && s) props.onBpm(s.bpm.toFixed(1));
+    if (next.length >= 4 && s) {
+      const target = tapTarget();
+      if (target < 0) props.onBpm(s.bpm.toFixed(1));
+      else setRow(target, { bpm: s.bpm.toFixed(1) });
+    }
   };
 
   const togglePlay = () => (audio.paused ? void audio.play() : audio.pause());
@@ -134,7 +168,8 @@ export function TempoStep(props: TempoStepProps) {
     const w = width();
     const t = time();
     const peaks = props.peaks;
-    const p = period();
+    const g = grid();
+    const ch = parsed().changes;
     const d = downbeatNum();
     const dpr = window.devicePixelRatio || 1;
     for (const [c, h] of [[canvas, DETAIL_H], [overview, OVER_H]] as const) {
@@ -167,10 +202,10 @@ export function TempoStep(props: TempoStepProps) {
         ctx.fillRect(px, mid - h, 1, h * 2);
       }
     }
-    if (p !== null && d !== null) {
-      const first = Math.ceil((v0 - d) / p);
-      for (let k = first; d + k * p <= v0 + VIEW_SEC; k++) {
-        const bx = Math.round(x(d + k * p)) + 0.5;
+    if (g !== null) {
+      for (let i = Math.max(0, floorIndex(g.times, v0)); i < g.times.length && g.times[i]! <= v0 + VIEW_SEC; i++) {
+        const k = i - g.first;
+        const bx = Math.round(x(g.times[i]!)) + 0.5;
         const bar = ((k % 4) + 4) % 4 === 0;
         ctx.strokeStyle = bar ? "rgba(255,195,90,0.9)" : "rgba(111,182,255,0.45)";
         ctx.lineWidth = bar ? 2 : 1;
@@ -185,6 +220,21 @@ export function TempoStep(props: TempoStepProps) {
         }
       }
     }
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = "#e879f9";
+    ctx.fillStyle = "#e879f9";
+    ctx.lineWidth = 1.5;
+    ctx.font = "600 10px 'Segoe UI', sans-serif";
+    for (const c of ch) {
+      const cx = Math.round(x(c.at)) + 0.5;
+      if (cx < -60 || cx > w) continue;
+      ctx.beginPath();
+      ctx.moveTo(cx, 0);
+      ctx.lineTo(cx, DETAIL_H);
+      ctx.stroke();
+      ctx.fillText(`${c.bpm} BPM`, cx + 3, DETAIL_H - 4);
+    }
+    ctx.setLineDash([]);
     if (d !== null) {
       const fx = x(d);
       ctx.fillStyle = "#ffb703";
@@ -203,7 +253,7 @@ export function TempoStep(props: TempoStepProps) {
     o.setTransform(dpr, 0, 0, dpr, 0, 0);
     o.fillStyle = isDark ? "#101216" : "#f1f3f6";
     o.fillRect(0, 0, w, OVER_H);
-    const total = duration() || (peaks ? peaks.length / TEMPO_PEAKS_PER_SEC : 0);
+    const total = songEnd();
     if (peaks && total > 0) {
       o.fillStyle = isDark ? "#3b4658" : "#94a3b8";
       for (let px = 0; px < w; px++) {
@@ -221,6 +271,8 @@ export function TempoStep(props: TempoStepProps) {
         o.fillStyle = "#ffb703";
         o.fillRect((d / total) * w, 0, 2, OVER_H);
       }
+      o.fillStyle = "#e879f9";
+      for (const c of ch) o.fillRect((c.at / total) * w, 0, 2, OVER_H);
     }
   });
 
@@ -329,7 +381,7 @@ export function TempoStep(props: TempoStepProps) {
             <button class="daw-btn daw-btn-sm" title="Double tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() * 2).toFixed(1))}>×2</button>
             <button class="daw-btn daw-btn-sm" title="Clear the taps (R)" onClick={() => setTaps([])}>Reset</button>
           </div>
-          <p class="daw-wizard-note">Tap along with the beat while the song plays. The beat tracker needs the tempo within about ±12 %.</p>
+          <p class="daw-wizard-note">Tap along with the beat while the song plays. The beat tracker needs the tempo within about ±12 %. Tapping sets {tapTargetLabel()}.</p>
         </section>
 
         <section class="daw-tempo-card">
@@ -358,6 +410,38 @@ export function TempoStep(props: TempoStepProps) {
             <button class="daw-btn daw-btn-sm" disabled={downbeatNum() === null} onClick={() => props.onDownbeat("")}>Clear</button>
           </div>
           <p class="daw-wizard-note">With both set, the gold bar lines and the click should land on the music. If they drift, the tempo is off.</p>
+        </section>
+
+        <section class="daw-tempo-card">
+          <header class="daw-section-title">Tempo changes (optional)</header>
+          <p class="daw-wizard-note">
+            If the song changes tempo (a bridge in double time, a slower outro), play to the first beat of the new tempo and add a change there. The grid
+            then follows it, and the beat tracker expects that tempo from then on. Tap along to set a change's tempo.
+          </p>
+          <div class="daw-btn-row">
+            <button class="daw-btn daw-btn-accent" onClick={(e) => { addChange(); e.currentTarget.blur(); }}>
+              <i class="bi bi-plus-lg" /> Tempo change here
+            </button>
+          </div>
+          <Index each={props.changes}>
+            {(r, i) => (
+              <div class="daw-field">
+                <span>At (s)</span>
+                <input class="daw-num" value={r().at} onInput={(e) => setRow(i, { at: e.currentTarget.value })} />
+                <span>BPM</span>
+                <input class="daw-num" value={r().bpm} onInput={(e) => setRow(i, { bpm: e.currentTarget.value })} />
+                <button class="daw-icon-btn" title="Go there" disabled={!(Number(r().at) > 0)} onClick={() => seek(Number(r().at))}>
+                  <i class="bi bi-skip-backward-fill" />
+                </button>
+                <button class="daw-icon-btn" title="Remove" onClick={() => props.onChanges(props.changes.filter((_, j) => j !== i))}>
+                  <i class="bi bi-x-lg" />
+                </button>
+              </div>
+            )}
+          </Index>
+          <Show when={parsed().error}>
+            <p class="daw-wizard-note daw-warn">{parsed().error}</p>
+          </Show>
         </section>
       </div>
       <div class="daw-wizard-note daw-tempo-keys">
