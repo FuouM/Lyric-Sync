@@ -299,7 +299,11 @@ function pairTables(sk: LineSkeleton, le: LineEvents, D: GuidedDesign): Float64A
     for (let q = 0; q < A.length; q++) {
       for (let k = 0; k < B.length; k++) {
         const dur = B[k]! - A[q]!;
-        if (dur < D.minSylSec) continue;
+        if (dur < D.minSylSec) {
+          // Both boundaries fixed (pinned): a short syllable the user placed is not an error. Without this the chain has no feasible path and the line gets NaN times.
+          if (A.length === 1 && B.length === 1 && dur > 0) table[q * B.length + k] = 0;
+          continue;
+        }
         const lo = A[q]! + D.insideMarginSec;
         const hi = B[k]! - D.insideMarginSec;
         const inside = hi > lo ? Math.min(D.insideCap, lowerBound(le.rmvpe, hi) - lowerBound(le.rmvpe, lo) + lowerBound(le.harmo, hi) - lowerBound(le.harmo, lo)) : 0;
@@ -381,9 +385,15 @@ function joinLineEnds(lines: ConsensusLine[], linePins: LinePins[], notes: Array
 /** Lines may not overlap: an unpinned line's boundaries stay after the previous line's last syllable start (plus a minimal syllable for each
  *  boundary before it), so its first syllable cannot start inside that syllable's onset. */
 function keepAfter(sk: LineSkeleton, pins: Array<number | undefined>, bound: number, D: GuidedDesign): void {
+  // A time the user pinned in this line outranks the previous line's solved position (which may be wrong): without this clamp a pin that sits
+  // earlier than the previous line's decoded last syllable leaves the chain no feasible path, and the line (and every line after it) gets NaN times.
+  let limit = Number.isFinite(bound) ? bound : -Infinity;
+  pins.forEach((t, k) => {
+    if (t !== undefined) limit = Math.min(limit, t - k * D.minSylSec);
+  });
   sk.cands.forEach((cands, j) => {
     if (pins[j] !== undefined) return;
-    const lo = bound + j * D.minSylSec;
+    const lo = limit + j * D.minSylSec;
     const kept = cands.filter((t) => t >= lo);
     sk.cands[j] = kept.length > 0 ? kept : [lo];
   });

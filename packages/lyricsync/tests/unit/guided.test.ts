@@ -56,4 +56,23 @@ describe('solveGuided', () => {
     const t1 = times(out.lines, 1);
     for (let i = 1; i < t1.length; i++) expect(t1[i]!).toBeGreaterThan(t1[i - 1]!);
   });
+
+  test('pins the previous line cannot honour or syllables shorter than the minimum still give finite, increasing times', () => {
+    const m = model([]);
+    const solveWith = (anchors: Anchors) => solveGuided({ evidence: evidence({ boundary: m }), anchors, sliced: {}, guide: boundaryGuide(m) });
+    // Two pinned boundaries 20 ms apart (a short closure the user placed): a syllable shorter than any the chain accepts on its own.
+    const short = solveWith({ version: 1, lines: { '0': { boundaries: { '1': 1.5, '2': 1.52 } } } });
+    const t0 = times(short.lines, 0);
+    expect(t0.every(Number.isFinite)).toBe(true);
+    expect(t0[1]).toBe(1.5);
+    expect(t0[2]).toBe(1.52);
+    // A pin in line 1 that sits where line 0's last syllable is decoded (2.5, pinned boundary 1 at 2.6): the pin wins over the line before it.
+    const early = solveWith({ version: 1, lines: { '1': { boundaries: { '1': 2.6 } } } });
+    for (const line of [0, 1]) {
+      const t = times(early.lines, line);
+      expect(t.every(Number.isFinite)).toBe(true);
+      expect(t.every((x, i) => i === 0 || x >= t[i - 1]!)).toBe(true);
+    }
+    expect(times(early.lines, 1)[1]).toBe(2.6);
+  });
 });
