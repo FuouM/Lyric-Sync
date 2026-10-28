@@ -76,18 +76,19 @@ const result = await tracker.trackFile('path/to/audio.wav', 0.32);
 
 ```bash
 # Envelopes at 100 fps, each peak-normalized to 0..1: rms, low, mid, high from the mix; vocal, drums, bass, other from the stems
-beatsync features song.wav --vocal vocal.wav --drums drums.wav --out generated/features.json
+# Onsets [time s, strength 0..1] from isolated drum stems: kick, snare, hat. Give an option more than once to add files.
+beatsync features song.wav --vocal vocal.wav --drums drums.wav --kick kick.wav --snare snare.wav --hat hat.wav --out generated/features.json
 ```
 
 ```typescript
 import { computeFeatures } from 'beatsync';
-const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'], drums: ['drums.wav'] });
+const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'], drums: ['drums.wav'] }, { kick: ['kick.wav'] });
 ```
 
-Envelope length is `ceil(mix samples * 100 / mix sample rate)`. Stem keys without files are not written. `onsets` is `{}` (no detector yet). The method is in `README.md`.
+Envelope length is `ceil(mix samples * 100 / mix sample rate)`. Stem keys and onset keys without files are not written. A silent drum stem gives an empty onset list. The method is in `README.md`.
 
 ## Running Tests
 ```bash
-bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess, feature envelopes)
+bun test tests/unit     # Fast unit tests (WAV parsing, resample, mono mix, spectrogram, postprocess, feature envelopes, drum onsets)
 bun test tests/e2e      # E2E inference test on a synthesized click track
 ```

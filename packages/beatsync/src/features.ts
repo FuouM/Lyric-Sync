@@ -9,12 +9,14 @@
 //   Band edges in BAND_EDGES_HZ: a bin k belongs to a band when lo <= k * 22050 / 1024 < hi.
 // Stem envelopes: the sum of the RMS envelopes of the files of one stem key.
 // Every envelope is then divided by its own maximum (peak normalization) and rounded to 4 decimals. A silent input gives zeros.
+// Onsets: kick, snare and hat from isolated drum stems (method in onsets.ts). The files of one key are added sample by sample.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadAudioFile, parseWav, resample, toMono } from './audio.ts';
+import { detectOnsets, ONSET_DEFAULTS } from './onsets.ts';
 import { fft1024, HANN_WINDOW, N_FFT, N_FREQS, SPECTROGRAM_SAMPLE_RATE } from './spectrogram.ts';
-import type { FeaturesDocument, FeatureStems, StemEnvelopeKey } from './types.ts';
+import type { DrumOnsetKey, FeaturesDocument, FeatureStems, OnsetStems, StemEnvelopeKey } from './types.ts';
 
 /** Frames per second of every envelope. */
 export const FEATURES_FPS = 100;
@@ -39,6 +41,7 @@ export interface BandEnvelopes {
 }
 
 const STEM_KEYS: StemEnvelopeKey[] = ['vocal', 'drums', 'bass', 'other'];
+const DRUM_ONSET_KEYS: DrumOnsetKey[] = ['kick', 'snare', 'hat'];
 
 /** Number of frames that cover `numSamples` samples: ceil(numSamples * fps / sampleRate). */
 export function frameCount(numSamples: number, sampleRate: number, fps = FEATURES_FPS): number {
@@ -123,11 +126,22 @@ export async function loadMonoAudio(filePath: string): Promise<MonoAudio> {
   return { samples: toMono(decoded.samples, decoded.channels), sampleRate: decoded.sampleRate };
 }
 
+/** Adds the files sample by sample at the sample rate of the first file (other rates are resampled). Shorter files are padded with zeros. */
+export async function loadSummedMono(files: string[]): Promise<MonoAudio> {
+  const parts = await Promise.all(files.map((file) => loadMonoAudio(file)));
+  const sampleRate = parts[0]!.sampleRate;
+  const signals = parts.map((p) => (p.sampleRate === sampleRate ? p.samples : resample(p.samples, p.sampleRate, sampleRate)));
+  if (signals.length === 1) return { samples: signals[0]!, sampleRate };
+  const sum = new Float32Array(Math.max(...signals.map((s) => s.length)));
+  for (const s of signals) for (let i = 0; i < s.length; i++) sum[i] = sum[i]! + s[i]!;
+  return { samples: sum, sampleRate };
+}
+
 /**
  * Computes the features.json v1 document. `rms`, `low`, `mid`, `high` come from the mix. Each stem key with files gives one envelope.
- * Every envelope has frameCount(mix) values. `onsets` is empty: beatsync has no onset detector yet.
+ * Every envelope has frameCount(mix) values. Each onset key with files gives its onsets (an empty list for a silent stem).
  */
-export async function computeFeatures(mixPath: string, stems: FeatureStems = {}): Promise<FeaturesDocument> {
+export async function computeFeatures(mixPath: string, stems: FeatureStems = {}, onsetStems: OnsetStems = {}): Promise<FeaturesDocument> {
   const mix = await loadMonoAudio(mixPath);
   const frames = frameCount(mix.samples.length, mix.sampleRate);
   const bands = bandEnvelopes(mix, frames);
@@ -147,5 +161,12 @@ export async function computeFeatures(mixPath: string, stems: FeatureStems = {})
     }
     envelopes[key] = peakNormalize(sum);
   }
-  return { v: 1, fps: FEATURES_FPS, envelopes, onsets: {} };
+  const onsets: FeaturesDocument['onsets'] = {};
+  for (const key of DRUM_ONSET_KEYS) {
+    const files = onsetStems[key];
+    if (!files || files.length === 0) continue;
+    const audio = await loadSummedMono(files);
+    onsets[key] = detectOnsets(audio.samples, audio.sampleRate, ONSET_DEFAULTS[key]);
+  }
+  return { v: 1, fps: FEATURES_FPS, envelopes, onsets };
 }

@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { trackBeats } from './tracker.ts';
 import { computeFeatures } from './features.ts';
-import type { FeatureStems, StemEnvelopeKey } from './types.ts';
+import type { DrumOnsetKey, FeatureStems, OnsetStems, StemEnvelopeKey } from './types.ts';
 
 function printHelp(): void {
   console.log(`
@@ -14,7 +14,8 @@ beatsync - Fast, robust beat and downbeat tracking using Beat This! RoFormer ONN
 
 Usage:
   beatsync <audio-file> [options]
-  beatsync features <mix-file> [--vocal <file>] [--drums <file>] [--bass <file>] [--other <file>] (--out <file.json> | --json)
+  beatsync features <mix-file> [--vocal <file>] [--drums <file>] [--bass <file>] [--other <file>]
+                    [--kick <file>] [--snare <file>] [--hat <file>] (--out <file.json> | --json)
 
 Options:
   --bpm <n>             Target BPM prior (e.g. 120, 200). Helps regularize beat tracking.
@@ -28,7 +29,9 @@ features command:
   Writes the features.json v1 document: envelopes at 100 fps, each peak-normalized to 0..1.
   rms, low (20-250 Hz), mid (250-4000 Hz), high (4000 Hz and up) come from the mix.
   vocal, drums, bass, other come from the stem files (RMS). Give a stem option more than once to sum files.
-  A stem without files is not in the output. "onsets" is empty (no onset detector yet).
+  A stem without files is not in the output.
+  onsets.kick, onsets.snare, onsets.hat come from isolated drum stem files: [time s, strength 0..1] pairs.
+  Give an onset option more than once to add files sample by sample. An onset key without files is not in the output.
 
 Output JSON Contract:
   {
@@ -49,16 +52,20 @@ async function featuresMain(args: string[]): Promise<void> {
   let isJson = false;
   const stems: FeatureStems = {};
   const stemFlags: Record<string, StemEnvelopeKey> = { '--vocal': 'vocal', '--drums': 'drums', '--bass': 'bass', '--other': 'other' };
+  const onsetStems: OnsetStems = {};
+  const onsetFlags: Record<string, DrumOnsetKey> = { '--kick': 'kick', '--snare': 'snare', '--hat': 'hat' };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     const stemKey = stemFlags[arg];
-    if (stemKey) {
+    const onsetKey = onsetFlags[arg];
+    if (stemKey || onsetKey) {
       const val = args[++i];
       if (!val) {
         console.error(`Error: ${arg} requires a file path argument`);
         process.exit(2);
       }
-      (stems[stemKey] ??= []).push(path.resolve(val));
+      if (stemKey) (stems[stemKey] ??= []).push(path.resolve(val));
+      else (onsetStems[onsetKey!] ??= []).push(path.resolve(val));
     } else if (arg === '--out') {
       const val = args[++i];
       if (!val) {
@@ -88,7 +95,7 @@ async function featuresMain(args: string[]): Promise<void> {
 
   try {
     const t0 = Date.now();
-    const doc = await computeFeatures(path.resolve(mixPath), stems);
+    const doc = await computeFeatures(path.resolve(mixPath), stems, onsetStems);
     const text = JSON.stringify(doc);
     if (outPath) {
       const resolvedOut = path.resolve(outPath);
@@ -100,6 +107,8 @@ async function featuresMain(args: string[]): Promise<void> {
     } else {
       const keys = Object.keys(doc.envelopes);
       console.log(`Envelopes: ${keys.join(', ')} (${doc.envelopes.rms.length} frames at ${doc.fps} fps) in ${Date.now() - t0} ms`);
+      const onsetCounts = Object.entries(doc.onsets).map(([key, list]) => `${key} ${list.length}`);
+      if (onsetCounts.length > 0) console.log(`Onsets: ${onsetCounts.join(', ')}`);
       console.log(`Saved output to:  ${outPath}`);
     }
   } catch (err: unknown) {

@@ -111,7 +111,7 @@ describe('peakNormalize', () => {
 });
 
 describe('computeFeatures', () => {
-  test('writes every envelope with the mix length; a silent stem gives zeros; a stem without files is left out', async () => {
+  test('writes every envelope with the mix length; a silent stem gives zeros; a stem without files is left out; onsets of summed drum files', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beatsync-features-'));
     try {
       const seconds = 1.234;
@@ -119,13 +119,20 @@ describe('computeFeatures', () => {
       fs.writeFileSync(path.join(dir, 'mix.wav'), wavBytes(mix));
       fs.writeFileSync(path.join(dir, 'vocal.wav'), wavBytes(sineBurst(seconds, 220, 0.8, 0.9)));
       fs.writeFileSync(path.join(dir, 'drums.wav'), wavBytes(new Float32Array(mix.length)));
-      const doc = await computeFeatures(path.join(dir, 'mix.wav'), {
-        vocal: [path.join(dir, 'vocal.wav')],
-        drums: [path.join(dir, 'drums.wav')],
-      });
+      fs.writeFileSync(path.join(dir, 'kick1.wav'), wavBytes(sineBurst(seconds, 55, 0.2, 0.3, 0.8)));
+      fs.writeFileSync(path.join(dir, 'kick2.wav'), wavBytes(sineBurst(seconds, 55, 0.7, 0.8, 0.8)));
+      const doc = await computeFeatures(
+        path.join(dir, 'mix.wav'),
+        { vocal: [path.join(dir, 'vocal.wav')], drums: [path.join(dir, 'drums.wav')] },
+        { kick: [path.join(dir, 'kick1.wav'), path.join(dir, 'kick2.wav')], hat: [path.join(dir, 'drums.wav')] },
+      );
       expect(doc.v).toBe(1);
       expect(doc.fps).toBe(100);
-      expect(doc.onsets).toEqual({});
+      expect(Object.keys(doc.onsets).sort()).toEqual(['hat', 'kick']);
+      expect(doc.onsets.hat).toEqual([]);
+      expect(doc.onsets.kick!.length).toBe(2);
+      expect(Math.abs(doc.onsets.kick![0]![0] - 0.2)).toBeLessThanOrEqual(0.005);
+      expect(Math.abs(doc.onsets.kick![1]![0] - 0.7)).toBeLessThanOrEqual(0.005);
       expect(Object.keys(doc.envelopes).sort()).toEqual(['drums', 'high', 'low', 'mid', 'rms', 'vocal']);
       const n = Math.ceil(seconds * 100);
       for (const [key, env] of Object.entries(doc.envelopes)) {

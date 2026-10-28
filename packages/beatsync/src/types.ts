@@ -103,6 +103,11 @@ export type OnsetKey = 'kick' | 'snare' | 'hat' | 'vocal';
 /** Stem files per stem envelope. Each envelope is the sum of the RMS envelopes of its files. A key without files is not in the output. */
 export type FeatureStems = Partial<Record<StemEnvelopeKey, string[]>>;
 
+/** Onset keys that beatsync detects from isolated drum stems. */
+export type DrumOnsetKey = 'kick' | 'snare' | 'hat';
+/** Drum stem files per onset key. The files of one key are added sample by sample before detection. */
+export type OnsetStems = Partial<Record<DrumOnsetKey, string[]>>;
+
 /**
  * The features.json v1 contract: envelopes at `fps` frames per second, each peak-normalized to 0..1 (max 1, or all 0 for silence).
  * Envelope length is ceil(mix samples * fps / mix sample rate). `onsets` hold only the keys that a detector computed: [time s, strength 0..1].

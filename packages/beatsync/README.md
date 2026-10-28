@@ -90,16 +90,17 @@ const result = await tracker.trackFile('song.wav', 0.32);
 `beatsync features` writes envelopes for video tools. No model runs: it is plain signal processing.
 
 ```bash
-beatsync features song.wav --vocal vocal.wav [--drums drums.wav] [--bass bass.wav] [--other other.wav] --out features.json
+beatsync features song.wav --vocal vocal.wav [--drums drums.wav] [--bass bass.wav] [--other other.wav] \
+  [--kick kick.wav] [--snare snare.wav] [--hat hat.wav] --out features.json
 ```
 
 ```typescript
 import { computeFeatures } from 'beatsync';
-const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] });
+const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] }, { kick: ['kick.wav'], snare: ['snare.wav'] });
 ```
 
 ```json
-{ "v": 1, "fps": 100, "envelopes": { "rms": [], "low": [], "mid": [], "high": [], "vocal": [] }, "onsets": {} }
+{ "v": 1, "fps": 100, "envelopes": { "rms": [], "low": [], "mid": [], "high": [], "vocal": [] }, "onsets": { "kick": [[0.512, 1], [0.934, 0.87]] } }
 ```
 
 - **Frames:** 100 per second. Frame `f` covers the samples `[floor(f * sr / 100), floor((f + 1) * sr / 100))` of each file at its own sample rate `sr`. The length of every envelope is `ceil(mix samples * 100 / mix sample rate)`. The last frame can be partial. A frame after the end of a stem is 0.
@@ -107,7 +108,14 @@ const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] });
 - **`low`, `mid`, `high`:** band magnitude of the mix. The mix is resampled to 22050 Hz. A 1024-point Hann-window FFT is centred on each frame centre. Band magnitude is `sqrt(sum |X(k)|^2)` over the bins of the band: low 20-250 Hz, mid 250-4000 Hz, high 4000-11025 Hz (`BAND_EDGES_HZ`).
 - **`vocal`, `drums`, `bass`, `other`:** RMS of each stem file, as for `rms`. Several files of one stem key are added. A stem key without files is not in the output.
 - **Normalization:** each envelope is divided by its own maximum and rounded to 4 decimals. The maximum is 1. A silent input gives zeros.
-- **`onsets`:** empty. beatsync has no onset detector yet, so no key is written.
+- **`onsets`:** `kick`, `snare`, `hat` from isolated drum stems (`--kick`, `--snare`, `--hat`). Each is a list of `[time s, strength 0..1]` pairs, sorted by time, both rounded to 3 decimals. Several files of one key are added sample by sample. A key without files is not written. A silent stem gives an empty list. The method (`detectOnsets` in `src/onsets.ts`, settings in `ONSET_DEFAULTS`):
+  1. `hat` only: 2nd-order Butterworth high-pass at 3000 Hz.
+  2. Energy every 2 ms: the mean square of the last 10 ms (`hat`: 6 ms). Level in dB relative to the maximum energy of the stem, with a floor at -60 dB.
+  3. Rise: the level now minus the level one window earlier, when positive.
+  4. Peak: a local maximum of the rise, at least 6 dB above the median rise of the 0.5 s around it, with a level of at least -30 dB.
+  5. Time: the first frame after the lowest level before the peak where the level is 3 dB above that lowest level (the attack).
+  6. Minimum gap: 70 ms for `kick` and `snare`, 40 ms for `hat`. Inside the gap, only the onset with the larger rise stays.
+  7. Strength: the peak amplitude after the attack minus the amplitude before it, divided by the largest value of the stem.
 
 ## Model Details
 
