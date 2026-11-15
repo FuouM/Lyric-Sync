@@ -519,14 +519,24 @@
   color: var(--sys-warning, #b06000);
 }
 
-.daw-btn-warn {
+/* `.daw-btn.daw-btn-warn` outranks `.daw-app button { color }`; `:not(:disabled)` leaves the disabled look to `.daw-btn:disabled`. */
+.daw-btn.daw-btn-warn:not(:disabled) {
   background: #fff8e1;
   border-color: #f59e0b;
   color: #b45309;
 }
 
-.daw-btn-warn:hover:not(:disabled) {
+.daw-btn.daw-btn-warn:hover:not(:disabled) {
   background: #fef3c7;
+}
+
+:is(:root[data-theme="dark"], body.ds-dark) .daw-btn.daw-btn-warn:not(:disabled) {
+  background: #3a3220;
+  color: #ffd27a;
+}
+
+:is(:root[data-theme="dark"], body.ds-dark) .daw-btn.daw-btn-warn:hover:not(:disabled) {
+  background: #4a3f26;
 }
 
 .daw-btn-pinned {
