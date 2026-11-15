@@ -6,6 +6,7 @@
 
 import type { Language } from '../types.ts';
 import type { AutoSplitNote } from './parse.ts';
+import { scanLyricLines } from './scan.ts';
 
 /** An unmarked copy of a word that has markup elsewhere. */
 export interface RepeatTarget {
@@ -46,36 +47,28 @@ export function findRepeatSuggestions(text: string, language: Language, autoSpli
   const copies = new Map<string, RepeatTarget[]>();
   const order: string[] = [];
 
-  let lyricLine = -1;
-  let lineFrom = 0;
-  for (const raw of text.split('\n')) {
-    const trimmed = raw.trim();
-    const isLyric = trimmed !== '' && !trimmed.startsWith('#') && !/^\[.+\]$/.test(trimmed) && !/^#?\s*@pron\b/i.test(trimmed);
-    if (isLyric) {
-      lyricLine++;
-      for (const m of raw.matchAll(/(?:[^\s{]|\{[^}]*\})+/g)) {
-        const token = m[0];
-        if (token.includes('{')) continue;
-        const first = token.search(/[A-Za-z']/);
-        if (first === -1) continue;
-        let last = token.length - 1;
-        while (!/[A-Za-z']/.test(token[last]!)) last--;
-        const core = token.slice(first, last + 1);
-        if (!coreShape.test(core) || /[|+]{2}/.test(core)) continue;
-        const word = core.replace(/[|+]/g, '').toLowerCase();
-        if (!patterns.has(word)) {
-          patterns.set(word, new Set());
-          copies.set(word, []);
-          order.push(word);
-        }
-        if (separator.test(core)) patterns.get(word)!.add(core.toLowerCase());
-        else {
-          const from = lineFrom + m.index + first;
-          copies.get(word)!.push({ line: lyricLine, tokenFrom: lineFrom + m.index, from, to: from + core.length });
-        }
+  for (const l of scanLyricLines(text)) {
+    for (const tok of l.tokens) {
+      const token = tok.text;
+      if (token.includes('{')) continue;
+      const first = token.search(/[A-Za-z']/);
+      if (first === -1) continue;
+      let last = token.length - 1;
+      while (!/[A-Za-z']/.test(token[last]!)) last--;
+      const core = token.slice(first, last + 1);
+      if (!coreShape.test(core) || /[|+]{2}/.test(core)) continue;
+      const word = core.replace(/[|+]/g, '').toLowerCase();
+      if (!patterns.has(word)) {
+        patterns.set(word, new Set());
+        copies.set(word, []);
+        order.push(word);
+      }
+      if (separator.test(core)) patterns.get(word)!.add(core.toLowerCase());
+      else {
+        const from = tok.from + first;
+        copies.get(word)!.push({ line: l.index, tokenFrom: tok.from, from, to: from + core.length });
       }
     }
-    lineFrom += raw.length + 1;
   }
 
   const out: RepeatSuggestion[] = [];

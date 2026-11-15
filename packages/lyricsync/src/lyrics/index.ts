@@ -1,5 +1,7 @@
 export { parseLyricsText, parseLyricsJson, readLyricsFile, parseStoredDefinition, lintLyricsText, lyricsSectionOutline, pronunciationKey } from './parse.ts';
 export { stripPunctuation, normalizeBracedPhones } from './clean.ts';
+export { scanLyricsText, scanLyricLines, splitBracedToken } from './scan.ts';
+export type { LyricToken, ScannedLine } from './scan.ts';
 export type { ParsedLyrics, AutoSplitNote, LyricsIssue, Pronunciations, SectionOutline, SylJoins } from './parse.ts';
 export { resolveSyllables, syllabifyEnglish, syllabifyJapanese } from './syllabify.ts';
 export { dictionaryG2P, pronounceAs, EN_VOWEL_PHONES } from './dictionary.ts';

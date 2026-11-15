@@ -27,6 +27,7 @@ import {
 import { isRecord } from "../../../../src/guards.ts";
 import { stripPunctuation } from "../../../../src/lyrics/clean.ts";
 import { applyPattern, findRepeatSuggestions, type RepeatSuggestion, type RepeatTarget } from "../../../../src/lyrics/repeats.ts";
+import { scanLyricLines, scanLyricsText } from "../../../../src/lyrics/scan.ts";
 
 export interface LyricsIssue {
   line: number;
@@ -84,51 +85,24 @@ const setLyricsMeta = StateEffect.define<LyricsMeta>();
 
 function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  let lyricLine = -1;
+  const docText = state.doc.toString();
   const repeatAt = new Map<number, string>();
-  for (const r of findRepeatSuggestions(state.doc.toString(), meta.language, meta.autoSplit)) for (const t of r.targets) repeatAt.set(t.tokenFrom, r.word);
+  for (const r of findRepeatSuggestions(docText, meta.language, meta.autoSplit)) for (const t of r.targets) repeatAt.set(t.tokenFrom, r.word);
+  const lineClass = { pron: "daw-cm-pron-line", comment: "daw-cm-comment-line", section: "daw-cm-section-line" } as const;
 
-  for (let i = 1; i <= state.doc.lines; i++) {
-    const line = state.doc.line(i);
-    const text = line.text;
-    const trimmed = text.trim();
-
-    if (trimmed === "") continue;
-    if (/^#?\s*@pron\b/i.test(trimmed)) {
-      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-pron-line" }));
+  for (const l of scanLyricsText(docText)) {
+    if (l.kind === "blank") continue;
+    if (l.kind !== "lyric") {
+      builder.add(l.from, l.from, Decoration.line({ class: lineClass[l.kind] }));
       continue;
     }
+    const lineIssues = meta.issuesByLine.get(l.index);
 
-    if (trimmed.startsWith("#")) {
-      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-comment-line" }));
-      continue;
-    }
-
-    if (/^\[.+\]$/.test(trimmed)) {
-      builder.add(line.from, line.from, Decoration.line({ class: "daw-cm-section-line" }));
-      continue;
-    }
-
-    lyricLine++;
-    const lineIssues = meta.issuesByLine.get(lyricLine);
-
-    // Parse tokens on the line protecting {...}
-    let match: RegExpExecArray | null;
-    const tokenRe = /(?:[^\s{]|\{[^}]*\})+/g;
-    while ((match = tokenRe.exec(text)) !== null) {
-      const tok = match[0];
-      const tokStart = line.from + match.index;
-
-      let wordPart = tok;
-      let phonesPart: string | null = null;
-      let phonesStart = -1;
-
-      const braceMatch = /^([^{]+)(\{[^}]*\})$/.exec(tok);
-      if (braceMatch) {
-        wordPart = braceMatch[1]!;
-        phonesPart = braceMatch[2]!;
-        phonesStart = tokStart + wordPart.length;
-      }
+    for (const tok of l.tokens) {
+      const tokStart = tok.from;
+      const wordPart = tok.word;
+      const phonesPart = tok.phones === null ? null : `{${tok.phones}}`;
+      const phonesStart = tok.phonesFrom;
 
       const sepGlobal = meta.language === "ja" ? /[|+]/g : /\|/g;
       const seps = wordPart.match(sepGlobal) ?? [];
@@ -139,7 +113,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
       let wordClass = "";
       const isAutoSplitHovered =
         meta.hoveredAutoSplit !== null &&
-        lyricLine === meta.hoveredAutoSplit.line &&
+        l.index === meta.hoveredAutoSplit.line &&
         cleanWord.toLowerCase() === meta.hoveredAutoSplit.word.toLowerCase();
 
       if (isAutoSplitHovered) {
@@ -162,7 +136,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
         let cur = tokStart;
         for (let pi = 0; pi < wordParts.length; pi++) {
           const part = wordParts[pi]!;
-          const linkId = linked ? `syl_${line.from}_${match.index}_${pi}` : undefined;
+          const linkId = linked ? `syl_${tokStart}_${pi}` : undefined;
           if (part.length > 0) {
             const cls = [wordClass, linked ? "daw-cm-syl" : "", seps[pi - 1] === "+" || seps[pi] === "+" ? "daw-cm-joined" : ""].filter(Boolean).join(" ");
             builder.add(
@@ -189,7 +163,7 @@ function buildDecorations(state: EditorState, meta: LyricsMeta): DecorationSet {
 
           for (let ci = 0; ci < phoneChunks.length; ci++) {
             const chunk = phoneChunks[ci]!;
-            const linkId = `syl_${line.from}_${match.index}_${ci}`;
+            const linkId = `syl_${tokStart}_${ci}`;
             if (chunk.length > 0) {
               builder.add(
                 pCur,
@@ -682,20 +656,8 @@ export function LyricsStep(props: LyricsStepProps) {
     (editorContainer as unknown as { __cmView?: EditorView }).__cmView = view;
 
     if (props.initialLine !== undefined && props.initialLine !== null && view) {
-      let lyricLine = -1;
-      for (let i = 1; i <= view.state.doc.lines; i++) {
-        const line = view.state.doc.line(i);
-        const trimmed = line.text.trim();
-        if (trimmed === "" || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed)) continue;
-        lyricLine++;
-        if (lyricLine === props.initialLine) {
-          view.dispatch({
-            selection: { anchor: line.from },
-            scrollIntoView: true,
-          });
-          break;
-        }
-      }
+      const line = scanLyricLines(view.state.doc.toString())[props.initialLine];
+      if (line) view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
     }
   });
   onCleanup(() => {
@@ -730,36 +692,16 @@ export function LyricsStep(props: LyricsStepProps) {
 
   const applyAutoSplit = (a: { line: number; word: string; syllables: string[] }) => {
     if (!view) return;
-    const doc = view.state.doc;
-    let lyricLine = -1;
-    for (let i = 1; i <= doc.lines; i++) {
-      const line = doc.line(i);
-      const text = line.text;
-      const trimmed = text.trim();
-      if (!trimmed || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed) || /^#?\s*@pron\b/i.test(trimmed)) continue;
-      lyricLine++;
-      if (lyricLine === a.line) {
-        const re = /\b[A-Za-z]+(?:\{[^}]*\})?\b/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(text)) !== null) {
-          const rawTok = m[0];
-          const clean = rawTok.replace(/\{[^}]*\}/g, "");
-          if (clean.toLowerCase() === a.word.toLowerCase()) {
-            const wordFrom = line.from + m.index;
-            const wordTo = wordFrom + clean.length;
-            const replacement = a.syllables.join("|");
-            view.focus();
-            view.dispatch({
-              changes: { from: wordFrom, to: wordTo, insert: replacement },
-              selection: { anchor: wordFrom + replacement.length },
-              userEvent: "input.type",
-            });
-            setHoveredAutoSplit(null);
-            return;
-          }
-        }
-      }
-    }
+    const tok = scanLyricLines(view.state.doc.toString())[a.line]?.tokens.find((t) => t.word.toLowerCase() === a.word.toLowerCase());
+    if (!tok) return;
+    const replacement = a.syllables.join("|");
+    view.focus();
+    view.dispatch({
+      changes: { from: tok.from, to: tok.from + tok.word.length, insert: replacement },
+      selection: { anchor: tok.from + replacement.length },
+      userEvent: "input.type",
+    });
+    setHoveredAutoSplit(null);
   };
 
   /** Gives every unmarked copy of `word` the markup it has elsewhere (the suggestion is recomputed from the text as it is now). */

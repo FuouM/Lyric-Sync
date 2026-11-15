@@ -26,6 +26,7 @@ import {
   parseLyricsText,
   pronunciationKey,
   readLyricsFile,
+  scanLyricLines,
   Session,
   type AutoSplitNote,
   type Language,
@@ -84,17 +85,9 @@ export function checkLyrics(text: string, language: Language, pronunciations: Pr
     syllablesCount = parsed.definition.lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.syllables.length, 0), 0);
     autoSplit = parsed.autoSplit;
   } catch {
-    const rawLines = text.split(/\r?\n/);
-    for (const raw of rawLines) {
-      const trimmed = raw.trim();
-      if (!trimmed || trimmed.startsWith("#") || /^\[.+\]$/.test(trimmed)) continue;
+    for (const l of scanLyricLines(text)) {
       linesCount++;
-      const norm = trimmed.replace(/(\S+)\s+\{([^}]+)\}/g, "$1{$2}");
-      const words = norm.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
-      for (const w of words) {
-        const clean = w.replace(/\{[^}]*\}/g, "");
-        syllablesCount += clean.split(language === "ja" ? /[|+]/ : "|").length;
-      }
+      for (const tok of l.tokens) syllablesCount += tok.word.split(language === "ja" ? /[|+]/ : "|").length;
     }
   }
 

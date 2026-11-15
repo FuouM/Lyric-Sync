@@ -44,6 +44,7 @@ export {
   pronunciationKey,
   readLyricsFile,
   resolveSyllables,
+  scanLyricLines,
   syllabifyEnglish,
   syllabifyJapanese,
 } from './lyrics/index.ts';

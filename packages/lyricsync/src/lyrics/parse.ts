@@ -19,7 +19,8 @@ import { isRecord, isStringArray } from '../guards.ts';
 import type { Language, LyricLine, LyricsDefinition, LyricWord } from '../types.ts';
 import { dictionaryG2P, pronounceAs } from './dictionary.ts';
 import { resolveSyllables } from './syllabify.ts';
-import { normalizeBracedPhones, stripPunctuation } from './clean.ts';
+import { stripPunctuation } from './clean.ts';
+import { scanLyricsText, splitBracedToken } from './scan.ts';
 
 /** Hand-added pronunciations, keyed by pronunciationKey(word). */
 export type Pronunciations = Record<string, string[]>;
@@ -74,10 +75,10 @@ function tokenToRawWord(token: string, where: string, language?: Language): RawW
   let phones: string[] | undefined;
 
   // Direct phoneme syntax: word{p h o n e s} or syl|la|ble{ph1 | ph2}
-  const braceMatch = /^([^{]+)\{([^}]+)\}$/.exec(token);
-  if (braceMatch) {
-    wordToken = braceMatch[1]!;
-    const pronInput = braceMatch[2]!.trim();
+  const braced = splitBracedToken(token);
+  if (braced.phones !== null) {
+    wordToken = braced.word;
+    const pronInput = braced.phones.trim();
     if (pronInput.length > 0 && language) {
       if (pronInput.includes('|')) {
         const phoneChunks = pronInput.split('|').map((c) => c.trim());
@@ -121,68 +122,32 @@ export interface SectionOutline {
   lines: number;
 }
 
-function parseTextLines(text: string, language?: Language): { lines: RawLine[]; outline: SectionOutline[]; pronunciations: Pronunciations } {
+function parseTextLines(text: string, language?: Language): { lines: RawLine[]; pronunciations: Pronunciations } {
   const lines: RawLine[] = [];
-  const outline: SectionOutline[] = [];
   const pronunciations: Pronunciations = {};
 
-  text.split(/\r?\n/).forEach((rawLine, i) => {
-    const line = rawLine.trim();
-    if (line.length === 0) return;
-
-    // Direct pronunciation directive: @pron word = p h o n e s   or   # @pron word = sounds like
-    if (/^#?\s*@pron\b/i.test(line)) {
-      const eq = line.indexOf('=');
-      if (eq !== -1) {
-        const left = line.slice(0, eq).replace(/^#?\s*@pron\s+/i, '').trim();
-        const right = line.slice(eq + 1).trim();
-        if (left && !/\s/.test(left)) {
-          if (language) {
-            const key = pronunciationKey(left);
-            try {
-              pronunciations[key] = pronounceAs(right, language);
-            } catch (e: unknown) {
-              throw new Error(`line ${i + 1} (@pron ${left}): ${e instanceof Error ? e.message : String(e)}`);
-            }
-          }
-          return;
-        }
+  for (const l of scanLyricsText(text)) {
+    if (l.kind === 'pron' && language) {
+      try {
+        pronunciations[pronunciationKey(l.word)] = pronounceAs(l.value, language);
+      } catch (e: unknown) {
+        throw new Error(`line ${l.lineNo + 1} (@pron ${l.word}): ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-
-    if (line.startsWith('#')) return;
-
-    const header = /^\[(.+)\]$/.exec(line);
-    if (header) {
-      outline.push({ name: header[1]!.trim(), lines: 0 });
-      return;
-    }
-
-    // Normalize optional space between word and {phones}: "foom {f uw m}" -> "foom{f uw m}"
-    const normalizedLine = normalizeBracedPhones(line);
-    const tokens = normalizedLine.match(/(?:[^\s{]|\{[^}]*\})+/g) ?? [];
-    const words = tokens.map((tok) => tokenToRawWord(tok, `line ${i + 1}`, language));
-    const section = outline.at(-1);
-    if (section) section.lines++;
-    lines.push({ section: section?.name, words });
-  });
-  return { lines, outline, pronunciations };
+    if (l.kind !== 'lyric') continue;
+    const words = l.tokens.map((tok) => tokenToRawWord(tok.text, `line ${l.lineNo + 1}`, language));
+    lines.push({ section: l.section, words });
+  }
+  return { lines, pronunciations };
 }
 
 /** Every `[Section]` header of a lyrics text in order, empty (instrumental) ones included. */
 export function lyricsSectionOutline(text: string): SectionOutline[] {
   const outline: SectionOutline[] = [];
-  text.split(/\r?\n/).forEach((rawLine) => {
-    const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith("#") || /^#?\s*@pron\b/i.test(line)) return;
-    const header = /^\[(.+)\]$/.exec(line);
-    if (header) {
-      outline.push({ name: header[1]!.trim(), lines: 0 });
-      return;
-    }
-    const section = outline.at(-1);
-    if (section) section.lines++;
-  });
+  for (const l of scanLyricsText(text)) {
+    if (l.kind === 'section') outline.push({ name: l.name, lines: 0 });
+    else if (l.kind === 'lyric' && outline.length > 0) outline.at(-1)!.lines++;
+  }
   return outline;
 }
 

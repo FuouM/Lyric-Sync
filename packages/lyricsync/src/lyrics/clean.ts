@@ -41,27 +41,38 @@ export function stripPunctuation(str: string): string {
  * Guaranteed linear time O(N) with zero regular expressions.
  */
 export function normalizeBracedPhones(line: string): string {
+  return normalizeBracedPhonesMapped(line).text;
+}
+
+/** normalizeBracedPhones, plus `at[i]`: the index in `line` of the normalized text's character `i`. */
+export function normalizeBracedPhonesMapped(line: string): { text: string; at: number[] } {
   let result = '';
+  const at: number[] = [];
   let i = 0;
   const n = line.length;
+  const append = (from: number, to: number) => {
+    result += line.slice(from, to);
+    for (let k = from; k < to; k++) at.push(k);
+  };
   while (i < n) {
     if (line[i] === '{') {
       const close = line.indexOf('}', i);
       if (close === -1) {
-        result += line.slice(i);
+        append(i, n);
         break;
       }
       let endWs = result.length;
       while (endWs > 0 && /\s/.test(result[endWs - 1]!)) endWs--;
       if (endWs < result.length && endWs > 0 && result[endWs - 1] !== '{') {
-        result = result.slice(0, endWs) + line.slice(i, close + 1);
-      } else {
-        result += line.slice(i, close + 1);
+        result = result.slice(0, endWs);
+        at.length = endWs;
       }
+      append(i, close + 1);
       i = close + 1;
       continue;
     }
-    result += line[i++];
+    append(i, i + 1);
+    i++;
   }
-  return result;
+  return { text: result, at };
 }
