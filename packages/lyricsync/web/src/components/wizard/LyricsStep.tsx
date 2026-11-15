@@ -257,49 +257,25 @@ const repeatTooltip = hoverTooltip(
 
 const wrapCompartment = new Compartment();
 
+/** Layout only: colours, cursor, selection, gutters and the active line come from SoulWindow's `.daw-cm-host`. */
 const editorTheme = EditorView.theme({
   "&": {
-    height: "100%",
-    backgroundColor: "var(--sys-window-bg, #ffffff)",
-    color: "var(--sys-window-text, #000000)",
     fontSize: "13px",
-  },
-  ".cm-scroller": {
-    overflow: "auto",
-    lineHeight: "1.45",
   },
   ".cm-content": {
     padding: "8px 0",
-    caretColor: "var(--sys-window-text, #000000)",
   },
   ".cm-line": {
     padding: "0 10px",
-    lineHeight: "1.45",
-  },
-  "&.cm-focused .cm-cursor": {
-    borderLeftColor: "var(--sys-window-text, #000000)",
-  },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-    backgroundColor: "rgba(0, 120, 215, 0.25)",
   },
   ".cm-gutters": {
-    backgroundColor: "var(--sys-control-bg, #f3f3f3)",
-    color: "var(--sys-text-secondary, #666666)",
-    borderRight: "1px solid var(--sys-border-medium, #cccccc)",
     paddingRight: "2px",
   },
   ".cm-gutterElement": {
     padding: "0 8px 0 6px",
     fontSize: "11px",
-    lineHeight: "1.45",
-    userSelect: "none",
-  },
-  ".cm-activeLine": {
-    backgroundColor: "rgba(0, 120, 215, 0.05)",
   },
   ".cm-activeLineGutter": {
-    backgroundColor: "rgba(0, 120, 215, 0.12)",
-    color: "var(--sys-highlight-bg, #0078d7)",
     fontWeight: "700",
   },
   ".cm-placeholder": {
@@ -846,13 +822,13 @@ export function LyricsStep(props: LyricsStepProps) {
             >
               <i class="bi bi-text-wrap" /> Wrap
             </button>
-            <button class="win-button ds-btn-xs daw-btn-danger-ghost" title="Clear lyrics text" onClick={clearAll}>
+            <button class="win-button ds-btn-xs daw-btn-err daw-btn-ghost" title="Clear lyrics text" onClick={clearAll}>
               <i class="bi bi-trash3" />
             </button>
           </div>
         </header>
 
-        <div class="daw-cm-host" ref={editorContainer} />
+        <div class="daw-cm-host daw-cm-numbered" ref={editorContainer} />
       </div>
 
       <aside class="daw-wizard-check">

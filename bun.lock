@@ -49,7 +49,7 @@
         "bootstrap-icons": "^1.13.2",
         "codemirror": "^6.0.2",
         "solid-js": "^1.9.17",
-        "soulwindow": "github:FuouM/soulwindow#v0.4.1",
+        "soulwindow": "github:FuouM/soulwindow#v0.5.0",
       },
       "devDependencies": {
         "@types/bun": "1.4.3",
@@ -365,7 +365,7 @@
 
     "solid-refresh": ["solid-refresh@0.6.3", "", { "dependencies": { "@babel/generator": "^7.23.6", "@babel/helper-module-imports": "^7.22.15", "@babel/types": "^7.23.6" }, "peerDependencies": { "solid-js": "^1.3" } }, "sha512-F3aPsX6hVw9ttm5LYlth8Q15x6MlI/J3Dn+o3EQyRTtTxidepSTwAYdozt01/YA+7ObcciagGEyXIopGZzQtbA=="],
 
-    "soulwindow": ["soulwindow@github:FuouM/soulwindow#b72beae", { "peerDependencies": { "bootstrap-icons": "^1.11.0", "solid-js": "^1.9.0" }, "optionalPeers": ["bootstrap-icons", "solid-js"] }, "FuouM-soulwindow-b72beae", "sha512-9maCwYDtnGPwuGN+QeUw+xOCDRAjm8uuNGHd5iYld/1jmRaEH0SarjY+9Hzv3VG3bPMfLasF/L3Ri038tGFIzA=="],
+    "soulwindow": ["soulwindow@github:FuouM/soulwindow#51d5457", { "peerDependencies": { "bootstrap-icons": "^1.11.0", "solid-js": "^1.9.0" }, "optionalPeers": ["bootstrap-icons", "solid-js"] }, "FuouM-soulwindow-51d5457", "sha512-MssJ5AP6H6SFLlwA8OKk3x/r/b14x079Mua4JVlXbRcF9hwjR78MGDTzrNfsAzeT/0CXv6bym/TMgGFK8zWcsw=="],
 
     "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
 

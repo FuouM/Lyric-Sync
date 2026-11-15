@@ -331,7 +331,7 @@ export function Inspector(props: InspectorProps) {
                       <TimeField label="End" hotkey="]" value={x().pair[1]} onChange={(t) => props.onSetEdge("end", t)} onPlayhead={() => props.onEdgeToPlayhead("end")} />
                       <div class="daw-kv"><span>Duration</span><b>{((x().pair[1] - x().pair[0]) * 1000).toFixed(0)} ms</b></div>
                       <div class="daw-btn-row">
-                        <button class="win-button" classList={{ "daw-btn-pinned": x().pinned }} title="Pin / unpin this syllable (C)" onClick={() => props.onTogglePin()}>
+                        <button class="win-button" classList={{ "daw-btn-ok": x().pinned }} title="Pin / unpin this syllable (C)" onClick={() => props.onTogglePin()}>
                           <i class={`bi bi-${x().pinned ? "pin-fill" : "pin"}`} /> {x().pinned ? "Pinned" : "Pin"}
                         </button>
                         <button class="win-button" title="Play this syllable (Enter)" onClick={() => props.onPlaySyllable()}>
@@ -351,7 +351,7 @@ export function Inspector(props: InspectorProps) {
                         <button class="win-button" title="Pin first start and last end only" onClick={() => props.onPinLineEdges()}>
                           <i class="bi bi-arrows" /> Pin edges
                         </button>
-                        <button class="win-button" classList={{ "daw-btn-pinned": x().line.calibrated }} title="Pin / unpin every syllable (Shift+C)" onClick={() => props.onToggleLinePin()}>
+                        <button class="win-button" classList={{ "daw-btn-ok": x().line.calibrated }} title="Pin / unpin every syllable (Shift+C)" onClick={() => props.onToggleLinePin()}>
                           <i class="bi bi-lock" /> {x().line.calibrated ? "Unfreeze" : "Freeze"}
                         </button>
                       </div>

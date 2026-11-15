@@ -60,27 +60,6 @@
     color: var(--sw-warn);
   }
 
-  /* `:not(:disabled)` leaves the disabled look to `.win-button:disabled`. */
-  .win-button.daw-btn-warn:not(:disabled) {
-    background: var(--sw-warn-bg);
-    border-color: var(--sw-warn);
-    color: var(--sw-warn);
-  }
-
-  .win-button.daw-btn-warn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--sw-warn) 22%, var(--sw-warn-bg));
-  }
-
-  .win-button.daw-btn-pinned:not(:disabled) {
-    background: var(--sw-ok-bg);
-    border-color: var(--sw-ok);
-    color: var(--sw-ok);
-  }
-
-  .win-button.daw-btn-pinned:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--sw-ok) 22%, var(--sw-ok-bg));
-  }
-
   .win-button.daw-btn-lg {
     height: 30px;
     padding: 0 14px;
@@ -96,18 +75,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 8px;
-  }
-
-  .win-button.daw-btn-danger-ghost {
-    background: transparent;
-    color: #ff7878;
-    border: 1px solid transparent;
-  }
-
-  .win-button.daw-btn-danger-ghost:hover {
-    background: rgba(255, 93, 93, 0.15);
-    border-color: rgba(255, 93, 93, 0.3);
-    color: #ff9898;
   }
 
   /* ── Docks, panels, tabs (differences from pro) ───────────────────────── */
@@ -729,24 +696,6 @@
     color: var(--k-gray);
   }
 
-  .daw-beat-dot {
-    width: 10px;
-    height: 10px;
-    box-sizing: border-box;
-    background: var(--k-trough);
-    border: 1px solid var(--k-dark);
-  }
-
-  .daw-beat-dot--on {
-    background: var(--k-hl);
-    border-color: var(--k-hl);
-  }
-
-  .daw-beat-dot--down.daw-beat-dot--on {
-    background: var(--k-active);
-    border-color: var(--k-active);
-  }
-
   .daw-welcome {
     display: flex;
     flex-direction: column;
@@ -1079,9 +1028,9 @@
     text-overflow: ellipsis;
   }
 
-  .daw-gain {
+  /* The track gain slider (`.daw-range` from pro); pro leaves the width to the app. */
+  .daw-track-headers .daw-range {
     width: 40px;
-    height: 14px;
     margin: 0 2px;
   }
 
@@ -1471,46 +1420,6 @@
     font-family: var(--sw-font-mono);
   }
 
-  .daw-cm-host {
-    flex: 1;
-    min-height: 0;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .daw-cm-host .cm-editor {
-    height: 100%;
-    overflow: hidden;
-    font-family: var(--sw-font-mono) !important;
-  }
-
-  .daw-cm-host .cm-editor *,
-  .daw-cm-host .cm-content,
-  .daw-cm-host .cm-line,
-  .daw-cm-host .cm-gutters,
-  .daw-cm-host .cm-gutterElement {
-    font-family: var(--sw-font-mono) !important;
-  }
-
-  .daw-cm-host .cm-scroller,
-  .daw-cm-host .cm-content,
-  .daw-cm-host .cm-line,
-  .daw-cm-host .cm-gutterElement {
-    line-height: 1.45 !important;
-  }
-
-  .daw-cm-host .cm-line {
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-  }
-
-  .daw-cm-host .cm-scroller {
-    overflow: auto !important;
-    height: 100%;
-    max-height: 100%;
-    scrollbar-gutter: stable;
-  }
-
   /* Syntax decorations */
   .daw-cm-section-line {
     background: rgba(155, 120, 255, 0.12);
@@ -1641,95 +1550,6 @@
     display: flex;
     gap: 4px;
     padding: 3px;
-  }
-
-  /* CodeMirror autocomplete tooltip */
-  .cm-tooltip.cm-tooltip-autocomplete {
-    background: var(--sys-window-bg) !important;
-    border: 1px solid var(--sys-border-dark) !important;
-    border-radius: 0 !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
-    font-family: var(--sw-font-mono) !important;
-    font-size: 12px;
-    max-height: 220px;
-    overflow-y: auto;
-    z-index: 500;
-  }
-
-  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .cm-tooltip.cm-tooltip-autocomplete {
-    background: #181b22 !important;
-    border-color: #3a404b !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65) !important;
-  }
-
-  .cm-tooltip-autocomplete > ul {
-    counter-reset: cm-suggest-counter;
-    padding: 4px 0;
-    margin: 0;
-    list-style: none;
-  }
-
-  .cm-tooltip-autocomplete > ul > li {
-    counter-increment: cm-suggest-counter;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start !important;
-    gap: 8px;
-    padding: 4px 10px;
-    color: var(--sys-window-text);
-    font-family: var(--sw-font-mono) !important;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .cm-tooltip-autocomplete > ul > li::before {
-    content: counter(cm-suggest-counter);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 16px;
-    padding: 0 4px;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--sys-text-secondary);
-    background: var(--sys-control-bg);
-    border-radius: 2px;
-    flex: none;
-    user-select: none;
-  }
-
-  .cm-tooltip-autocomplete > ul > li[aria-selected] {
-    background: #2563eb !important;
-    color: #ffffff !important;
-  }
-
-  .cm-tooltip-autocomplete > ul > li[aria-selected]::before {
-    color: #ffffff !important;
-    background: rgba(255, 255, 255, 0.28) !important;
-  }
-
-  .cm-completionLabel {
-    font-weight: 600;
-    color: inherit !important;
-    text-align: left;
-  }
-
-  /* Detail (e.g. "section", "dictionary", "split word") - right-aligned with high contrast */
-  .cm-completionDetail {
-    font-style: normal;
-    color: #94a3b8 !important;
-    font-size: 11px;
-    margin-left: auto !important;
-    padding-left: 14px;
-    text-align: right !important;
-    opacity: 1 !important;
-    flex: none;
-  }
-
-  .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-    color: #e0f2fe !important; /* Bright crisp white-blue on the blue background */
-    font-weight: 500;
   }
 
   .daw-wizard-check {

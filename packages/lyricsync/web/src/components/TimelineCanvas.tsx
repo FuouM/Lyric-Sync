@@ -1400,7 +1400,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const MixControls = (p: { mix: TrackMix; onMix: (patch: Partial<TrackMix>) => void; disabled?: boolean }) => (
     <>
       <input
-        class="daw-gain"
+        class="daw-range"
         type="range"
         min="0"
         max="1.5"
