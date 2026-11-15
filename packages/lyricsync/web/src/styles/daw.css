@@ -1,2849 +1,2112 @@
 /* packages/lyricsync/web/src/styles/daw.css
- * Dark DAW / NLE skin for the editor shell: menu bar, transport, docks, monitor, inspector, timeline, new-song wizard. */
-
-.daw-app {
-  --daw-bg: var(--sys-control-bg, #ececec);
-  --daw-panel: var(--sys-control-bg, #ececec);
-  --daw-panel-2: var(--sys-window-bg, #ffffff);
-  --daw-raised: var(--sys-button-bg, #f0f0f0);
-  --daw-raised-hover: var(--sys-button-hover, #e5f1fb);
-  --daw-border: var(--sys-border-dark, #b0b0b0);
-  --daw-line: var(--sys-border-medium, #cccccc);
-  --daw-text: var(--sys-control-text, #000000);
-  --daw-muted: var(--sys-text-secondary, #444444);
-  --daw-accent: var(--sys-primary, #0078d4);
-  --daw-accent-2: var(--sys-primary-hover, #106ebe);
-  --daw-ok: #107c41;
-  --daw-warn: #b06000;
-  --daw-err: #d13438;
-  --daw-sel: var(--sys-highlight-bg, #0078d7);
-  --daw-mono: "Cascadia Mono", Consolas, "SFMono-Regular", monospace;
-
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-  background: var(--daw-bg);
-  color: var(--daw-text);
-  font: 12px/1.35 "Segoe UI", -apple-system, BlinkMacSystemFont, Tahoma, Arial, sans-serif;
-  user-select: none;
-}
-
-.daw-app button {
-  font: inherit;
-  color: var(--daw-text);
-}
-
-.daw-app input {
-  user-select: text;
-}
-
-/* ── Menu bar ─────────────────────────────────────────────────────────── */
-
-.daw-menubar {
-  display: flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 4px;
-  background: var(--sys-menu-bg, #f9f9f9);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  flex: none;
-}
-
-.daw-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 2px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-brand-icon {
-  width: 15px;
-  height: 15px;
-  display: block;
-  flex: none;
-}
-
-.daw-menu {
-  position: relative;
-}
-
-.daw-menu-btn {
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--sys-control-text, #000000);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.daw-menu-btn:hover,
-.daw-menu-btn--open {
-  background: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-menu-pop {
-  position: absolute;
-  top: 23px;
-  left: 0;
-  z-index: 1000;
-  min-width: 240px;
-  padding: 2px;
-  background: var(--sys-menu-bg, #f9f9f9);
-  border: 1px solid var(--sys-menu-border, #999999);
-  border-radius: 0;
-  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-.daw-menu-item {
-  display: grid;
-  grid-template-columns: 20px 1fr auto;
-  align-items: center;
-  width: 100%;
-  height: 22px;
-  padding: 0 8px 0 4px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--sys-control-text, #000000);
-  text-align: left;
-  cursor: pointer;
-}
-
-.daw-menu-item:hover:not(:disabled) {
-  background: var(--sys-highlight-bg, #0078d7);
-  color: var(--sys-highlight-text, #ffffff);
-}
-
-.daw-menu-item:disabled {
-  color: var(--sys-button-disabled-text, #838383);
-  cursor: not-allowed;
-}
-
-.daw-menu-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-
-.daw-menu-shortcut {
-  padding-left: 20px;
-  color: var(--sys-text-secondary, #666666);
-  font-size: 11px;
-}
-
-.daw-menu-item:hover:not(:disabled) .daw-menu-shortcut {
-  color: var(--sys-highlight-text, #ffffff);
-}
-
-.daw-menu-sep {
-  height: 1px;
-  margin: 3px 2px;
-  background: var(--sys-border-medium, #d0d0d0);
-}
-
-.daw-menubar-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-right: 6px;
-}
-
-.daw-doc-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-doc-path {
-  color: var(--sys-text-secondary, #555555);
-  font-weight: 400;
-}
-
-.daw-dirty-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--daw-warn);
-}
-
-/* ── Transport ────────────────────────────────────────────────────────── */
-
-.daw-transport {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  padding: 0 8px;
-  background: var(--sys-control-bg, #ececec);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  flex: none;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.daw-transport-group {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-}
-
-.daw-transport-spacer {
-  flex: 1;
-}
-
-.daw-tbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 26px;
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  font-size: 13px;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.daw-tbtn:hover {
-  background: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-}
-
-.daw-tbtn:active {
-  background: var(--sys-button-active, #cce4f7);
-  border-color: var(--sys-primary-border, #005499);
-}
-
-.daw-tbtn-play {
-  width: 38px;
-  font-size: 15px;
-  color: #107c41;
-}
-
-.daw-tbtn-play.daw-on {
-  background: #e6f4ea;
-  border-color: #107c41;
-  color: #107c41;
-}
-
-/* Transport display: a VCR-style fluorescent panel behind a smoked glass window, with ghost segments and annunciators. */
-.daw-lcd {
-  --lcd-on: #7dfcf0;
-  --lcd-glow: rgba(90, 250, 235, 0.55);
-  --lcd-ghost: rgba(125, 252, 240, 0.09);
-  --lcd-dim: rgba(125, 252, 240, 0.16);
-  --lcd-amber: #ffb648;
-
-  height: 44px;
-  flex: 0 0 auto;
-  min-width: fit-content;
-  box-sizing: border-box;
-  padding: 2px;
-  border-radius: 2px;
-  border: 1px solid #707070;
-  background: #000000;
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.8),
-    0 1px 0 var(--sys-border-light, #ffffff);
-}
-
-.daw-lcd-glass {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
-  padding: 0 10px 0 8px;
-  overflow: hidden;
-  border-radius: 2px;
-  background:
-    radial-gradient(ellipse at 50% 120%, rgba(40, 120, 130, 0.18), transparent 70%),
-    linear-gradient(#030607, #071012);
-  box-shadow:
-    inset 0 0 0 1px #000,
-    inset 0 2px 6px rgba(0, 0, 0, 0.9);
-  box-sizing: border-box;
-}
-
-/* Phosphor grid and the glass reflection, over the segments. */
-.daw-lcd-glass::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(168deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 38%, transparent 40%),
-    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.28) 0 1px, transparent 1px 3px);
-}
-
-.daw-lcd-ann {
-  font-size: 9px;
-  color: var(--lcd-ghost);
-}
-
-.daw-lcd-ann--on {
-  color: var(--lcd-amber);
-  text-shadow: 0 0 4px rgba(255, 170, 60, 0.7);
-}
-
-/* `font-size: inherit` beats reset.css's `* { font-size: 12px }`, so the em-based cell sizes follow the readout's size. */
-.daw-seg7-row {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 0.08em;
-  height: 1em;
-  font-size: inherit;
-  transform: skewX(-7deg);
-  color: var(--lcd-on);
-}
-
-.daw-seg7 {
-  height: 100%;
-  width: 0.6em;
-  font-size: inherit;
-  overflow: visible;
-  fill: var(--lcd-ghost);
-}
-
-.daw-seg7-narrow {
-  width: 0.2em;
-}
-
-.daw-seg7 .daw-seg7-on {
-  fill: currentColor;
-  filter: drop-shadow(0 0 1.5px var(--lcd-glow));
-}
-
-.daw-seg7-text {
-  font: 700 0.7em/1 var(--daw-mono);
-}
-
-.daw-lcd-main {
-  font-size: 24px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.daw-lcd-sub {
-  display: grid;
-  grid-template-columns: auto auto;
-  column-gap: 6px;
-  row-gap: 1.5px;
-  align-items: center;
-  font-size: 10px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.daw-lcd-label {
-  font: 700 7.5px/1 var(--daw-mono);
-  letter-spacing: 0.08em;
-  color: var(--lcd-dim);
-  line-height: 1;
-}
-
-.daw-lcd-bpm {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: inherit;
-}
-
-.daw-lcd-slash {
-  width: 1px;
-  height: 0.9em;
-  transform: skewX(-20deg);
-  background: var(--lcd-dim);
-}
-
-/* Whole-song tempo in amber, so it reads apart from the live tempo beside it. */
-.daw-lcd-clean {
-  --lcd-on: var(--lcd-amber);
-  --lcd-glow: rgba(255, 170, 60, 0.55);
-  --lcd-ghost: rgba(255, 182, 72, 0.09);
-}
-
-.daw-bar1 {
-  gap: 6px;
-  padding: 0 6px;
-  height: 26px;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-radius: 0;
-  background: var(--sys-window-bg, #ffffff);
-}
-
-.daw-bar1-label {
-  color: var(--sys-primary, #0078d4);
-  font: 700 10px var(--daw-mono);
-  letter-spacing: 0.05em;
-}
-
-.daw-bar1-time {
-  color: var(--sys-control-text, #000000);
-  font: 11px var(--daw-mono);
-}
-
-.daw-seg {
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  overflow: hidden;
-  gap: 0;
-}
-
-.daw-seg-btn,
-.daw-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 0;
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  cursor: pointer;
-  font-size: 11.5px;
-  user-select: none;
-  line-height: normal;
-}
-
-.daw-seg-btn + .daw-seg-btn {
-  border-left: 1px solid var(--sys-button-border, #707070);
-}
-
-.daw-toggle {
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-seg-btn:hover:not(:disabled),
-.daw-toggle:hover {
-  background: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-}
-
-.daw-seg-btn:disabled {
-  background: var(--sys-button-disabled-bg, #e1e1e1);
-  color: var(--sys-button-disabled-text, #838383);
-  cursor: not-allowed;
-}
-
-.daw-seg-btn.daw-on,
-.daw-toggle.daw-on {
-  background: var(--sys-highlight-bg, #0078d7) !important;
-  color: var(--sys-highlight-text, #ffffff) !important;
-  border-color: var(--sys-primary-border, #005499) !important;
-  font-weight: 600;
-}
-
-/* ── Generic buttons ──────────────────────────────────────────────────── */
-
-.daw-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-  user-select: none;
-  line-height: normal;
-  box-sizing: border-box;
-}
-
-.daw-btn:hover:not(:disabled) {
-  background: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-}
-
-.daw-btn:active:not(:disabled) {
-  background: var(--sys-button-active, #cce4f7);
-  border-color: var(--sys-primary-border, #005499);
-}
-
-.daw-btn:disabled {
-  background: var(--sys-button-disabled-bg, #e1e1e1);
-  color: var(--sys-button-disabled-text, #838383);
-  border-color: var(--sys-button-disabled-border, #adadad);
-  cursor: not-allowed;
-}
-
-.daw-btn-accent,
-.daw-app .daw-btn-accent,
-.daw-welcome-actions .daw-btn-accent {
-  background: var(--sys-highlight-bg, #0078d7) !important;
-  border-color: var(--sys-primary-border, #005499) !important;
-  color: var(--sys-highlight-text, #ffffff) !important;
-  font-weight: 600;
-}
-
-.daw-btn-accent:hover:not(:disabled),
-.daw-app .daw-btn-accent:hover:not(:disabled),
-.daw-welcome-actions .daw-btn-accent:hover:not(:disabled) {
-  background: var(--sys-primary-hover, #106ebe) !important;
-  color: var(--sys-highlight-text, #ffffff) !important;
-}
-
-.daw-btn-accent .bi,
-.daw-app .daw-btn-accent .bi,
-.daw-welcome-actions .daw-btn-accent .bi {
-  color: var(--sys-highlight-text, #ffffff) !important;
-}
-
-.daw-btn-dirty {
-  border-color: var(--sys-warning, #b06000);
-  color: var(--sys-warning, #b06000);
-}
-
-/* `.daw-btn.daw-btn-warn` outranks `.daw-app button { color }`; `:not(:disabled)` leaves the disabled look to `.daw-btn:disabled`. */
-.daw-btn.daw-btn-warn:not(:disabled) {
-  background: #fff8e1;
-  border-color: #f59e0b;
-  color: #b45309;
-}
-
-.daw-btn.daw-btn-warn:hover:not(:disabled) {
-  background: #fef3c7;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-btn.daw-btn-warn:not(:disabled) {
-  background: #3a3220;
-  color: #ffd27a;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-btn.daw-btn-warn:hover:not(:disabled) {
-  background: #4a3f26;
-}
-
-.daw-btn-pinned {
-  background: #e6f4ea;
-  border-color: #107c41;
-  color: #107c41;
-}
-
-.daw-btn-sm {
-  height: 20px;
-  padding: 0 6px;
-  font-size: 11px;
-}
-
-.daw-btn-lg {
-  height: 30px;
-  padding: 0 14px;
-  font-size: 12px;
-}
-
-.daw-btn-block {
-  width: 100%;
-  margin-top: 6px;
-}
-
-.daw-btn-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.daw-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.daw-icon-btn:hover {
-  background: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-}
-
-.daw-icon-btn.daw-on {
-  background: var(--sys-highlight-bg, #0078d7);
-  border-color: var(--sys-primary-border, #005499);
-  color: var(--sys-highlight-text, #ffffff);
-}
-
-/* ── Upper area: docks + monitor ──────────────────────────────────────── */
-
-.daw-upper {
-  display: flex;
-  flex: 1 1 0;
-  min-height: 0;
-  gap: 1px;
-  background: var(--sys-border-dark, #b0b0b0);
-}
-
-.daw-dock {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-dock-left {
-  width: 300px;
-  flex: none;
-}
-
-.daw-dock-right {
-  width: 300px;
-  flex: none;
-}
-
-.daw-center {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0;
-  min-width: 0;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  flex: none;
-  background: var(--sys-control-bg, #ececec);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-tabs {
-  display: flex;
-  height: 26px;
-  flex: none;
-  background: var(--sys-control-bg, #ececec);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  padding-left: 4px;
-  gap: 2px;
-}
-
-.daw-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-bottom: none;
-  border-radius: 2px 2px 0 0;
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  position: relative;
-  top: 1px;
-  user-select: none;
-}
-
-.daw-tab:hover {
-  background: var(--sys-button-hover, #e5f1fb);
-}
-
-.daw-tab--active {
-  background: var(--sys-window-bg, #ffffff) !important;
-  color: var(--sys-control-text, #000000) !important;
-  border-bottom: 1px solid var(--sys-window-bg, #ffffff);
-  font-weight: 600;
-  z-index: 1;
-}
-
-.daw-tab-count {
-  padding: 0 4px;
-  border-radius: 2px;
-  background: var(--sys-border-medium, #cccccc);
-  font-size: 9.5px;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-tab--active .daw-tab-count {
-  background: var(--sys-highlight-bg, #0078d7);
-  color: var(--sys-highlight-text, #ffffff);
-}
-
-.daw-panel-body {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px;
-  background: var(--sys-window-bg, #ffffff);
-}
-
-.daw-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
-  padding: 2px 6px;
-  border-radius: 0;
-  cursor: pointer;
-  color: var(--sys-window-text, #000000);
-  user-select: none;
-}
-
-.daw-row:hover {
-  background: var(--sys-button-hover, #e5f1fb);
-}
-
-.daw-row--selected {
-  background: var(--sys-highlight-bg, #0078d7) !important;
-  color: var(--sys-highlight-text, #ffffff) !important;
-}
-
-.daw-row--selected * {
-  color: var(--sys-highlight-text, #ffffff) !important;
-}
-
-.daw-row--selected .daw-line-num {
-  background: rgba(255, 255, 255, 0.25) !important;
-  border-color: rgba(255, 255, 255, 0.5) !important;
-  color: #ffffff !important;
-}
-
-.daw-row--playing .daw-line-num {
-  background: #107c41;
-  border-color: #107c41;
-  color: #ffffff;
-}
-
-.daw-row-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.daw-lines-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px;
-  background: var(--sys-control-bg, #ececec);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  gap: 6px;
-  flex: none;
-}
-
-.daw-lines-count {
-  margin-right: auto;
-  font-size: 11px;
-  color: var(--sys-text-secondary, #555555);
-  font-family: var(--daw-mono);
-}
-
-/* Same height as the toolbar's .daw-btn-sm. */
-.daw-lines-toolbar .daw-toggle {
-  height: 20px;
-  padding: 0 6px;
-  font-size: 11px;
-}
-
-.daw-backup-list {
-  max-height: 320px;
-  overflow-y: auto;
-  border: 1px solid var(--sys-border-medium, #cccccc);
-}
-
-.daw-line-num {
-  min-width: 24px;
-  padding: 1px 4px;
-  border-radius: 0;
-  background: var(--sys-control-bg, #ececec);
-  color: var(--sys-control-text, #000000);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  font-family: var(--daw-mono);
-  font-size: 10px;
-  text-align: center;
-}
-
-.daw-line-tc {
-  color: var(--sys-text-secondary, #555555);
-  font-family: var(--daw-mono);
-  font-size: 10px;
-}
-
-.daw-pin-badge {
-  min-width: 30px;
-  font-family: var(--daw-mono);
-  font-size: 10px;
-  text-align: right;
-}
-
-.daw-pin-badge--full {
-  color: var(--daw-ok);
-}
-
-.daw-pin-badge--part {
-  color: var(--daw-warn);
-}
-
-.daw-review-item {
-  padding: 2px 0 6px;
-  border-bottom: 1px solid var(--daw-line);
-}
-
-.daw-err {
-  color: var(--daw-warn);
-  font-family: var(--daw-mono);
-  font-size: 11px;
-}
-
-.daw-err--high {
-  color: var(--daw-err);
-}
-
-.daw-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 2px 6px 0 38px;
-}
-
-.daw-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border: 1px solid #3a404b;
-  border-radius: 10px;
-  background: #23272f;
-  color: var(--daw-text);
-  font-family: var(--daw-mono);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.daw-chip-clickable {
-  cursor: pointer;
-  user-select: none;
-  transition: all 80ms ease;
-}
-
-.daw-chip-clickable:hover {
-  background: #2563eb !important;
-  border-color: #3b82f6 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45);
-}
-
-.daw-chip-clickable:active {
-  transform: translateY(0);
-}
-
-.daw-chip span {
-  color: var(--daw-muted);
-  font-family: var(--daw-mono);
-  font-size: 10px;
-}
-
-.daw-chip:hover {
-  border-color: var(--daw-accent);
-}
-
-.daw-section-row {
-  cursor: default;
-}
-
-.daw-section-item {
-  padding: 2px 0 6px;
-  border-bottom: 1px solid var(--daw-line);
-}
-
-.daw-section-times {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding-left: 24px;
-}
-
-.daw-section-swatch {
-  width: 10px;
-  height: 18px;
-  border-radius: 2px;
-  flex: none;
-}
-
-.daw-text-input,
-.daw-num {
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid var(--sys-button-border, #7a7a7a);
-  border-radius: 0;
-  background: var(--sys-window-bg, #ffffff);
-  color: var(--sys-window-text, #000000);
-  font: inherit;
-  font-size: 12px;
-  box-sizing: border-box;
-}
-
-.daw-text-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.daw-text-input:focus,
-.daw-num:focus {
-  border-color: var(--sys-border-focus, #0078d7);
-  outline: 1px solid var(--sys-border-focus, #0078d7);
-}
-
-.daw-num {
-  width: 72px;
-  font-family: var(--daw-mono);
-  text-align: right;
-}
-
-.daw-split-input {
-  flex: 1;
-  width: auto;
-  text-align: left;
-}
-
-.daw-input-error {
-  border-color: #b3403a;
-}
-
-.daw-field-error,
-.daw-field-note {
-  margin: 0 0 6px 50px;
-  line-height: 1.4;
-}
-
-.daw-field-error {
-  color: #ff8a80;
-}
-
-.daw-field-note {
-  color: #ffd27a;
-}
-
-.daw-empty-note {
-  padding: 12px;
-  color: var(--daw-muted);
-  line-height: 1.5;
-}
-
-/* ── Program monitor ──────────────────────────────────────────────────── */
-/* A WinForms karaoke stage: a sunken 3D panel, a GroupBox with an etched border, a white TextBox-like well for the lyrics, the current
- * syllable shown selected, classic ProgressBar fills and StatusStrip panels. Flat and instant: no blur, glow, gradient or transition, and
- * the fill of the syllable being sung is a transform, so a frame repaints only what moved. */
-
-.daw-monitor {
-  --k-face: #f0f0f0;
-  --k-well: #ffffff;
-  --k-dark: #a0a0a0;
-  --k-darker: #696969;
-  --k-light: #ffffff;
-  --k-text: #000000;
-  --k-gray: #6d6d6d;
-  --k-hl: #0078d7;
-  --k-hl-text: #ffffff;
-  --k-sung: #0078d7;
-  --k-pinned: #06b025;
-  --k-active: #ffb900;
-  --k-trough: #e6e6e6;
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-  background: var(--sys-control-bg, #ececec);
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-monitor {
-  --k-face: #2b2b2b;
-  --k-well: #1c1c1c;
-  --k-dark: #151515;
-  --k-darker: #000000;
-  --k-light: #4d4d4d;
-  --k-text: #ffffff;
-  --k-gray: #9d9d9d;
-  --k-sung: #4cc2ff;
-  --k-trough: #383838;
-}
-
-.daw-monitor-stage {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  max-width: calc((100vh) * 1.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--k-face);
-  border: 2px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-  box-shadow: inset 1px 1px 0 var(--k-darker);
-  overflow: hidden;
-  contain: layout paint;
-  container-type: size;
-  padding: 30px 0;
-}
-
-.daw-monitor-overlay-tl,
-.daw-monitor-overlay-tr {
-  position: absolute;
-  top: 8px;
-  padding: 1px 8px;
-  background: var(--k-well);
-  border: 1px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-  font-family: var(--daw-mono);
-  font-size: 12px;
-  color: var(--k-text);
-  contain: layout paint style;
-}
-
-.daw-monitor-overlay-tl {
-  left: 10px;
-}
-
-.daw-monitor-overlay-tr {
-  right: 10px;
-  font-family: inherit;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.daw-monitor-overlay-tr:empty {
-  display: none;
-}
-
-/* The GroupBox: etched border (a dark and a light line), caption on the border. */
-.kara-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(92%, 980px);
-  padding: 16px 14px 10px;
-  border: 1px solid var(--k-dark);
-  box-shadow: 1px 1px 0 var(--k-light), inset 1px 1px 0 var(--k-light);
-  color: var(--k-text);
-}
-
-.kara-title {
-  position: absolute;
-  top: -0.7em;
-  left: 10px;
-  padding: 0 4px;
-  background: var(--k-face);
-  color: var(--k-text);
-}
-
-.kara-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  min-height: 1.4em;
-  font-family: var(--daw-mono);
-  color: var(--k-gray);
-  gap: 8px;
-}
-
-.kara-singer-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border: 1px solid var(--k-dark);
-  border-radius: 2px;
-  font-size: 10px;
-  font-weight: 600;
-  background: var(--k-trough);
-  color: var(--k-text);
-  user-select: none;
-  font-family: var(--daw-mono);
-  flex-shrink: 0;
-}
-
-.kara-singer-badge--main {
-  background: var(--k-hl);
-  color: var(--k-hl-text);
-  border-color: var(--k-hl);
-  font-weight: 700;
-}
-
-.kara-singer-badge--sub {
-  font-size: 10px;
-  min-width: 58px;
-  justify-content: center;
-}
-
-/* The lyrics sit in a sunken white well, like a read-only TextBox. */
-.kara-line {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px 0.45em;
-  min-height: 1.6em;
-  padding: 12px 14px 8px;
-  background: var(--k-well);
-  border: 2px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-  box-shadow: inset 1px 1px 0 var(--k-darker);
-  font-size: clamp(16px, min(3.2cqw, 10cqh), 38px);
-  font-weight: 700;
-  line-height: 1.25;
-}
-
-.kara-line--main {
-  font-size: clamp(16px, min(3.2cqw, 8cqh), 36px);
-}
-
-.kara-other-singers {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  margin-top: 4px;
-  border-top: 1px solid var(--k-dark);
-  padding-top: 8px;
-  max-height: 38cqh;
-  overflow-y: auto;
-}
-
-.kara-sub-singer-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  cursor: pointer;
-  border-radius: 2px;
-  transition: opacity 0.1s ease;
-}
-
-.kara-sub-singer-row:hover .kara-singer-badge--sub {
-  border-color: var(--k-hl);
-  color: var(--k-hl);
-}
-
-.kara-line--sub {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 3px 0.35em;
-  min-height: 1.4em;
-  padding: 4px 8px 3px;
-  background: var(--k-well);
-  border: 1px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-  box-shadow: inset 1px 1px 0 var(--k-darker);
-  font-size: clamp(11px, min(1.8cqw, 3.8cqh), 16px);
-  font-weight: 600;
-  line-height: 1.25;
-  opacity: 0.92;
-  transition: border-color 0.1s ease;
-}
-
-.kara-sub-singer-row:hover .kara-line--sub {
-  border-color: var(--k-hl);
-  opacity: 1;
-}
-
-.kara-line--sub .kara-syl-bar {
-  height: 3px;
-}
-
-/* The base stylesheet sets `* { font-size: 12px }`; everything in the line takes the line's size instead. */
-.kara-line * {
-  font: inherit;
-}
-
-.kara-rest {
-  color: var(--k-gray);
-}
-
-.kara-word {
-  display: inline-flex;
-  white-space: nowrap;
-}
-
-.kara-syl {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.kara-syl + .kara-syl .kara-syl-bar {
-  margin-left: 2px;
-}
-
-.kara-syl-text {
-  color: var(--k-text);
-}
-
-.kara-syl--future .kara-syl-text {
-  color: var(--k-gray);
-}
-
-.kara-syl--past .kara-syl-text {
-  color: var(--k-sung);
-}
-
-/* The syllable being sung is shown selected: the system highlight behind its text (a spread, not a blur, so no layout shift). */
-.kara-syl--active .kara-syl-text {
-  background: var(--k-hl);
-  color: var(--k-hl-text);
-  box-shadow: 0 0 0 2px var(--k-hl);
-}
-
-/* The ProgressBar: a sunken trough and a flat fill scaled from the left (a transform: no layout). */
-.kara-syl-bar {
-  height: 6px;
-  box-sizing: border-box;
-  background: var(--k-trough);
-  border: 1px solid var(--k-dark);
-  overflow: hidden;
-  contain: paint;
-}
-
-.kara-syl-fill {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--k-sung);
-  transform-origin: 0 50%;
-  transform: scaleX(0);
-}
-
-.kara-syl--past .kara-syl-fill {
-  transform: scaleX(1);
-}
-
-.kara-syl--pinned.kara-syl--past .kara-syl-fill {
-  background: var(--k-pinned);
-}
-
-.kara-syl--active .kara-syl-fill {
-  background: var(--k-active);
-  will-change: transform;
-}
-
-/* The StatusStrip panel: what is being sung and how far. */
-.kara-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 1px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-  contain: layout paint;
-}
-
-.kara-pct {
-  margin-left: auto;
-  min-width: 4ch;
-  text-align: right;
-  font-family: var(--daw-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.kara-next {
-  min-height: 1.3em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--k-gray);
-  font-size: 14px;
-  text-align: center;
-}
-
-.daw-monitor-beats {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  background: var(--k-face);
-  border: 1px solid;
-  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
-}
-
-.daw-monitor-bar {
-  margin-right: 4px;
-  font-family: var(--daw-mono);
-  color: var(--k-gray);
-}
-
-.daw-beat-dot {
-  width: 10px;
-  height: 10px;
-  box-sizing: border-box;
-  background: var(--k-trough);
-  border: 1px solid var(--k-dark);
-}
-
-.daw-beat-dot--on {
-  background: var(--k-hl);
-  border-color: var(--k-hl);
-}
-
-.daw-beat-dot--down.daw-beat-dot--on {
-  background: var(--k-active);
-  border-color: var(--k-active);
-}
-
-.daw-welcome {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  max-width: 520px;
-  padding: 24px;
-  text-align: center;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-welcome h1 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-welcome-logo {
-  width: 80px;
-  height: 80px;
-  max-width: 80px;
-  max-height: 80px;
-  flex: none;
-  display: block;
-  margin: 0 auto 4px;
-  filter: drop-shadow(0 2px 8px rgba(0, 120, 212, 0.25));
-}
-
-.daw-welcome-logo .constellation-line {
-  stroke: var(--sys-primary, #0078d4);
-  stroke-width: 2.6;
-}
-
-.daw-welcome-logo .constellation-star {
-  fill: var(--sys-primary, #0078d4);
-}
-
-.daw-welcome-logo .globe-star {
-  fill: var(--sys-primary, #0078d4);
-}
-
-.daw-welcome-logo .globe-rim-star {
-  fill: #152238;
-  stroke: var(--sys-primary, #0078d4);
-}
-
-.daw-welcome-logo .globe-disc {
-  fill: #152238;
-  stroke: var(--sys-primary, #0078d4);
-}
-
-.daw-welcome-logo .globe-inner {
-  fill: #ffffff;
-  stroke: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo {
-  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.5));
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .constellation-line {
-  stroke: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .constellation-star {
-  fill: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .globe-star {
-  fill: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .globe-rim-star {
-  fill: #152238;
-  stroke: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .globe-disc {
-  fill: #152238;
-  stroke: #ffffff;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-welcome-logo .globe-inner {
-  fill: #ffffff;
-  stroke: #ffffff;
-}
-
-.daw-welcome-actions {
-  display: flex;
-  gap: 10px;
-  margin: 8px 0;
-}
-
-.daw-welcome-hint {
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-/* ── Inspector ────────────────────────────────────────────────────────── */
-
-.daw-inspector {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.daw-inspector .group-box {
-  margin-top: 6px;
-  margin-bottom: 2px;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-inspector .group-box-title {
-  background: var(--sys-control-bg, #ececec);
-  border: none;
-}
-
-.daw-section {
-  padding: 8px 10px 10px;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-radius: 0;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-section-title {
-  display: flex;
-  align-items: center;
-  margin-bottom: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-section-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 2px;
-}
-
-.daw-kv {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 2px 0;
-  color: var(--sys-text-secondary, #555555);
-}
-
-.daw-kv b {
-  color: var(--sys-control-text, #000000);
-  font-weight: 600;
-}
-
-.daw-ok {
-  color: #107c41 !important;
-}
-
-.daw-progress {
-  height: 14px;
-  margin: 4px 0 6px;
-  border-radius: 0;
-  background: #e5e7eb;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  overflow: hidden;
-}
-
-.daw-progress-fill {
-  height: 100%;
-  background: var(--sys-primary, #0078d4);
-  transition: width 0.15s ease;
-}
-
-.daw-syl-name {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.daw-syl-text {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-syl-word {
-  color: var(--sys-text-secondary, #555555);
-}
-
-.daw-prop-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 0;
-}
-
-.daw-prop-label {
-  width: 44px;
-  color: var(--sys-text-secondary, #555555);
-  font-size: 11px;
-}
-
-.daw-line-text {
-  margin-bottom: 4px;
-  padding: 4px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--sys-window-bg, #ffffff);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  color: var(--sys-window-text, #000000);
-}
-
-.daw-shortcut {
-  justify-content: flex-start;
-}
-
-.daw-shortcut kbd {
-  min-width: 96px;
-  font-family: var(--daw-mono);
-  font-size: 10px;
-  color: var(--sys-control-text, #000000);
-  background: var(--sys-button-bg, #f0f0f0);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  border-radius: 2px;
-  padding: 1px 4px;
-}
-
-/* ── Splitter + timeline ──────────────────────────────────────────────── */
-
-.daw-splitter {
-  height: 4px;
-  flex: none;
-  background: var(--sys-control-bg, #ececec);
-  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  cursor: row-resize;
-}
-
-.daw-splitter:hover {
-  background: var(--sys-border-focus, #0078d7);
-}
-
-.daw-timeline-panel {
-  flex: none;
-  display: flex;
-  min-height: 0;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-timeline {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.daw-track-headers {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  background: var(--sys-control-bg, #ececec);
-  border-right: 1px solid var(--sys-border-dark, #b0b0b0);
-}
-
-.daw-track-header {
-  position: absolute;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 8px;
-  border-bottom: 1px solid var(--sys-border-medium, #cccccc);
-  background: var(--sys-control-bg, #ececec);
-  color: var(--sys-control-text, #000000);
-  box-sizing: border-box;
-}
-
-.daw-track-icon {
-  color: var(--sys-text-secondary, #555555);
-}
-
-.daw-track-title {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-track-tools {
-  display: flex;
-  gap: 2px;
-}
-
-.daw-ruler-header,
-.daw-overview-header {
-  background: var(--sys-status-bg, #f3f3f3);
-}
-
-.daw-ruler-header .daw-track-title,
-.daw-overview-header .daw-track-title {
-  color: var(--sys-text-secondary, #555555);
-  font-weight: 400;
-}
-
-.daw-timeline-canvas {
-  position: absolute;
-  top: 0;
-  display: block;
-  touch-action: none;
-}
-
-.daw-timeline-empty {
-  text-align: center;
-  color: var(--sys-text-muted, #777777);
-  pointer-events: none;
-  text-align: center;
-  color: #4b5564;
-  pointer-events: none;
-}
-
-/* Vocal lanes: the header column scrolls with the lanes (TimelineCanvas sets the offset). */
-.daw-lane-headers {
-  position: absolute;
-  left: 0;
-  right: 0;
-  overflow: hidden;
-}
-
-.daw-lane-header {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 6px 0 8px;
-  border-bottom: 1px solid var(--sys-border-medium, #cccccc);
-  background: var(--sys-control-bg, #ececec);
-  box-sizing: border-box;
-}
-
-.daw-lane-parked .daw-lane-label {
-  color: var(--sys-text-muted, #777777);
-  font-style: italic;
-}
-
-.daw-lane-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.daw-lane-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-lane-warn {
-  color: #d97706;
-  font-size: 12px;
-}
-
-.daw-lane-block,
-.daw-singer-select {
-  flex: 1;
-  min-width: 0;
-  height: 20px;
-  padding: 0 4px;
-  font-size: 11px;
-  border: 1px solid var(--sys-button-border, #7a7a7a);
-  background: var(--sys-window-bg, #ffffff);
-  color: var(--sys-window-text, #000000);
-  box-sizing: border-box;
-}
-
-.daw-lane-block:focus,
-.daw-singer-select:focus {
-  border-color: var(--sys-border-focus, #0078d7);
-  outline: 1px solid var(--sys-border-focus, #0078d7);
-}
-
-.daw-lane-block::placeholder {
-  color: var(--sys-text-muted, #888888);
-}
-
-.daw-singer-select {
-  flex: 0 0 auto;
-  width: 84px;
-}
-
-.daw-singer-select option {
-  background: var(--sys-window-bg, #ffffff);
-  color: var(--sys-window-text, #000000);
-}
-
-/* Other singers under the Lyrics lane: one row per singer, the header names them. */
-.daw-faint-header {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-}
-
-.daw-faint-row {
-  height: 16px;
-  line-height: 16px;
-  font-size: 10px;
-  color: var(--sys-text-muted, #777777);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.daw-gain {
-  width: 40px;
-  height: 14px;
-  margin: 0 2px;
-}
-
-.daw-ms-btn {
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.daw-ms-btn.daw-mute-on {
-  background: #dc2626;
-  border-color: #991b1b;
-  color: #ffffff;
-}
-
-.daw-ms-btn.daw-solo-on {
-  background: #eab308;
-  border-color: #a16207;
-  color: #000000;
-}
-
-/* ── Status bar ───────────────────────────────────────────────────────── */
-
-.daw-statusbar,
-.status-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 22px;
-  padding: 0 8px;
-  flex: none;
-  background: var(--sys-status-bg, #f3f3f3);
-  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
-  font-size: 11px;
-  color: var(--sys-status-text, #333333);
-  user-select: none;
-  box-sizing: border-box;
-}
-
-.status-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--sys-status-text, #333333);
-  border-right: 1px solid var(--sys-border-medium, #d0d0d0);
-  padding-right: 10px;
-}
-
-.status-cell:last-child {
-  border-right: none;
-  padding-right: 0;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #107c41;
-  flex-shrink: 0;
-}
-
-.status-dot.offline {
-  background-color: #d13438;
-}
-
-.status-dot.busy {
-  background-color: #f0a640;
-}
-
-.daw-status-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.daw-status-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 16px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 0;
-  color: var(--sys-text-secondary, #555555);
-  font-size: 11px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.daw-status-copy-btn:hover {
-  color: var(--sys-control-text, #000000);
-  border-color: var(--sys-border-dark, #b0b0b0);
-  background: var(--sys-button-hover, #e5f1fb);
-}
-
-.daw-status-copy-btn--copied {
-  color: #107c41 !important;
-}
-
-.daw-status-msg {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
-}
-
-.daw-status-hint {
-  color: var(--sys-text-secondary, #555555);
-  white-space: nowrap;
-}
-
-/* ── New-song wizard ──────────────────────────────────────────────────── */
-
-.daw-wizard-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.daw-wizard {
-  display: flex;
-  flex-direction: column;
-  width: min(1240px, 96vw);
-  height: min(780px, 94vh);
-  background: var(--sys-control-bg, #ececec);
-  border: 1px solid var(--sys-border-dark, #7a7a7a);
-  border-radius: 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  overflow: hidden;
-}
-
-.daw-wizard-head,
-.daw-wizard-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  flex: none;
-  background: var(--sys-control-bg, #ececec);
-}
-
-.daw-wizard-head {
-  justify-content: space-between;
-  height: 28px;
-  background: var(--sys-highlight-bg, #0078d7);
-  border-bottom: 1px solid var(--sys-border-dark, #7a7a7a);
-  color: var(--sys-highlight-text, #ffffff);
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.daw-wizard-head span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.daw-wizard-head-icon {
-  width: 15px;
-  height: 15px;
-  display: block;
-  flex: none;
-}
-
-.daw-wizard-head .daw-icon-btn {
-  background: transparent;
-  border: none;
-  color: #ffffff;
-  border-radius: 0;
-  width: 36px;
-  height: 100%;
-  margin: 0 -10px 0 0;
-  padding: 0;
-  cursor: pointer;
-}
-
-.daw-wizard-head .daw-icon-btn:hover {
-  background: #e81123 !important;
-  color: #ffffff !important;
-  border: none !important;
-}
-
-.daw-wizard-foot {
-  justify-content: flex-end;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  background: var(--sys-control-bg, #ececec);
-  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
-}
-
-.daw-wizard-foot .daw-btn {
-  min-width: 75px;
-}
-
-.daw-wizard-main {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.daw-wizard-steps {
-  width: 170px;
-  flex: none;
-  padding: 8px 6px;
-  background: var(--sys-control-bg, #ececec);
-  border-right: 1px solid var(--sys-border-dark, #b0b0b0);
-}
-
-.daw-wizard-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--sys-control-text, #000000);
-  font: inherit;
-  font-size: 11.5px;
-  text-align: left;
-}
-
-.daw-wizard-step--clickable {
-  cursor: pointer;
-}
-
-.daw-wizard-step--clickable:hover:not(.daw-wizard-step--active) {
-  background: var(--sys-button-hover, #e5f1fb);
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-wizard-step--active {
-  background: var(--sys-highlight-bg, #0078d7) !important;
-  color: var(--sys-highlight-text, #ffffff) !important;
-  font-weight: 600;
-}
-
-.daw-wizard-step--done {
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-wizard-step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--sys-button-bg, #f0f0f0);
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  color: var(--sys-control-text, #000000);
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.daw-wizard-step--active .daw-wizard-step-num {
-  background: #ffffff !important;
-  border-color: #ffffff !important;
-  color: var(--sys-highlight-bg, #0078d7) !important;
-}
-
-.daw-wizard-step--done .daw-wizard-step-num {
-  background: #107c41 !important;
-  border-color: #107c41 !important;
-  color: #ffffff !important;
-}
-
-.daw-wizard-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 20px;
-  overflow: auto;
-  user-select: text;
-  background: var(--sys-control-bg, #ececec);
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-wizard-body--no-overflow {
-  overflow: hidden !important;
-}
-
-.daw-wizard-body h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-wizard-note {
-  margin: 0;
-  color: var(--sys-text-secondary, #555555);
-  line-height: 1.5;
-}
-
-.daw-wizard-note code,
-.daw-wizard-body code {
-  font-family: var(--daw-mono);
-  background: var(--sys-window-bg, #ffffff);
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  border-radius: 2px;
-  padding: 1px 4px;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.daw-field > span {
-  width: 130px;
-  flex: none;
-  color: var(--sys-control-text, #000000);
-  font-weight: 500;
-  font-size: 12px;
-}
-
-.daw-field .daw-text-input {
-  max-width: 320px;
-  height: 24px;
-}
-
-.daw-field input[type="file"] {
-  font-size: 11px;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-field input[type="file"]::file-selector-button {
-  background-color: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  border: 1px solid var(--sys-button-border, #707070);
-  border-radius: 0;
-  padding: 2px 10px;
-  height: 24px;
-  cursor: pointer;
-  font-size: 11px;
-  font-family: inherit;
-  margin-right: 8px;
-}
-
-.daw-field input[type="file"]::file-selector-button:hover {
-  background-color: var(--sys-button-hover, #e5f1fb);
-  border-color: var(--sys-border-focus, #0078d7);
-}
-
-.daw-wizard-file {
-  margin-left: 140px;
-  color: #107c41;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.daw-wizard--wide {
-  width: min(1240px, 96vw);
-  height: min(780px, 94vh);
-}
-
-.daw-wizard-lyrics {
-  display: flex;
-  gap: 12px;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-/* CodeMirror 6 lyrics editor */
-.daw-cm-editor-card {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  border: 1px solid var(--sys-border-dark, #7a7a7a);
-  border-radius: 0;
-  background: var(--sys-window-bg, #ffffff);
-  overflow: hidden;
-}
-
-.daw-cm-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 26px;
-  padding: 0 8px;
-  background: var(--sys-control-bg, #ececec);
-  border-bottom: 1px solid var(--sys-border-dark, #b0b0b0);
-  font-size: 11px;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-cm-toolbar-left,
-.daw-cm-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.daw-cm-toolbar-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 700;
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-cm-toolbar-title .bi {
-  color: var(--sys-primary, #0078d4);
-}
-
-.daw-cm-stat {
-  color: var(--daw-muted);
-  font-family: var(--daw-mono);
-}
-
-.daw-cm-host {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-.daw-cm-host .cm-editor {
-  height: 100%;
-  overflow: hidden;
-  font-family: var(--daw-mono), "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace !important;
-}
-.daw-cm-host .cm-editor *,
-.daw-cm-host .cm-content,
-.daw-cm-host .cm-line,
-.daw-cm-host .cm-gutters,
-.daw-cm-host .cm-gutterElement {
-  font-family: var(--daw-mono), "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace !important;
-}
-
-.daw-cm-host .cm-scroller,
-.daw-cm-host .cm-content,
-.daw-cm-host .cm-line,
-.daw-cm-host .cm-gutterElement {
-  line-height: 1.45 !important;
-}
-
-.daw-cm-host .cm-line {
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-}
-
-.daw-cm-host .cm-scroller {
-  overflow: auto !important;
-  height: 100%;
-  max-height: 100%;
-  scrollbar-gutter: stable;
-}
-/* Syntax decorations */
-.daw-cm-section-line {
-  background: rgba(155, 120, 255, 0.12);
-  border-left: 3px solid #9b78ff;
-  font-weight: 600;
-  color: #d8c8ff;
-}
-
-.daw-cm-pron-line {
-  background: rgba(34, 197, 94, 0.08);
-  border-left: 3px solid #22c55e;
-  color: #86efac;
-  font-weight: 500;
-}
-
-.daw-cm-inline-phones {
-  color: #38bdf8 !important;
-  background: rgba(56, 189, 248, 0.14);
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 11px;
-  margin-left: 2px;
-}
-
-/* Interactive hover linking between syllable and phoneme chunk */
-.daw-cm-syl[data-syl-link],
-.daw-cm-phone-chunk[data-syl-link] {
-  transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
-  cursor: pointer;
-  border-radius: 2px;
-}
-
-.daw-cm-syl[data-syl-link]:hover,
-.daw-cm-phone-chunk[data-syl-link]:hover,
-.daw-cm-syl.daw-cm-hovered,
-.daw-cm-phone-chunk.daw-cm-hovered {
-  background: rgba(245, 158, 11, 0.45) !important;
-  color: #fef08a !important;
-  box-shadow: 0 0 0 1px #f59e0b !important;
-  font-weight: 600;
-}
-
-.daw-cm-inline-brace {
-  color: #7b93b8;
-  font-weight: 400;
-}
-
-/* Editor highlight when auto-split pill is hovered in sidebar */
-.daw-cm-hovered-autofix {
-  background: rgba(245, 158, 11, 0.45) !important;
-  color: #fef08a !important;
-  border-radius: 3px;
-  box-shadow: 0 0 0 2px #f59e0b !important;
-  font-weight: 700;
-}
-
-.daw-cm-comment-line {
-  color: #64748b;
-  font-style: italic;
-  opacity: 0.85;
-}
-
-.daw-cm-pipe {
-  color: #7b93b8;
-  font-weight: 700;
-  padding: 0 1px;
-}
-
-/* "+" and the syllables on either side of it carry one bar on top, so a joined run reads as one unit (shown as one in the karaoke monitor). */
-.daw-cm-join {
-  color: #4ec9b0;
-  font-weight: 700;
-  padding: 0 1px;
-  box-shadow: inset 0 2px 0 #4ec9b0;
-}
-
-.daw-cm-joined {
-  box-shadow: inset 0 2px 0 #4ec9b0;
-}
-
-.daw-cm-unknown {
-  border-radius: 2px;
-  background: rgba(255, 93, 93, 0.28);
-  box-shadow: inset 0 -2px 0 #ff5d5d;
-  color: #ff9898;
-}
-
-.daw-cm-issue {
-  border-radius: 2px;
-  background: rgba(240, 166, 64, 0.28);
-  box-shadow: inset 0 -2px 0 var(--daw-warn);
-  color: #ffd27a;
-}
-
-.daw-cm-custom {
-  border-radius: 2px;
-  background: rgba(61, 139, 253, 0.25);
-  box-shadow: inset 0 -2px 0 var(--daw-accent);
-  color: #9fc4ff;
-}
-
-/* A joined word that is also flagged keeps both bars: the join on top, the flag below. */
-.daw-cm-joined.daw-cm-unknown {
-  box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 #ff5d5d;
-}
-
-.daw-cm-joined.daw-cm-issue {
-  box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 var(--daw-warn);
-}
-
-.daw-cm-joined.daw-cm-custom {
-  box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 var(--daw-accent);
-}
-
-/* A word that is marked elsewhere in the text but not here: dotted, with a tooltip to use the same markup. */
-.daw-cm-repeat {
-  text-decoration: underline dotted #f59e0b;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
-
-.daw-cm-repeat-hovered {
-  background: rgba(245, 158, 11, 0.3);
-  border-radius: 2px;
-}
-
-.daw-cm-repeat-tip {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-}
-
-/* CodeMirror autocomplete tooltip */
-.cm-tooltip.cm-tooltip-autocomplete {
-  background: var(--sys-window-bg, #ffffff) !important;
-  border: 1px solid var(--sys-border-dark, #b0b0b0) !important;
-  border-radius: 0 !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
-  font-family: var(--daw-mono), monospace !important;
-  font-size: 12px;
-  max-height: 220px;
-  overflow-y: auto;
-  z-index: 500;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .cm-tooltip.cm-tooltip-autocomplete {
-  background: #181b22 !important;
-  border-color: #3a404b !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65) !important;
-}
-
-.cm-tooltip-autocomplete > ul {
-  counter-reset: cm-suggest-counter;
-  padding: 4px 0;
-  margin: 0;
-  list-style: none;
-}
-
-.cm-tooltip-autocomplete > ul > li {
-  counter-increment: cm-suggest-counter;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start !important;
-  gap: 8px;
-  padding: 4px 10px;
-  color: var(--sys-window-text, #000000);
-  font-family: var(--daw-mono), monospace !important;
-  cursor: pointer;
-  text-align: left;
-}
-
-.cm-tooltip-autocomplete > ul > li::before {
-  content: counter(cm-suggest-counter);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 16px;
-  padding: 0 4px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--sys-text-secondary, #555555);
-  background: var(--sys-control-bg, #ececec);
-  border-radius: 2px;
-  flex: none;
-  user-select: none;
-}
-
-.cm-tooltip-autocomplete > ul > li[aria-selected] {
-  background: #2563eb !important;
-  color: #ffffff !important;
-}
-
-.cm-tooltip-autocomplete > ul > li[aria-selected]::before {
-  color: #ffffff !important;
-  background: rgba(255, 255, 255, 0.28) !important;
-}
-
-.cm-completionLabel {
-  font-weight: 600;
-  color: inherit !important;
-  text-align: left;
-}
-
-/* Detail (e.g. "section", "dictionary", "split word") - right-aligned with high contrast */
-.cm-completionDetail {
-  font-style: normal;
-  color: #94a3b8 !important;
-  font-size: 11px;
-  margin-left: auto !important;
-  padding-left: 14px;
-  text-align: right !important;
-  opacity: 1 !important;
-  flex: none;
-}
-
-.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: #e0f2fe !important; /* Bright crisp white-blue on the blue background */
-  font-weight: 500;
-}
-.daw-btn-danger-ghost {
-  background: transparent;
-  color: #ff7878;
-  border: 1px solid transparent;
-}
-
-.daw-btn-danger-ghost:hover {
-  background: rgba(255, 93, 93, 0.15);
-  border-color: rgba(255, 93, 93, 0.3);
-  color: #ff9898;
-}
-.daw-wizard-check {
-  width: 300px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: auto;
-}
-
-.daw-check-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 0;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  background: var(--sys-window-bg, #ffffff);
-  color: var(--sys-window-text, #000000);
-  font-weight: 600;
-}
-
-.daw-check-ok {
-  background: #e6f4ea;
-  border-color: #ceead6;
-  color: #137333;
-}
-
-.daw-check-bad {
-  background: #fde7e9;
-  border-color: #f5c2c7;
-  color: #a80000;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-check-ok {
-  background: #1f4d33;
-  border-color: #1f4d33;
-  color: #b7ffd0;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-check-bad {
-  background: #3d1d1f;
-  border-color: #3d1d1f;
-  color: #ffb4b4;
-}
-
-.daw-dict-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--daw-line);
-}
-
-.daw-dict-word {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: 600 13px var(--daw-mono);
-}
-
-.daw-dict-count {
-  color: var(--daw-muted);
-  font-size: 11px;
-}
-
-.daw-dict-add {
-  display: flex;
-  gap: 4px;
-}
-
-.daw-dict-add .daw-text-input {
-  height: 24px;
-}
-
-.daw-dict-error {
-  color: #ffb4b4;
-  font-size: 11px;
-}
-
-.daw-dict-issue {
-  color: #ffd27a;
-  line-height: 1.4;
-}
-
-.daw-dict-entry {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--daw-mono);
-}
-
-.daw-dict-entry code {
-  flex: 1;
-  color: var(--daw-muted);
-}
-
-.daw-chip-row-flush {
-  padding-left: 0;
-}
-
-.daw-wizard-error,
-.daw-wizard-warn {
-  padding: 6px 8px;
-  border-radius: 4px;
-  line-height: 1.4;
-}
-
-.daw-wizard-error {
-  background: #fde7e9;
-  border: 1px solid #e81123;
-  color: #a80000;
-  border-radius: 0;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-wizard-error {
-  background: #3d1d1f;
-  color: #ffb4b4;
-}
-
-.daw-wizard-warn {
-  background: #fef7e0;
-  border: 1px solid #f59e0b;
-  color: #b06000;
-  border-radius: 0;
-}
-
-:is(:root[data-theme="dark"], body.ds-dark) .daw-wizard-warn {
-  background: #3a3220;
-  color: #ffd27a;
-}
-
-.daw-wizard-error-inline {
-  margin-right: auto;
-  color: var(--daw-muted);
-}
-
-.daw-wizard-time {
-  display: inline-flex;
-  align-items: center;
-  height: 44px;
-  flex-shrink: 0;
-}
-
-/* Tempo step */
-.daw-tempo {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.daw-tempo-wave {
-  position: relative;
-  border-radius: 0;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  overflow: hidden;
-  background: #0d0f12;
-}
-
-.daw-tempo-wave canvas {
-  display: block;
-  touch-action: none;
-}
-
-.daw-tempo-overview {
-  border-top: 1px solid var(--sys-border-dark, #b0b0b0);
-  cursor: pointer;
-}
-
-.daw-tempo-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--sys-text-secondary, #555555);
-}
-
-.daw-tempo-transport {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.daw-tempo-hint {
-  margin-left: auto;
-  color: var(--sys-text-secondary, #555555);
-}
-
-.daw-beat-lights {
-  display: flex;
-  gap: 4px;
-}
-
-.daw-beat-light {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 2px;
-  border: 1px solid var(--sys-button-border, #707070);
-  background: var(--sys-button-bg, #f0f0f0);
-  color: var(--sys-control-text, #000000);
-  font: 700 11px var(--daw-mono);
-  transition: background 60ms linear;
-}
-
-.daw-beat-light--on {
-  background: var(--sys-highlight-bg, #0078d7);
-  color: #ffffff;
-  box-shadow: 0 0 6px var(--sys-highlight-bg, #0078d7);
-}
-
-.daw-beat-light--one.daw-beat-light--on {
-  background: #ffc35a;
-  color: #000000;
-  box-shadow: 0 0 8px #ffc35a;
-}
-
-.daw-tempo-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.daw-tempo-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-radius: 0;
-  background: var(--sys-control-bg, #ececec);
-  color: var(--sys-control-text, #000000);
-}
-
-.daw-tap-pad {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 90px;
-  border: 1px solid var(--sys-border-focus, #0078d7);
-  border-radius: 2px;
-  background: var(--sys-button-hover, #e5f1fb);
-  cursor: pointer;
-  user-select: none;
-}
-
-.daw-tap-pad:hover {
-  background: var(--sys-button-active, #cce4f7);
-}
-.daw-tap-pad--flash2 {
-  animation: daw-tap-flash 180ms ease-out;
-}
-
-/* Two identical animations, alternated per tap, so every tap restarts it. */
-.daw-tap-pad--flash2 {
-  animation-name: daw-tap-flash2;
-}
-
-@keyframes daw-tap-flash {
-  from {
-    background: #6fb6ff;
-    transform: scale(0.97);
+ * The app layer on top of SoulWindow pro: the editor shell (menu bar, transport, VFD, docks, panels, tabs, splitter,
+ * track headers, timeline frame, status bar) comes from `soulwindow/css/pro/daw.css`, buttons from `.win-button`.
+ * This file keeps only what Lyric-Sync adds: monitor, inspector, lines list, lanes, new-song wizard, CodeMirror. */
+
+@layer app {
+  /* ── Transport (app-only bits) ────────────────────────────────────────── */
+
+  .daw-transport-seg {
+    flex-shrink: 0;
   }
-}
 
-@keyframes daw-tap-flash2 {
-  from {
-    background: #6fb6ff;
-    transform: scale(0.97);
+  .daw-lcd-bpm {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: inherit;
   }
-}
 
-.daw-tap-label {
-  font-size: 26px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  color: var(--sys-primary, #0078d4);
-}
+  .daw-lcd-slash {
+    width: 1px;
+    height: 0.9em;
+    transform: skewX(-20deg);
+    background: var(--lcd-dim);
+  }
 
-.daw-tap-key {
-  color: var(--sys-text-secondary, #555555);
-  font: 11px var(--daw-mono);
-}
+  .daw-bar1 {
+    gap: 6px;
+    padding: 0 6px;
+    height: 26px;
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    background: var(--sys-window-bg);
+  }
 
-.daw-tap-readout {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
+  .daw-bar1-label {
+    color: var(--sys-primary);
+    font: 700 10px var(--sw-font-mono);
+    letter-spacing: 0.05em;
+  }
 
-.daw-tap-bpm {
-  min-width: 90px;
-  color: var(--sys-primary, #0078d4);
-  font: 700 28px var(--daw-mono);
-  line-height: 1;
-}
+  .daw-bar1-time {
+    color: var(--sys-control-text);
+    font: 11px var(--sw-font-mono);
+  }
 
-.daw-tap-meta {
-  color: var(--daw-muted);
-}
+  /* ── Button modifiers on .win-button ──────────────────────────────────── */
 
-.daw-warn {
-  color: var(--daw-warn);
-}
+  /* TODO(soulwindow): `.win-button` lets bare labels wrap (only `.ds-btn-text` is nowrap); editor buttons never wrap. */
+  .daw-app .win-button {
+    white-space: nowrap;
+  }
 
-.daw-tap-dots {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 30px;
-  margin-left: auto;
-}
+  .win-button.primary {
+    font-weight: 600;
+  }
 
-.daw-tap-dot {
-  width: 5px;
-  border-radius: 2px;
-  background: #6fb6ff;
-}
+  .win-button.daw-btn-dirty:not(:disabled) {
+    border-color: var(--sw-warn);
+    color: var(--sw-warn);
+  }
 
-.daw-tempo-keys kbd,
-.daw-wizard-note kbd {
-  padding: 1px 4px;
-  border: 1px solid var(--sys-border-medium, #cccccc);
-  border-radius: 2px;
-  background: var(--sys-window-bg, #ffffff);
-  font: 10px var(--daw-mono);
-  color: var(--sys-control-text, #000000);
-}
+  /* `:not(:disabled)` leaves the disabled look to `.win-button:disabled`. */
+  .win-button.daw-btn-warn:not(:disabled) {
+    background: var(--sw-warn-bg);
+    border-color: var(--sw-warn);
+    color: var(--sw-warn);
+  }
 
-.daw-wizard-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-}
+  .win-button.daw-btn-warn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--sw-warn) 22%, var(--sw-warn-bg));
+  }
 
-.daw-wizard-state--done {
-  color: var(--daw-ok);
-}
+  .win-button.daw-btn-pinned:not(:disabled) {
+    background: var(--sw-ok-bg);
+    border-color: var(--sw-ok);
+    color: var(--sw-ok);
+  }
 
-.daw-wizard-state--error {
-  color: var(--daw-err);
-}
+  .win-button.daw-btn-pinned:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--sw-ok) 22%, var(--sw-ok-bg));
+  }
 
-.daw-wizard-log {
-  flex: 1;
-  min-height: 200px;
-  margin: 0;
-  padding: 8px;
-  overflow: auto;
-  background: var(--sys-window-bg, #ffffff);
-  border: 1px solid var(--sys-border-dark, #b0b0b0);
-  border-radius: 0;
-  font: 11px/1.5 var(--daw-mono);
-  color: var(--sys-window-text, #000000);
-  white-space: pre-wrap;
-}
+  .win-button.daw-btn-lg {
+    height: 30px;
+    padding: 0 14px;
+  }
 
-:is(:root[data-theme="dark"], body.ds-dark) .daw-wizard-log {
-  background: #0b0c0f;
-  border-color: #333333;
-  color: #b8c4d4;
-}
+  .win-button.daw-btn-block {
+    width: 100%;
+    margin-top: 6px;
+  }
 
-.daw-kv-top {
-  align-items: flex-start;
-  text-align: right;
-}
+  .daw-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
 
-.daw-muted {
-  color: var(--daw-muted);
-  font-weight: 400;
+  .win-button.daw-btn-danger-ghost {
+    background: transparent;
+    color: #ff7878;
+    border: 1px solid transparent;
+  }
+
+  .win-button.daw-btn-danger-ghost:hover {
+    background: rgba(255, 93, 93, 0.15);
+    border-color: rgba(255, 93, 93, 0.3);
+    color: #ff9898;
+  }
+
+  /* ── Docks, panels, tabs (differences from pro) ───────────────────────── */
+
+  .daw-panel-body {
+    padding: 2px;
+    background: var(--sys-window-bg);
+  }
+
+  /* Pro lets `.daw-tab:hover` repaint the active tab; the active tab keeps the window colour. */
+  .daw-tab--active:hover {
+    background: var(--sys-window-bg);
+  }
+
+  /* ── Lines list ───────────────────────────────────────────────────────── */
+
+  .daw-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+    padding: 2px 6px;
+    border-radius: 0;
+    cursor: pointer;
+    color: var(--sys-window-text);
+    user-select: none;
+  }
+
+  .daw-row:hover {
+    background: var(--sys-button-hover);
+  }
+
+  .daw-row--selected {
+    background: var(--sys-highlight-bg) !important;
+    color: var(--sys-highlight-text) !important;
+  }
+
+  .daw-row--selected * {
+    color: var(--sys-highlight-text) !important;
+  }
+
+  .daw-row--selected .daw-line-num {
+    background: rgba(255, 255, 255, 0.25) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    color: #ffffff !important;
+  }
+
+  .daw-row--playing .daw-line-num {
+    background: #107c41;
+    border-color: #107c41;
+    color: #ffffff;
+  }
+
+  .daw-row-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .daw-lines-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: var(--sys-control-bg);
+    border-bottom: 1px solid var(--sys-border-dark);
+    gap: 6px;
+    flex: none;
+  }
+
+  .daw-lines-count {
+    margin-right: auto;
+    font-size: 11px;
+    color: var(--sys-text-secondary);
+    font-family: var(--sw-font-mono);
+  }
+
+  /* The toolbar's buttons and toggles share one small height. */
+  .daw-lines-toolbar .win-button {
+    height: 20px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .daw-backup-list {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--sys-border-medium);
+  }
+
+  .daw-line-num {
+    min-width: 24px;
+    padding: 1px 4px;
+    border-radius: 0;
+    background: var(--sys-control-bg);
+    color: var(--sys-control-text);
+    border: 1px solid var(--sys-border-medium);
+    font-family: var(--sw-font-mono);
+    font-size: 10px;
+    text-align: center;
+  }
+
+  .daw-line-tc {
+    color: var(--sys-text-secondary);
+    font-family: var(--sw-font-mono);
+    font-size: 10px;
+  }
+
+  .daw-pin-badge {
+    min-width: 30px;
+    font-family: var(--sw-font-mono);
+    font-size: 10px;
+    text-align: right;
+  }
+
+  .daw-pin-badge--full {
+    color: var(--sw-ok);
+  }
+
+  .daw-pin-badge--part {
+    color: var(--sw-warn);
+  }
+
+  .daw-review-item {
+    padding: 2px 0 6px;
+    border-bottom: 1px solid var(--sys-border-medium);
+  }
+
+  .daw-err {
+    color: var(--sw-warn);
+    font-family: var(--sw-font-mono);
+    font-size: 11px;
+  }
+
+  .daw-err--high {
+    color: var(--sw-err);
+  }
+
+  .daw-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 2px 6px 0 38px;
+  }
+
+  /* A larger, rounded, clickable chip than pro's status chip. */
+  .daw-chip {
+    height: 20px;
+    padding: 0 7px;
+    border-color: #3a404b;
+    border-radius: 10px;
+    background: #23272f;
+    color: var(--sys-control-text);
+    font: 11px / 1.35 var(--sw-font-mono);
+    cursor: pointer;
+  }
+
+  .daw-chip-clickable {
+    cursor: pointer;
+    user-select: none;
+    transition: all 80ms ease;
+  }
+
+  .daw-chip-clickable:hover {
+    background: #2563eb !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45);
+  }
+
+  .daw-chip-clickable:active {
+    transform: translateY(0);
+  }
+
+  .daw-chip span {
+    color: var(--sys-text-secondary);
+    font-family: var(--sw-font-mono);
+    font-size: 10px;
+  }
+
+  .daw-chip:hover {
+    border-color: var(--sys-primary);
+  }
+
+  .daw-section-row {
+    cursor: default;
+  }
+
+  .daw-section-item {
+    padding: 2px 0 6px;
+    border-bottom: 1px solid var(--sys-border-medium);
+  }
+
+  .daw-section-times {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 24px;
+  }
+
+  .daw-section-swatch {
+    width: 10px;
+    height: 18px;
+    border-radius: 2px;
+    flex: none;
+  }
+
+  .daw-text-input,
+  .daw-num {
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--sys-button-border);
+    border-radius: 0;
+    background: var(--sys-window-bg);
+    color: var(--sys-window-text);
+    font: inherit;
+    font-size: 12px;
+    box-sizing: border-box;
+  }
+
+  .daw-text-input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .daw-text-input:focus,
+  .daw-num:focus {
+    border-color: var(--sys-border-focus);
+    outline: 1px solid var(--sys-border-focus);
+  }
+
+  .daw-num {
+    width: 72px;
+    font-family: var(--sw-font-mono);
+    text-align: right;
+  }
+
+  .daw-split-input {
+    flex: 1;
+    width: auto;
+    text-align: left;
+  }
+
+  .daw-input-error {
+    border-color: #b3403a;
+  }
+
+  .daw-field-error,
+  .daw-field-note {
+    margin: 0 0 6px 50px;
+    line-height: 1.4;
+  }
+
+  .daw-field-error {
+    color: #ff8a80;
+  }
+
+  .daw-field-note {
+    color: #ffd27a;
+  }
+
+  .daw-empty-note {
+    padding: 12px;
+    color: var(--sys-text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ── Program monitor ──────────────────────────────────────────────────── */
+  /* A WinForms karaoke stage: a sunken 3D panel, a GroupBox with an etched border, a white TextBox-like well for the lyrics, the current
+   * syllable shown selected, classic ProgressBar fills and StatusStrip panels. Flat and instant: no blur, glow, gradient or transition, and
+   * the fill of the syllable being sung is a transform, so a frame repaints only what moved. */
+
+  .daw-monitor {
+    --k-face: #f0f0f0;
+    --k-well: #ffffff;
+    --k-dark: #a0a0a0;
+    --k-darker: #696969;
+    --k-light: #ffffff;
+    --k-text: #000000;
+    --k-gray: #6d6d6d;
+    --k-hl: #0078d7;
+    --k-hl-text: #ffffff;
+    --k-sung: #0078d7;
+    --k-pinned: #06b025;
+    --k-active: #ffb900;
+    --k-trough: #e6e6e6;
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    background: var(--sys-control-bg);
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-monitor {
+    --k-face: #2b2b2b;
+    --k-well: #1c1c1c;
+    --k-dark: #151515;
+    --k-darker: #000000;
+    --k-light: #4d4d4d;
+    --k-text: #ffffff;
+    --k-gray: #9d9d9d;
+    --k-sung: #4cc2ff;
+    --k-trough: #383838;
+  }
+
+  .daw-monitor-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: calc((100vh) * 1.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--k-face);
+    border: 2px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+    box-shadow: inset 1px 1px 0 var(--k-darker);
+    overflow: hidden;
+    contain: layout paint;
+    container-type: size;
+    padding: 30px 0;
+  }
+
+  .daw-monitor-overlay-tl,
+  .daw-monitor-overlay-tr {
+    position: absolute;
+    top: 8px;
+    padding: 1px 8px;
+    background: var(--k-well);
+    border: 1px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+    font-family: var(--sw-font-mono);
+    font-size: 12px;
+    color: var(--k-text);
+    contain: layout paint style;
+  }
+
+  .daw-monitor-overlay-tl {
+    left: 10px;
+  }
+
+  .daw-monitor-overlay-tr {
+    right: 10px;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .daw-monitor-overlay-tr:empty {
+    display: none;
+  }
+
+  /* The GroupBox: etched border (a dark and a light line), caption on the border. */
+  .kara-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(92%, 980px);
+    padding: 16px 14px 10px;
+    border: 1px solid var(--k-dark);
+    box-shadow: 1px 1px 0 var(--k-light), inset 1px 1px 0 var(--k-light);
+    color: var(--k-text);
+  }
+
+  .kara-title {
+    position: absolute;
+    top: -0.7em;
+    left: 10px;
+    padding: 0 4px;
+    background: var(--k-face);
+    color: var(--k-text);
+  }
+
+  .kara-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 1.4em;
+    font-family: var(--sw-font-mono);
+    color: var(--k-gray);
+    gap: 8px;
+  }
+
+  .kara-singer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border: 1px solid var(--k-dark);
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--k-trough);
+    color: var(--k-text);
+    user-select: none;
+    font-family: var(--sw-font-mono);
+    flex-shrink: 0;
+  }
+
+  .kara-singer-badge--main {
+    background: var(--k-hl);
+    color: var(--k-hl-text);
+    border-color: var(--k-hl);
+    font-weight: 700;
+  }
+
+  .kara-singer-badge--sub {
+    font-size: 10px;
+    min-width: 58px;
+    justify-content: center;
+  }
+
+  /* The lyrics sit in a sunken white well, like a read-only TextBox. */
+  .kara-line {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 0.45em;
+    min-height: 1.6em;
+    padding: 12px 14px 8px;
+    background: var(--k-well);
+    border: 2px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+    box-shadow: inset 1px 1px 0 var(--k-darker);
+    font-size: clamp(16px, min(3.2cqw, 10cqh), 38px);
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .kara-line--main {
+    font-size: clamp(16px, min(3.2cqw, 8cqh), 36px);
+  }
+
+  .kara-other-singers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    margin-top: 4px;
+    border-top: 1px solid var(--k-dark);
+    padding-top: 8px;
+    max-height: 38cqh;
+    overflow-y: auto;
+  }
+
+  .kara-sub-singer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: opacity 0.1s ease;
+  }
+
+  .kara-sub-singer-row:hover .kara-singer-badge--sub {
+    border-color: var(--k-hl);
+    color: var(--k-hl);
+  }
+
+  .kara-line--sub {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 3px 0.35em;
+    min-height: 1.4em;
+    padding: 4px 8px 3px;
+    background: var(--k-well);
+    border: 1px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+    box-shadow: inset 1px 1px 0 var(--k-darker);
+    font-size: clamp(11px, min(1.8cqw, 3.8cqh), 16px);
+    font-weight: 600;
+    line-height: 1.25;
+    opacity: 0.92;
+    transition: border-color 0.1s ease;
+  }
+
+  .kara-sub-singer-row:hover .kara-line--sub {
+    border-color: var(--k-hl);
+    opacity: 1;
+  }
+
+  .kara-line--sub .kara-syl-bar {
+    height: 3px;
+  }
+
+  /* The reset sets `* { font-size }`; everything in the line takes the line's size instead. */
+  .kara-line * {
+    font: inherit;
+  }
+
+  .kara-rest {
+    color: var(--k-gray);
+  }
+
+  .kara-word {
+    display: inline-flex;
+    white-space: nowrap;
+  }
+
+  .kara-syl {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .kara-syl + .kara-syl .kara-syl-bar {
+    margin-left: 2px;
+  }
+
+  .kara-syl-text {
+    color: var(--k-text);
+  }
+
+  .kara-syl--future .kara-syl-text {
+    color: var(--k-gray);
+  }
+
+  .kara-syl--past .kara-syl-text {
+    color: var(--k-sung);
+  }
+
+  /* The syllable being sung is shown selected: the system highlight behind its text (a spread, not a blur, so no layout shift). */
+  .kara-syl--active .kara-syl-text {
+    background: var(--k-hl);
+    color: var(--k-hl-text);
+    box-shadow: 0 0 0 2px var(--k-hl);
+  }
+
+  /* The ProgressBar: a sunken trough and a flat fill scaled from the left (a transform: no layout). */
+  .kara-syl-bar {
+    height: 6px;
+    box-sizing: border-box;
+    background: var(--k-trough);
+    border: 1px solid var(--k-dark);
+    overflow: hidden;
+    contain: paint;
+  }
+
+  .kara-syl-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--k-sung);
+    transform-origin: 0 50%;
+    transform: scaleX(0);
+  }
+
+  .kara-syl--past .kara-syl-fill {
+    transform: scaleX(1);
+  }
+
+  .kara-syl--pinned.kara-syl--past .kara-syl-fill {
+    background: var(--k-pinned);
+  }
+
+  .kara-syl--active .kara-syl-fill {
+    background: var(--k-active);
+    will-change: transform;
+  }
+
+  /* The StatusStrip panel: what is being sung and how far. */
+  .kara-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+    padding: 0 8px;
+    border: 1px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+    contain: layout paint;
+  }
+
+  .kara-pct {
+    margin-left: auto;
+    min-width: 4ch;
+    text-align: right;
+    font-family: var(--sw-font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kara-next {
+    min-height: 1.3em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--k-gray);
+    font-size: 14px;
+    text-align: center;
+  }
+
+  .daw-monitor-beats {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    background: var(--k-face);
+    border: 1px solid;
+    border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+  }
+
+  .daw-monitor-bar {
+    margin-right: 4px;
+    font-family: var(--sw-font-mono);
+    color: var(--k-gray);
+  }
+
+  .daw-beat-dot {
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    background: var(--k-trough);
+    border: 1px solid var(--k-dark);
+  }
+
+  .daw-beat-dot--on {
+    background: var(--k-hl);
+    border-color: var(--k-hl);
+  }
+
+  .daw-beat-dot--down.daw-beat-dot--on {
+    background: var(--k-active);
+    border-color: var(--k-active);
+  }
+
+  .daw-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    max-width: 520px;
+    padding: 24px;
+    text-align: center;
+    color: var(--sys-control-text);
+  }
+
+  .daw-welcome h1 {
+    margin: 0;
+    font-size: 24px;
+    color: var(--sys-control-text);
+  }
+
+  .daw-welcome-logo {
+    width: 80px;
+    height: 80px;
+    max-width: 80px;
+    max-height: 80px;
+    flex: none;
+    display: block;
+    margin: 0 auto 4px;
+    filter: drop-shadow(0 2px 8px rgba(0, 120, 212, 0.25));
+  }
+
+  .daw-welcome-logo .constellation-line {
+    stroke: var(--sys-primary);
+    stroke-width: 2.6;
+  }
+
+  .daw-welcome-logo .constellation-star {
+    fill: var(--sys-primary);
+  }
+
+  .daw-welcome-logo .globe-star {
+    fill: var(--sys-primary);
+  }
+
+  .daw-welcome-logo .globe-rim-star {
+    fill: #152238;
+    stroke: var(--sys-primary);
+  }
+
+  .daw-welcome-logo .globe-disc {
+    fill: #152238;
+    stroke: var(--sys-primary);
+  }
+
+  .daw-welcome-logo .globe-inner {
+    fill: #ffffff;
+    stroke: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo {
+    filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.5));
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .constellation-line {
+    stroke: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .constellation-star {
+    fill: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .globe-star {
+    fill: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .globe-rim-star {
+    fill: #152238;
+    stroke: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .globe-disc {
+    fill: #152238;
+    stroke: #ffffff;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-welcome-logo .globe-inner {
+    fill: #ffffff;
+    stroke: #ffffff;
+  }
+
+  .daw-welcome-actions {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0;
+  }
+
+  .daw-welcome-hint {
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  /* ── Inspector ────────────────────────────────────────────────────────── */
+
+  .daw-inspector {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .daw-inspector .group-box {
+    margin-top: 6px;
+    margin-bottom: 2px;
+    background: var(--sys-control-bg);
+  }
+
+  .daw-inspector .group-box-title {
+    background: var(--sys-control-bg);
+    border: none;
+  }
+
+  .daw-section {
+    padding: 8px 10px 10px;
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    background: var(--sys-control-bg);
+  }
+
+  .daw-section-title {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--sys-control-text);
+  }
+
+  .daw-section-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+  }
+
+  .daw-kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 2px 0;
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-kv b {
+    color: var(--sys-control-text);
+    font-weight: 600;
+  }
+
+  .daw-ok {
+    color: #107c41 !important;
+  }
+
+  .daw-syl-name {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .daw-syl-text {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--sys-control-text);
+  }
+
+  .daw-syl-word {
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+  }
+
+  .daw-prop-label {
+    width: 44px;
+    color: var(--sys-text-secondary);
+    font-size: 11px;
+  }
+
+  .daw-line-text {
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--sys-window-bg);
+    border: 1px solid var(--sys-border-medium);
+    color: var(--sys-window-text);
+  }
+
+  .daw-shortcut {
+    justify-content: flex-start;
+  }
+
+  .daw-shortcut kbd {
+    min-width: 96px;
+    font-family: var(--sw-font-mono);
+    font-size: 10px;
+    color: var(--sys-control-text);
+    background: var(--sys-button-bg);
+    border: 1px solid var(--sys-border-medium);
+    border-radius: 2px;
+    padding: 1px 4px;
+  }
+
+  /* ── Timeline (app-only headers; the frame comes from pro) ────────────── */
+
+  .daw-ruler-header,
+  .daw-overview-header {
+    background: var(--sys-status-bg);
+  }
+
+  .daw-ruler-header .daw-track-title,
+  .daw-overview-header .daw-track-title {
+    color: var(--sys-text-secondary);
+    font-weight: 400;
+  }
+
+  .daw-timeline-empty {
+    text-align: center;
+    color: #4b5564;
+    pointer-events: none;
+  }
+
+  /* Vocal lanes: the header column scrolls with the lanes (TimelineCanvas sets the offset). */
+  .daw-lane-headers {
+    position: absolute;
+    left: 0;
+    right: 0;
+    overflow: hidden;
+  }
+
+  .daw-lane-header {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 6px 0 8px;
+    border-bottom: 1px solid var(--sys-border-medium);
+    background: var(--sys-control-bg);
+    box-sizing: border-box;
+  }
+
+  .daw-lane-parked .daw-lane-label {
+    color: var(--sys-text-muted);
+    font-style: italic;
+  }
+
+  .daw-lane-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .daw-lane-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--sys-control-text);
+  }
+
+  .daw-lane-warn {
+    color: #d97706;
+    font-size: 12px;
+  }
+
+  .daw-lane-block,
+  .daw-singer-select {
+    flex: 1;
+    min-width: 0;
+    height: 20px;
+    padding: 0 4px;
+    font-size: 11px;
+    border: 1px solid var(--sys-button-border);
+    background: var(--sys-window-bg);
+    color: var(--sys-window-text);
+    box-sizing: border-box;
+  }
+
+  .daw-lane-block:focus,
+  .daw-singer-select:focus {
+    border-color: var(--sys-border-focus);
+    outline: 1px solid var(--sys-border-focus);
+  }
+
+  .daw-lane-block::placeholder {
+    color: var(--sys-text-muted);
+  }
+
+  .daw-singer-select {
+    flex: 0 0 auto;
+    width: 84px;
+  }
+
+  .daw-singer-select option {
+    background: var(--sys-window-bg);
+    color: var(--sys-window-text);
+  }
+
+  /* Other singers under the Lyrics lane: one row per singer, the header names them. */
+  .daw-faint-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .daw-faint-row {
+    height: 16px;
+    line-height: 16px;
+    font-size: 10px;
+    color: var(--sys-text-muted);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .daw-gain {
+    width: 40px;
+    height: 14px;
+    margin: 0 2px;
+  }
+
+  .daw-ms-btn {
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .daw-ms-btn.daw-mute-on {
+    background: #dc2626;
+    border-color: #991b1b;
+    color: #ffffff;
+  }
+
+  .daw-ms-btn.daw-solo-on {
+    background: #eab308;
+    border-color: #a16207;
+    color: #000000;
+  }
+
+  /* ── Status bar (app-only parts) ──────────────────────────────────────── */
+
+  .daw-statusbar {
+    justify-content: space-between;
+  }
+
+  .daw-status-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .daw-status-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0;
+    color: var(--sys-text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .daw-status-copy-btn:hover {
+    color: var(--sys-control-text);
+    border-color: var(--sys-border-dark);
+    background: var(--sys-button-hover);
+  }
+
+  .daw-status-copy-btn--copied {
+    color: #107c41 !important;
+  }
+
+  .daw-status-msg {
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  .daw-status-hint {
+    color: var(--sys-text-secondary);
+    white-space: nowrap;
+  }
+
+  /* ── New-song wizard ──────────────────────────────────────────────────── */
+
+  .daw-wizard-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .daw-wizard {
+    display: flex;
+    flex-direction: column;
+    width: min(1240px, 96vw);
+    height: min(780px, 94vh);
+    background: var(--sys-control-bg);
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+  }
+
+  .daw-wizard-head,
+  .daw-wizard-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    flex: none;
+    background: var(--sys-control-bg);
+  }
+
+  .daw-wizard-head {
+    justify-content: space-between;
+    height: 28px;
+    background: var(--sys-highlight-bg);
+    border-bottom: 1px solid var(--sys-border-dark);
+    color: var(--sys-highlight-text);
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  .daw-wizard-head span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .daw-wizard-head-icon {
+    width: 15px;
+    height: 15px;
+    display: block;
+    flex: none;
+  }
+
+  .daw-wizard-head .ds-btn-icon {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    border-radius: 0;
+    width: 36px;
+    height: 100%;
+    margin: 0 -10px 0 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .daw-wizard-head .ds-btn-icon:hover {
+    background: #e81123;
+    color: #ffffff;
+    border: none;
+  }
+
+  .daw-wizard-foot {
+    justify-content: flex-end;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    background: var(--sys-control-bg);
+    border-top: 1px solid var(--sys-border-dark);
+  }
+
+  .daw-wizard-foot .win-button {
+    min-width: 75px;
+  }
+
+  .daw-wizard-main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .daw-wizard-steps {
+    width: 170px;
+    flex: none;
+    padding: 8px 6px;
+    background: var(--sys-control-bg);
+    border-right: 1px solid var(--sys-border-dark);
+  }
+
+  .daw-wizard-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--sys-control-text);
+    font: inherit;
+    font-size: 11.5px;
+    text-align: left;
+  }
+
+  .daw-wizard-step--clickable {
+    cursor: pointer;
+  }
+
+  .daw-wizard-step--clickable:hover:not(.daw-wizard-step--active) {
+    background: var(--sys-button-hover);
+    color: var(--sys-control-text);
+  }
+
+  .daw-wizard-step--active {
+    background: var(--sys-highlight-bg) !important;
+    color: var(--sys-highlight-text) !important;
+    font-weight: 600;
+  }
+
+  .daw-wizard-step--done {
+    color: var(--sys-control-text);
+  }
+
+  .daw-wizard-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--sys-button-bg);
+    border: 1px solid var(--sys-border-dark);
+    color: var(--sys-control-text);
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .daw-wizard-step--active .daw-wizard-step-num {
+    background: #ffffff !important;
+    border-color: #ffffff !important;
+    color: var(--sys-highlight-bg) !important;
+  }
+
+  .daw-wizard-step--done .daw-wizard-step-num {
+    background: #107c41 !important;
+    border-color: #107c41 !important;
+    color: #ffffff !important;
+  }
+
+  .daw-wizard-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 20px;
+    overflow: auto;
+    user-select: text;
+    background: var(--sys-control-bg);
+    color: var(--sys-control-text);
+  }
+
+  .daw-wizard-body--no-overflow {
+    overflow: hidden !important;
+  }
+
+  .daw-wizard-body h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--sys-control-text);
+  }
+
+  .daw-wizard-note {
+    margin: 0;
+    color: var(--sys-text-secondary);
+    line-height: 1.5;
+  }
+
+  .daw-wizard-note code,
+  .daw-wizard-body code {
+    font-family: var(--sw-font-mono);
+    background: var(--sys-window-bg);
+    border: 1px solid var(--sys-border-medium);
+    border-radius: 2px;
+    padding: 1px 4px;
+    color: var(--sys-control-text);
+  }
+
+  .daw-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .daw-field > span {
+    width: 130px;
+    flex: none;
+    color: var(--sys-control-text);
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  .daw-field .daw-text-input {
+    max-width: 320px;
+    height: 24px;
+  }
+
+  .daw-field input[type="file"] {
+    font-size: 11px;
+    color: var(--sys-control-text);
+  }
+
+  .daw-field input[type="file"]::file-selector-button {
+    background-color: var(--sys-button-bg);
+    color: var(--sys-control-text);
+    border: 1px solid var(--sys-button-border);
+    border-radius: 0;
+    padding: 2px 10px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    margin-right: 8px;
+  }
+
+  .daw-field input[type="file"]::file-selector-button:hover {
+    background-color: var(--sys-button-hover);
+    border-color: var(--sys-border-focus);
+  }
+
+  .daw-wizard-file {
+    margin-left: 140px;
+    color: #107c41;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .daw-wizard--wide {
+    width: min(1240px, 96vw);
+    height: min(780px, 94vh);
+  }
+
+  .daw-wizard-lyrics {
+    display: flex;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* CodeMirror 6 lyrics editor */
+  .daw-cm-editor-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    background: var(--sys-window-bg);
+    overflow: hidden;
+  }
+
+  .daw-cm-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 26px;
+    padding: 0 8px;
+    background: var(--sys-control-bg);
+    border-bottom: 1px solid var(--sys-border-dark);
+    font-size: 11px;
+    color: var(--sys-control-text);
+  }
+
+  .daw-cm-toolbar-left,
+  .daw-cm-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .daw-cm-toolbar-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    color: var(--sys-control-text);
+  }
+
+  .daw-cm-toolbar-title .bi {
+    color: var(--sys-primary);
+  }
+
+  .daw-cm-stat {
+    color: var(--sys-text-secondary);
+    font-family: var(--sw-font-mono);
+  }
+
+  .daw-cm-host {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .daw-cm-host .cm-editor {
+    height: 100%;
+    overflow: hidden;
+    font-family: var(--sw-font-mono) !important;
+  }
+
+  .daw-cm-host .cm-editor *,
+  .daw-cm-host .cm-content,
+  .daw-cm-host .cm-line,
+  .daw-cm-host .cm-gutters,
+  .daw-cm-host .cm-gutterElement {
+    font-family: var(--sw-font-mono) !important;
+  }
+
+  .daw-cm-host .cm-scroller,
+  .daw-cm-host .cm-content,
+  .daw-cm-host .cm-line,
+  .daw-cm-host .cm-gutterElement {
+    line-height: 1.45 !important;
+  }
+
+  .daw-cm-host .cm-line {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .daw-cm-host .cm-scroller {
+    overflow: auto !important;
+    height: 100%;
+    max-height: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  /* Syntax decorations */
+  .daw-cm-section-line {
+    background: rgba(155, 120, 255, 0.12);
+    border-left: 3px solid #9b78ff;
+    font-weight: 600;
+    color: #d8c8ff;
+  }
+
+  .daw-cm-pron-line {
+    background: rgba(34, 197, 94, 0.08);
+    border-left: 3px solid #22c55e;
+    color: #86efac;
+    font-weight: 500;
+  }
+
+  .daw-cm-inline-phones {
+    color: #38bdf8 !important;
+    background: rgba(56, 189, 248, 0.14);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 11px;
+    margin-left: 2px;
+  }
+
+  /* Interactive hover linking between syllable and phoneme chunk */
+  .daw-cm-syl[data-syl-link],
+  .daw-cm-phone-chunk[data-syl-link] {
+    transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+
+  .daw-cm-syl[data-syl-link]:hover,
+  .daw-cm-phone-chunk[data-syl-link]:hover,
+  .daw-cm-syl.daw-cm-hovered,
+  .daw-cm-phone-chunk.daw-cm-hovered {
+    background: rgba(245, 158, 11, 0.45) !important;
+    color: #fef08a !important;
+    box-shadow: 0 0 0 1px #f59e0b !important;
+    font-weight: 600;
+  }
+
+  .daw-cm-inline-brace {
+    color: #7b93b8;
+    font-weight: 400;
+  }
+
+  /* Editor highlight when auto-split pill is hovered in sidebar */
+  .daw-cm-hovered-autofix {
+    background: rgba(245, 158, 11, 0.45) !important;
+    color: #fef08a !important;
+    border-radius: 3px;
+    box-shadow: 0 0 0 2px #f59e0b !important;
+    font-weight: 700;
+  }
+
+  .daw-cm-comment-line {
+    color: #64748b;
+    font-style: italic;
+    opacity: 0.85;
+  }
+
+  .daw-cm-pipe {
+    color: #7b93b8;
+    font-weight: 700;
+    padding: 0 1px;
+  }
+
+  /* "+" and the syllables on either side of it carry one bar on top, so a joined run reads as one unit (shown as one in the karaoke monitor). */
+  .daw-cm-join {
+    color: #4ec9b0;
+    font-weight: 700;
+    padding: 0 1px;
+    box-shadow: inset 0 2px 0 #4ec9b0;
+  }
+
+  .daw-cm-joined {
+    box-shadow: inset 0 2px 0 #4ec9b0;
+  }
+
+  .daw-cm-unknown {
+    border-radius: 2px;
+    background: rgba(255, 93, 93, 0.28);
+    box-shadow: inset 0 -2px 0 #ff5d5d;
+    color: #ff9898;
+  }
+
+  .daw-cm-issue {
+    border-radius: 2px;
+    background: rgba(240, 166, 64, 0.28);
+    box-shadow: inset 0 -2px 0 var(--sw-warn);
+    color: #ffd27a;
+  }
+
+  .daw-cm-custom {
+    border-radius: 2px;
+    background: rgba(61, 139, 253, 0.25);
+    box-shadow: inset 0 -2px 0 var(--sys-primary);
+    color: #9fc4ff;
+  }
+
+  /* A joined word that is also flagged keeps both bars: the join on top, the flag below. */
+  .daw-cm-joined.daw-cm-unknown {
+    box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 #ff5d5d;
+  }
+
+  .daw-cm-joined.daw-cm-issue {
+    box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 var(--sw-warn);
+  }
+
+  .daw-cm-joined.daw-cm-custom {
+    box-shadow: inset 0 2px 0 #4ec9b0, inset 0 -2px 0 var(--sys-primary);
+  }
+
+  /* A word that is marked elsewhere in the text but not here: dotted, with a tooltip to use the same markup. */
+  .daw-cm-repeat {
+    text-decoration: underline dotted #f59e0b;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
+  .daw-cm-repeat-hovered {
+    background: rgba(245, 158, 11, 0.3);
+    border-radius: 2px;
+  }
+
+  .daw-cm-repeat-tip {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+  }
+
+  /* CodeMirror autocomplete tooltip */
+  .cm-tooltip.cm-tooltip-autocomplete {
+    background: var(--sys-window-bg) !important;
+    border: 1px solid var(--sys-border-dark) !important;
+    border-radius: 0 !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+    font-family: var(--sw-font-mono) !important;
+    font-size: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 500;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .cm-tooltip.cm-tooltip-autocomplete {
+    background: #181b22 !important;
+    border-color: #3a404b !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65) !important;
+  }
+
+  .cm-tooltip-autocomplete > ul {
+    counter-reset: cm-suggest-counter;
+    padding: 4px 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .cm-tooltip-autocomplete > ul > li {
+    counter-increment: cm-suggest-counter;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start !important;
+    gap: 8px;
+    padding: 4px 10px;
+    color: var(--sys-window-text);
+    font-family: var(--sw-font-mono) !important;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .cm-tooltip-autocomplete > ul > li::before {
+    content: counter(cm-suggest-counter);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--sys-text-secondary);
+    background: var(--sys-control-bg);
+    border-radius: 2px;
+    flex: none;
+    user-select: none;
+  }
+
+  .cm-tooltip-autocomplete > ul > li[aria-selected] {
+    background: #2563eb !important;
+    color: #ffffff !important;
+  }
+
+  .cm-tooltip-autocomplete > ul > li[aria-selected]::before {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.28) !important;
+  }
+
+  .cm-completionLabel {
+    font-weight: 600;
+    color: inherit !important;
+    text-align: left;
+  }
+
+  /* Detail (e.g. "section", "dictionary", "split word") - right-aligned with high contrast */
+  .cm-completionDetail {
+    font-style: normal;
+    color: #94a3b8 !important;
+    font-size: 11px;
+    margin-left: auto !important;
+    padding-left: 14px;
+    text-align: right !important;
+    opacity: 1 !important;
+    flex: none;
+  }
+
+  .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail {
+    color: #e0f2fe !important; /* Bright crisp white-blue on the blue background */
+    font-weight: 500;
+  }
+
+  .daw-wizard-check {
+    width: 300px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+  }
+
+  .daw-check-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 0;
+    border: 1px solid var(--sys-border-dark);
+    background: var(--sys-window-bg);
+    color: var(--sys-window-text);
+    font-weight: 600;
+  }
+
+  .daw-check-ok {
+    background: #e6f4ea;
+    border-color: #ceead6;
+    color: #137333;
+  }
+
+  .daw-check-bad {
+    background: #fde7e9;
+    border-color: #f5c2c7;
+    color: #a80000;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-check-ok {
+    background: #1f4d33;
+    border-color: #1f4d33;
+    color: #b7ffd0;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-check-bad {
+    background: #3d1d1f;
+    border-color: #3d1d1f;
+    color: #ffb4b4;
+  }
+
+  .daw-dict-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--sys-border-medium);
+  }
+
+  .daw-dict-word {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font: 600 13px var(--sw-font-mono);
+  }
+
+  .daw-dict-count {
+    color: var(--sys-text-secondary);
+    font-size: 11px;
+  }
+
+  .daw-dict-add {
+    display: flex;
+    gap: 4px;
+  }
+
+  .daw-dict-add .daw-text-input {
+    height: 24px;
+  }
+
+  .daw-dict-error {
+    color: #ffb4b4;
+    font-size: 11px;
+  }
+
+  .daw-dict-issue {
+    color: #ffd27a;
+    line-height: 1.4;
+  }
+
+  .daw-dict-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--sw-font-mono);
+  }
+
+  .daw-dict-entry code {
+    flex: 1;
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-chip-row-flush {
+    padding-left: 0;
+  }
+
+  .daw-wizard-error,
+  .daw-wizard-warn {
+    padding: 6px 8px;
+    border-radius: 4px;
+    line-height: 1.4;
+  }
+
+  .daw-wizard-error {
+    background: #fde7e9;
+    border: 1px solid #e81123;
+    color: #a80000;
+    border-radius: 0;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-wizard-error {
+    background: #3d1d1f;
+    color: #ffb4b4;
+  }
+
+  .daw-wizard-warn {
+    background: #fef7e0;
+    border: 1px solid #f59e0b;
+    color: #b06000;
+    border-radius: 0;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-wizard-warn {
+    background: #3a3220;
+    color: #ffd27a;
+  }
+
+  .daw-wizard-error-inline {
+    margin-right: auto;
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-wizard-time {
+    display: inline-flex;
+    align-items: center;
+    height: 44px;
+    flex-shrink: 0;
+  }
+
+  /* Tempo step */
+  .daw-tempo {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .daw-tempo-wave {
+    position: relative;
+    border-radius: 0;
+    border: 1px solid var(--sys-border-dark);
+    overflow: hidden;
+    background: #0d0f12;
+  }
+
+  .daw-tempo-wave canvas {
+    display: block;
+    touch-action: none;
+  }
+
+  .daw-tempo-overview {
+    border-top: 1px solid var(--sys-border-dark);
+    cursor: pointer;
+  }
+
+  .daw-tempo-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-tempo-transport {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .daw-tempo-hint {
+    margin-left: auto;
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-beat-lights {
+    display: flex;
+    gap: 4px;
+  }
+
+  .daw-beat-light {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    border: 1px solid var(--sys-button-border);
+    background: var(--sys-button-bg);
+    color: var(--sys-control-text);
+    font: 700 11px var(--sw-font-mono);
+    transition: background 60ms linear;
+  }
+
+  .daw-beat-light--on {
+    background: var(--sys-highlight-bg);
+    color: #ffffff;
+    box-shadow: 0 0 6px var(--sys-highlight-bg);
+  }
+
+  .daw-beat-light--one.daw-beat-light--on {
+    background: #ffc35a;
+    color: #000000;
+    box-shadow: 0 0 8px #ffc35a;
+  }
+
+  .daw-tempo-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .daw-tempo-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    background: var(--sys-control-bg);
+    color: var(--sys-control-text);
+  }
+
+  .daw-tap-pad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 90px;
+    border: 1px solid var(--sys-border-focus);
+    border-radius: 2px;
+    background: var(--sys-button-hover);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .daw-tap-pad:hover {
+    background: var(--sys-button-active);
+  }
+
+  .daw-tap-pad--flash2 {
+    animation: daw-tap-flash 180ms ease-out;
+  }
+
+  /* Two identical animations, alternated per tap, so every tap restarts it. */
+  .daw-tap-pad--flash2 {
+    animation-name: daw-tap-flash2;
+  }
+
+  @keyframes daw-tap-flash {
+    from {
+      background: #6fb6ff;
+      transform: scale(0.97);
+    }
+  }
+
+  @keyframes daw-tap-flash2 {
+    from {
+      background: #6fb6ff;
+      transform: scale(0.97);
+    }
+  }
+
+  .daw-tap-label {
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    color: var(--sys-primary);
+  }
+
+  .daw-tap-key {
+    color: var(--sys-text-secondary);
+    font: 11px var(--sw-font-mono);
+  }
+
+  .daw-tap-readout {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .daw-tap-bpm {
+    min-width: 90px;
+    color: var(--sys-primary);
+    font: 700 28px var(--sw-font-mono);
+    line-height: 1;
+  }
+
+  .daw-tap-meta {
+    color: var(--sys-text-secondary);
+  }
+
+  .daw-warn {
+    color: var(--sw-warn);
+  }
+
+  .daw-tap-dots {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 30px;
+    margin-left: auto;
+  }
+
+  .daw-tap-dot {
+    width: 5px;
+    border-radius: 2px;
+    background: #6fb6ff;
+  }
+
+  .daw-tempo-keys kbd,
+  .daw-wizard-note kbd {
+    padding: 1px 4px;
+    border: 1px solid var(--sys-border-medium);
+    border-radius: 2px;
+    background: var(--sys-window-bg);
+    font: 10px var(--sw-font-mono);
+    color: var(--sys-control-text);
+  }
+
+  .daw-wizard-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+
+  .daw-wizard-state--done {
+    color: var(--sw-ok);
+  }
+
+  .daw-wizard-state--error {
+    color: var(--sw-err);
+  }
+
+  .daw-wizard-log {
+    flex: 1;
+    min-height: 200px;
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    background: var(--sys-window-bg);
+    border: 1px solid var(--sys-border-dark);
+    border-radius: 0;
+    font: 11px/1.5 var(--sw-font-mono);
+    color: var(--sys-window-text);
+    white-space: pre-wrap;
+  }
+
+  :root:is([data-theme="dark"], [data-theme="high-contrast"]) .daw-wizard-log {
+    background: #0b0c0f;
+    border-color: #333333;
+    color: #b8c4d4;
+  }
+
+  .daw-kv-top {
+    align-items: flex-start;
+    text-align: right;
+  }
+
+  .daw-muted {
+    color: var(--sys-text-secondary);
+    font-weight: 400;
+  }
 }

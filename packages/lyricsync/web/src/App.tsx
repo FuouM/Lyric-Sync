@@ -2,7 +2,7 @@
 // Lyrics timing editor laid out like a DAW / NLE: menu bar, transport, project dock,
 // program monitor, inspector and a multi-track timeline.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { MenuBar, type MenuDef } from "./components/MenuBar";
+import { MenuBar, type MenuDef } from "soulwindow/solid/pro";
 import { LEAD_ONLY, TransportBar } from "./components/TransportBar";
 import { ProjectPanel, type ProjectTab } from "./components/ProjectPanel";
 import { ProgramMonitor } from "./components/ProgramMonitor";
@@ -41,7 +41,7 @@ import { blockNames, clipTime, isDuplicate, nextLaneId, renderOf, secPerTick, te
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat, writeFirstDownbeat } from "./lib/beat-grid";
 import { readTempoMap, tempoAt, type TempoMap } from "./lib/tempo-grid";
 import { persistedSignal } from "./lib/persisted-signal";
-import { theme, setTheme } from "./stores/theme";
+import { sw, swState } from "./soulwindow";
 import {
   addSectionAt,
   barBeatAt,
@@ -1658,9 +1658,7 @@ export function App() {
           { label: "Razor Tool", shortcut: "R", action: () => toggleRazor(), checked: razor() },
           { label: "Pitch Contour", action: () => setShowPitch(!showPitch()), checked: showPitch() },
           "separator",
-          { label: "Theme: Light", action: () => setTheme("light"), checked: theme() === "light" },
-          { label: "Theme: Dark", action: () => setTheme("dark"), checked: theme() === "dark" },
-          { label: "Theme: High Contrast", action: () => setTheme("high-contrast"), checked: theme() === "high-contrast" },
+          ...Object.entries(sw.themes).map(([id, def]) => ({ label: `Theme: ${def.label}`, action: () => sw.setTheme(id), checked: swState.theme() === id })),
         ],
       },
       {
@@ -1689,16 +1687,16 @@ export function App() {
       <h1>lyricsync</h1>
       <p>Time lyrics to the syllable, like editing clips in a video editor.</p>
       <div class="daw-welcome-actions">
-        <button class="daw-btn daw-btn-accent daw-btn-lg" onClick={() => setShowWizard(true)}>
+        <button class="win-button primary daw-btn-lg" onClick={() => setShowWizard(true)}>
           <i class="bi bi-magic" /> New Song…
         </button>
-        <button class="daw-btn daw-btn-lg" onClick={() => void pickSingleSong()}>
+        <button class="win-button daw-btn-lg" onClick={() => void pickSingleSong()}>
           <i class="bi bi-folder2-open" /> Open Song Folder…
         </button>
-        <button class="daw-btn daw-btn-lg" onClick={() => void openByPath()}>
+        <button class="win-button daw-btn-lg" onClick={() => void openByPath()}>
           <i class="bi bi-folder-symlink" /> Open by Path…
         </button>
-        <button class="daw-btn daw-btn-lg" onClick={() => void pickLibrary()}>
+        <button class="win-button daw-btn-lg" onClick={() => void pickLibrary()}>
           <i class="bi bi-collection" /> Open Library Folder…
         </button>
       </div>
@@ -1711,7 +1709,14 @@ export function App() {
 
   return (
     <div class="daw-app">
-      <MenuBar menus={menus()}>
+      <MenuBar
+        menus={menus()}
+        brand={
+          <>
+            <img src="/favicon.svg" class="daw-brand-icon" alt="" /> lyricsync
+          </>
+        }
+      >
         <Show when={song()}>
           <span class="daw-doc-title" title={song()!.name}>
             {(() => {
@@ -1935,13 +1940,13 @@ export function App() {
         />
       </Show>
 
-      <footer class="status-strip">
-        <div class="status-cell" style={{ flex: "1", "min-width": "0" }}>
+      <footer class="daw-statusbar">
+        <div class="daw-status-cell daw-status-cell--grow">
           <div
-            class="status-dot"
+            class="daw-status-dot"
             classList={{
-              busy: solving() || analysing(),
-              offline: status().toLowerCase().includes("fail") || status().toLowerCase().includes("error"),
+              "daw-status-dot--busy": solving() || analysing(),
+              "daw-status-dot--offline": status().toLowerCase().includes("fail") || status().toLowerCase().includes("error"),
             }}
           />
           <button
@@ -1954,23 +1959,23 @@ export function App() {
           </button>
           <span class="daw-status-msg" title={status()}>{status()}</span>
         </div>
-        <div class="status-cell">
+        <div class="daw-status-cell">
           <i class="bi bi-clock" />
           <span>{formatTimecode(currentTime())} / {formatTimecode(duration())}</span>
         </div>
         <Show when={barBeat()}>
           {(bb) => (
-            <div class="status-cell">
+            <div class="daw-status-cell">
               <i class="bi bi-music-note" />
               <span>Bar {bb().bar}.{bb().beat}</span>
             </div>
           )}
         </Show>
-        <div class="status-cell">
+        <div class="daw-status-cell">
           <i class="bi bi-cpu" />
           <span>{modelDevice() ? `${modelDevice()!.device.toUpperCase()}: ${gpuName(modelDevice()!.gpuProvider)}` : "No server"}</span>
         </div>
-        <div class="status-cell" style={{ "border-right": "none" }}>
+        <div class="daw-status-cell">
           <span class="daw-status-hint">Space: play · C: pin · [: start · ]: end · Ctrl+S: save</span>
         </div>
       </footer>

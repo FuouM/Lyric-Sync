@@ -4,7 +4,7 @@ import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { calibrationStats, formatTimecode, type SylRef } from "../lib/doc-edit";
 import type { TempoMap } from "../lib/tempo-grid";
-import { GroupBox } from "./GroupBox";
+import { GroupBox, ProgressBar } from "soulwindow/solid";
 
 export interface InspectorProps {
   doc: CalibrationDoc | null;
@@ -49,7 +49,7 @@ function TimeField(p: { label: string; value: number; onChange: (t: number) => v
   return (
     <div class="daw-prop-row">
       <span class="daw-prop-label">{p.label}</span>
-      <button class="daw-icon-btn" title={`Nudge ${p.label.toLowerCase()} −10 ms`} onClick={() => p.onChange(p.value - NUDGE)}>
+      <button class="win-button ds-btn-icon" title={`Nudge ${p.label.toLowerCase()} −10 ms`} onClick={() => p.onChange(p.value - NUDGE)}>
         <i class="bi bi-chevron-left" />
       </button>
       <input
@@ -65,10 +65,10 @@ function TimeField(p: { label: string; value: number; onChange: (t: number) => v
           }
         }}
       />
-      <button class="daw-icon-btn" title={`Nudge ${p.label.toLowerCase()} +10 ms`} onClick={() => p.onChange(p.value + NUDGE)}>
+      <button class="win-button ds-btn-icon" title={`Nudge ${p.label.toLowerCase()} +10 ms`} onClick={() => p.onChange(p.value + NUDGE)}>
         <i class="bi bi-chevron-right" />
       </button>
-      <button class="daw-btn daw-btn-sm" title={`Set ${p.label.toLowerCase()} to playhead (${p.hotkey})`} onClick={() => p.onPlayhead()}>
+      <button class="win-button ds-btn-sm" title={`Set ${p.label.toLowerCase()} to playhead (${p.hotkey})`} onClick={() => p.onPlayhead()}>
         Set ({p.hotkey})
       </button>
     </div>
@@ -112,12 +112,12 @@ function TempoRow(p: {
       <input class="daw-num" title="Tempo (BPM)" disabled={p.disabled} value={bpmDraft() ?? String(p.bpm)} onInput={(e) => setBpmDraft(e.currentTarget.value)} onKeyDown={keys} />
       <span class="daw-muted">BPM</span>
       <Show when={p.onGo}>
-        <button class="daw-icon-btn" title="Go to this change" onClick={() => p.onGo!()}>
+        <button class="win-button ds-btn-icon" title="Go to this change" onClick={() => p.onGo!()}>
           <i class="bi bi-skip-backward-fill" />
         </button>
       </Show>
       <Show when={p.onRemove}>
-        <button class="daw-icon-btn" title="Remove this change" disabled={p.disabled} onClick={() => p.onRemove!()}>
+        <button class="win-button ds-btn-icon" title="Remove this change" disabled={p.disabled} onClick={() => p.onRemove!()}>
           <i class="bi bi-x-lg" />
         </button>
       </Show>
@@ -208,6 +208,7 @@ export function Inspector(props: InspectorProps) {
     return s && line && word && pair ? { s, line, word, pair, pinned: isSylPinned(line, word, s.sylIdx) } : null;
   };
 
+  const [shortcutsCollapsed, setShortcutsCollapsed] = createSignal(false);
   return (
     <div class="daw-inspector">
       <Show when={props.doc} fallback={<div class="daw-empty-note">Open a song to inspect timings.</div>}>
@@ -216,9 +217,7 @@ export function Inspector(props: InspectorProps) {
           return (
             <>
               <GroupBox title="Song Details">
-                <div class="daw-progress" title="Pinned syllables">
-                  <div class="daw-progress-fill" style={{ width: `${(stats().pinned / Math.max(1, stats().total)) * 100}%` }} />
-                </div>
+                <ProgressBar value={stats().pinned / Math.max(1, stats().total)} aria-label="Pinned syllables" />
                 <div class="daw-kv"><span>Pinned syllables</span><b>{stats().pinned} / {stats().total}</b></div>
                 <div class="daw-kv"><span>Frozen lines</span><b>{stats().linesDone} / {doc().lines.length}</b></div>
                 <div class="daw-kv"><span>Tempo</span><b>{props.bpm ? `${props.bpm.toFixed(1)} BPM` : "—"}</b></div>
@@ -226,7 +225,7 @@ export function Inspector(props: InspectorProps) {
                   <span>Bar 1</span>
                   <b>
                     {props.bar1Time === null ? "—" : formatTimecode(props.bar1Time)}{" "}
-                    <button class="daw-btn daw-btn-sm" disabled={props.bar1Time === null} title="Make the beat nearest the playhead bar 1 (B)" onClick={() => props.onSetBar1()}>
+                    <button class="win-button ds-btn-sm" disabled={props.bar1Time === null} title="Make the beat nearest the playhead bar 1 (B)" onClick={() => props.onSetBar1()}>
                       <i class="bi bi-flag-fill" /> Set here
                     </button>
                   </b>
@@ -236,7 +235,7 @@ export function Inspector(props: InspectorProps) {
               <GroupBox
                 title="Tempo Map"
                 actions={
-                  <button class="daw-icon-btn" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+                  <button class="win-button ds-btn-icon" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
                     <i class="bi bi-plus-lg" />
                   </button>
                 }
@@ -272,7 +271,7 @@ export function Inspector(props: InspectorProps) {
                 <GroupBox
                   title="Fixed Bars"
                   actions={
-                    <button class="daw-btn daw-btn-sm" title="Free every fixed beat" disabled={props.pins.length === 0 || props.tempoBusy} onClick={() => props.onClearPins()}>
+                    <button class="win-button ds-btn-sm" title="Free every fixed beat" disabled={props.pins.length === 0 || props.tempoBusy} onClick={() => props.onClearPins()}>
                       Clear
                     </button>
                   }
@@ -283,10 +282,10 @@ export function Inspector(props: InspectorProps) {
                         <div class="daw-prop-row">
                           <span class="daw-prop-label">{p.bar === null ? `Beat ${p.beat + 1}` : `Bar ${p.bar}`}</span>
                           <b>{formatTimecode(p.at)}</b>
-                          <button class="daw-icon-btn" title="Go to this bar" onClick={() => props.onSeek(p.at)}>
+                          <button class="win-button ds-btn-icon" title="Go to this bar" onClick={() => props.onSeek(p.at)}>
                             <i class="bi bi-skip-backward-fill" />
                           </button>
-                          <button class="daw-icon-btn" title="Free this beat" disabled={props.tempoBusy} onClick={() => props.onRemovePin(p.beat)}>
+                          <button class="win-button ds-btn-icon" title="Free this beat" disabled={props.tempoBusy} onClick={() => props.onRemovePin(p.beat)}>
                             <i class="bi bi-x-lg" />
                           </button>
                         </div>
@@ -309,10 +308,10 @@ export function Inspector(props: InspectorProps) {
                       title="Selected Syllable"
                       actions={
                         <>
-                          <button class="daw-icon-btn" title="Previous syllable (,)" onClick={() => props.onStep(-1)}>
+                          <button class="win-button ds-btn-icon" title="Previous syllable (,)" onClick={() => props.onStep(-1)}>
                             <i class="bi bi-skip-start-fill" />
                           </button>
-                          <button class="daw-icon-btn" title="Next syllable (.)" onClick={() => props.onStep(1)}>
+                          <button class="win-button ds-btn-icon" title="Next syllable (.)" onClick={() => props.onStep(1)}>
                             <i class="bi bi-skip-end-fill" />
                           </button>
                         </>
@@ -332,10 +331,10 @@ export function Inspector(props: InspectorProps) {
                       <TimeField label="End" hotkey="]" value={x().pair[1]} onChange={(t) => props.onSetEdge("end", t)} onPlayhead={() => props.onEdgeToPlayhead("end")} />
                       <div class="daw-kv"><span>Duration</span><b>{((x().pair[1] - x().pair[0]) * 1000).toFixed(0)} ms</b></div>
                       <div class="daw-btn-row">
-                        <button class="daw-btn" classList={{ "daw-btn-pinned": x().pinned }} title="Pin / unpin this syllable (C)" onClick={() => props.onTogglePin()}>
+                        <button class="win-button" classList={{ "daw-btn-pinned": x().pinned }} title="Pin / unpin this syllable (C)" onClick={() => props.onTogglePin()}>
                           <i class={`bi bi-${x().pinned ? "pin-fill" : "pin"}`} /> {x().pinned ? "Pinned" : "Pin"}
                         </button>
-                        <button class="daw-btn" title="Play this syllable (Enter)" onClick={() => props.onPlaySyllable()}>
+                        <button class="win-button" title="Play this syllable (Enter)" onClick={() => props.onPlaySyllable()}>
                           <i class="bi bi-play-fill" /> Play
                         </button>
                       </div>
@@ -346,13 +345,13 @@ export function Inspector(props: InspectorProps) {
                       <div class="daw-kv"><span>Span</span><b>{formatTimecode(x().line.start)} – {formatTimecode(x().line.end)}</b></div>
                       <div class="daw-kv"><span>Status</span><b class={x().line.calibrated ? "daw-ok" : ""}>{x().line.calibrated ? "Frozen (all pinned)" : "Solver may move it"}</b></div>
                       <div class="daw-btn-row">
-                        <button class="daw-btn" title="Play this line (P)" onClick={() => props.onPlayLine()}>
+                        <button class="win-button" title="Play this line (P)" onClick={() => props.onPlayLine()}>
                           <i class="bi bi-play-fill" /> Play line
                         </button>
-                        <button class="daw-btn" title="Pin first start and last end only" onClick={() => props.onPinLineEdges()}>
+                        <button class="win-button" title="Pin first start and last end only" onClick={() => props.onPinLineEdges()}>
                           <i class="bi bi-arrows" /> Pin edges
                         </button>
-                        <button class="daw-btn" classList={{ "daw-btn-pinned": x().line.calibrated }} title="Pin / unpin every syllable (Shift+C)" onClick={() => props.onToggleLinePin()}>
+                        <button class="win-button" classList={{ "daw-btn-pinned": x().line.calibrated }} title="Pin / unpin every syllable (Shift+C)" onClick={() => props.onToggleLinePin()}>
                           <i class="bi bi-lock" /> {x().line.calibrated ? "Unfreeze" : "Freeze"}
                         </button>
                       </div>
@@ -365,7 +364,7 @@ export function Inspector(props: InspectorProps) {
         }}
       </Show>
 
-      <GroupBox title="Keyboard Shortcuts" collapsible defaultCollapsed={false}>
+      <GroupBox title="Keyboard Shortcuts" collapsible collapsed={shortcutsCollapsed()} onToggle={() => setShortcutsCollapsed(!shortcutsCollapsed())}>
         <For each={SHORTCUTS}>
           {([k, v]) => (
             <div class="daw-kv daw-shortcut"><kbd>{k}</kbd><span>{v}</span></div>

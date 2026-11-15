@@ -264,7 +264,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
           <span>
             <img src="/favicon.svg" class="daw-wizard-head-icon" alt="" /> New Song
           </span>
-          <button class="daw-icon-btn" title="Close" disabled={busy()} onClick={requestClose}>
+          <button class="win-button ds-btn-icon" title="Close" disabled={busy()} onClick={requestClose}>
             <i class="bi bi-x-lg" />
           </button>
         </header>
@@ -410,7 +410,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
         <footer class="daw-wizard-foot">
           <span class="daw-wizard-error-inline">{step() < 4 ? (valid(step()) ?? "") : ""}</span>
           <button
-            class="daw-btn"
+            class="win-button"
             disabled={step() === 0 || busy() || job()?.state === "done"}
             onClick={() => {
               if (job()?.state === "error") setJob(null);
@@ -420,18 +420,18 @@ export function NewSongWizard(props: NewSongWizardProps) {
             <i class="bi bi-chevron-left" /> Back
           </button>
           <Show when={step() < 4}>
-            <button class="daw-btn daw-btn-accent" disabled={valid(step()) !== null} onClick={() => setStep(step() + 1)}>
+            <button class="win-button primary" disabled={valid(step()) !== null} onClick={() => setStep(step() + 1)}>
               Next <i class="bi bi-chevron-right" />
             </button>
           </Show>
           <Show when={step() === 4 && job() === null}>
-            <button class="daw-btn daw-btn-accent" onClick={() => void submit()}>
+            <button class="win-button primary" onClick={() => void submit()}>
               <i class="bi bi-hammer" /> Create and build
             </button>
           </Show>
           <Show when={job()?.state === "error"}>
             <button
-              class="daw-btn"
+              class="win-button"
               onClick={() => {
                 setJob(null);
                 setStep(2);
@@ -439,7 +439,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
             >
               <i class="bi bi-pencil" /> Edit Lyrics
             </button>
-            <button class="daw-btn daw-btn-accent" onClick={() => void resume()}>
+            <button class="win-button primary" onClick={() => void resume()}>
               <i class="bi bi-arrow-repeat" /> Resume build
             </button>
           </Show>

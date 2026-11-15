@@ -239,7 +239,7 @@ const repeatTooltip = hoverTooltip(
           const add = (label: string, targets: readonly RepeatTarget[]) => {
             const b = document.createElement("button");
             b.type = "button";
-            b.className = "daw-btn daw-btn-sm";
+            b.className = "win-button ds-btn-sm";
             b.textContent = label;
             b.onclick = () => v.dispatch({ changes: repeatChanges(v.state, suggestion, targets) });
             dom.append(b);
@@ -826,27 +826,27 @@ export function LyricsStep(props: LyricsStepProps) {
             </span>
           </div>
           <div class="daw-cm-toolbar-right">
-            <button class="daw-btn daw-btn-xs" title="Select all text (Ctrl+A)" onClick={selectAll}>
+            <button class="win-button ds-btn-xs" title="Select all text (Ctrl+A)" onClick={selectAll}>
               <i class="bi bi-check2-all" /> Select All
             </button>
-            <button class="daw-btn daw-btn-xs" title="Copy all lyrics to clipboard" onClick={copyAll}>
+            <button class="win-button ds-btn-xs" title="Copy all lyrics to clipboard" onClick={copyAll}>
               <i class={`bi bi-${copied() ? "check-lg" : "clipboard"}`} /> {copied() ? "Copied!" : "Copy All"}
             </button>
-            <button class="daw-btn daw-btn-xs" title="Split syllables in word at cursor" onClick={splitWordAtCursor}>
+            <button class="win-button ds-btn-xs" title="Split syllables in word at cursor" onClick={splitWordAtCursor}>
               <i class="bi bi-scissors" /> Split Word
             </button>
-            <button class="daw-btn daw-btn-xs" title="Insert syllable divider (|) at cursor" onClick={insertPipe}>
+            <button class="win-button ds-btn-xs" title="Insert syllable divider (|) at cursor" onClick={insertPipe}>
               <b>|</b> Pipe
             </button>
             <button
-              class="daw-btn daw-btn-xs"
-              classList={{ "daw-btn-accent": wordWrap() }}
+              class="win-button ds-btn-xs"
+              classList={{ active: wordWrap() }}
               title={wordWrap() ? "Line wrapping enabled (click to disable)" : "Line wrapping disabled (click to enable)"}
               onClick={() => setWordWrap(!wordWrap())}
             >
               <i class="bi bi-text-wrap" /> Wrap
             </button>
-            <button class="daw-btn daw-btn-xs daw-btn-danger-ghost" title="Clear lyrics text" onClick={clearAll}>
+            <button class="win-button ds-btn-xs daw-btn-danger-ghost" title="Clear lyrics text" onClick={clearAll}>
               <i class="bi bi-trash3" />
             </button>
           </div>
@@ -887,7 +887,7 @@ export function LyricsStep(props: LyricsStepProps) {
                     onInput={(e) => setDrafts({ ...drafts(), [u.key]: e.currentTarget.value })}
                     onKeyDown={(e) => e.key === "Enter" && void add(u.key, u.word)}
                   />
-                  <button class="daw-btn daw-btn-sm daw-btn-accent" disabled={(drafts()[u.key] ?? "").trim() === ""} onClick={() => void add(u.key, u.word)}>
+                  <button class="win-button ds-btn-sm primary" disabled={(drafts()[u.key] ?? "").trim() === ""} onClick={() => void add(u.key, u.word)}>
                     Add
                   </button>
                 </div>
@@ -920,7 +920,7 @@ export function LyricsStep(props: LyricsStepProps) {
               <div class="daw-dict-entry">
                 <span class="daw-hl-custom">{key}</span>
                 <code>{phones.join(" ")}</code>
-                <button class="daw-icon-btn" title="Remove" onClick={() => props.onRemovePronunciation(key)}>
+                <button class="win-button ds-btn-icon" title="Remove" onClick={() => props.onRemovePronunciation(key)}>
                   <i class="bi bi-x-lg" />
                 </button>
               </div>

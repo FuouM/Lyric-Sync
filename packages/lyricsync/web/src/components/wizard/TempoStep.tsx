@@ -5,10 +5,11 @@
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { floorIndex, formatTimecode } from "../../lib/doc-edit";
 import { MAX_BPM, MIN_BPM, parseTempoRows, tempoAt, tempoGrid, type TempoRow } from "../../lib/tempo-grid";
-import { LcdDigits } from "../LcdDigits";
+import { LcdDigits } from "soulwindow/solid/pro";
+import { readTokens } from "soulwindow/runtime";
 import { persistedSignal } from "../../lib/persisted-signal";
 import { addTap, fitTaps, type Tap } from "../../lib/tap-tempo";
-import { theme } from "../../stores/theme";
+import { swState } from "../../soulwindow";
 
 export interface TempoStepProps {
   mixUrl: string | null;
@@ -183,6 +184,8 @@ export function TempoStep(props: TempoStepProps) {
   // ── Drawing ─────────────────────────────────────────────────────────────
   const DETAIL_H = 130;
   const OVER_H = 26;
+  /** `--tl-*` canvas colours; readTokens reads every stylesheet, so only on a theme or accent change. */
+  const palette = createMemo(() => (swState.theme(), swState.accent(), readTokens("--tl-")));
 
   createEffect(() => {
     const w = width();
@@ -192,6 +195,7 @@ export function TempoStep(props: TempoStepProps) {
     const ch = parsed().changes;
     const d = downbeatNum();
     const dpr = window.devicePixelRatio || 1;
+    const tl = palette();
     for (const [c, h] of [[canvas, DETAIL_H], [overview, OVER_H]] as const) {
       c.width = Math.floor(w * dpr);
       c.height = Math.floor(h * dpr);
@@ -200,15 +204,14 @@ export function TempoStep(props: TempoStepProps) {
     }
 
     // Detail: VIEW_SEC around the play position
-    const isDark = theme() !== "light";
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = isDark ? "#0d0f12" : "#ffffff";
+    ctx.fillStyle = tl.bg!;
     ctx.fillRect(0, 0, w, DETAIL_H);
     const v0 = t - VIEW_SEC / 2;
     const x = (s: number) => ((s - v0) / VIEW_SEC) * w;
     if (peaks) {
-      ctx.fillStyle = isDark ? "#6b7a90" : "#475569";
+      ctx.fillStyle = tl.waveMix!;
       const mid = DETAIL_H / 2 + 8;
       for (let px = 0; px < w; px++) {
         const t0 = v0 + (px / w) * VIEW_SEC;
@@ -244,22 +247,24 @@ export function TempoStep(props: TempoStepProps) {
     const run = tapRun();
     const tf = tapFit();
     if (run.clock === "song") {
-      const green = isDark ? "74,222,128" : "22,163,74";
+      const green = tl.clipPinned!;
       if (tf !== null && tf.period > 60 / (MAX_BPM * 2)) {
         ctx.setLineDash([3, 3]);
         for (let k = Math.ceil((v0 - tf.origin) / tf.period); tf.origin + k * tf.period <= v0 + VIEW_SEC; k++) {
           const bx = Math.round(x(tf.origin + k * tf.period)) + 0.5;
           const bar = ((k % 4) + 4) % 4 === 0;
-          ctx.strokeStyle = `rgba(${green},${bar ? 0.95 : 0.55})`;
+          ctx.strokeStyle = green;
+          ctx.globalAlpha = bar ? 0.95 : 0.55;
           ctx.lineWidth = bar ? 2 : 1;
           ctx.beginPath();
           ctx.moveTo(bx, 16);
           ctx.lineTo(bx, DETAIL_H);
           ctx.stroke();
         }
+        ctx.globalAlpha = 1;
         ctx.setLineDash([]);
       }
-      ctx.fillStyle = `rgb(${green})`;
+      ctx.fillStyle = green;
       for (const p of run.taps) {
         const px = x(p.t);
         if (px < -6 || px > w + 6) continue;
@@ -295,17 +300,17 @@ export function TempoStep(props: TempoStepProps) {
       ctx.lineTo(fx + 2, 14);
       ctx.fill();
     }
-    ctx.fillStyle = "#ff3b30";
+    ctx.fillStyle = tl.playhead!;
     ctx.fillRect(Math.round(w / 2), 0, 1.5, DETAIL_H);
 
     // Overview: whole song, the detail window, the play position
     const o = overview.getContext("2d")!;
     o.setTransform(dpr, 0, 0, dpr, 0, 0);
-    o.fillStyle = isDark ? "#101216" : "#f1f3f6";
+    o.fillStyle = tl.overviewBg!;
     o.fillRect(0, 0, w, OVER_H);
     const total = songEnd();
     if (peaks && total > 0) {
-      o.fillStyle = isDark ? "#3b4658" : "#94a3b8";
+      o.fillStyle = tl.waveMix!;
       for (let px = 0; px < w; px++) {
         const a = Math.floor((px / w) * peaks.length);
         const b = Math.max(a + 1, Math.floor(((px + 1) / w) * peaks.length));
@@ -315,12 +320,14 @@ export function TempoStep(props: TempoStepProps) {
       }
       const vx = (v0 / total) * w;
       const vw = Math.max(6, (VIEW_SEC / total) * w);
-      o.fillStyle = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,120,215,0.15)";
+      o.fillStyle = tl.overviewBorder!;
+      o.globalAlpha = 0.15;
       o.fillRect(vx, 0, vw, OVER_H);
-      o.strokeStyle = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)";
+      o.globalAlpha = 1;
+      o.strokeStyle = tl.overviewBorder!;
       o.lineWidth = 1;
       o.strokeRect(vx + 0.5, 0.5, vw - 1, OVER_H - 1);
-      o.fillStyle = "#ff3b30";
+      o.fillStyle = tl.playhead!;
       o.fillRect((t / total) * w, 0, 1.5, OVER_H);
       if (d !== null) {
         o.fillStyle = "#ffb703";
@@ -421,7 +428,7 @@ export function TempoStep(props: TempoStepProps) {
         <div class="daw-beat-lights">
           <For each={[0, 1, 2, 3]}>{(i) => <span class="daw-beat-light" classList={{ "daw-beat-light--on": lightBeat() === i, "daw-beat-light--one": i === 0 }}>{i + 1}</span>}</For>
         </div>
-        <button class="daw-toggle" classList={{ "daw-on": click() }} title="Click on the grid while playing" onClick={(e) => { setClick(!click()); e.currentTarget.blur(); }}>
+        <button class="win-button" classList={{ active: click() }} title="Click on the grid while playing" onClick={(e) => { setClick(!click()); e.currentTarget.blur(); }}>
           <i class="bi bi-bell-fill" /> Click
         </button>
         <span class="daw-wizard-note daw-tempo-hint">Drag the waveform or the bar below it to scroll · click to jump · double-click to put beat 1 there</span>
@@ -452,9 +459,9 @@ export function TempoStep(props: TempoStepProps) {
           <div class="daw-field">
             <span>BPM</span>
             <input class="daw-num" value={props.bpm} onInput={(e) => props.onBpm(e.currentTarget.value)} />
-            <button class="daw-btn daw-btn-sm" title="Half tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() / 2).toFixed(2))}>×½</button>
-            <button class="daw-btn daw-btn-sm" title="Double tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() * 2).toFixed(2))}>×2</button>
-            <button class="daw-btn daw-btn-sm" title="Clear the taps (R)" onClick={resetTaps}>Reset</button>
+            <button class="win-button ds-btn-sm" title="Half tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() / 2).toFixed(2))}>×½</button>
+            <button class="win-button ds-btn-sm" title="Double tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() * 2).toFixed(2))}>×2</button>
+            <button class="win-button ds-btn-sm" title="Clear the taps (R)" onClick={resetTaps}>Reset</button>
           </div>
           <p class="daw-wizard-note">
             Tap along with the beat while the song plays; every tap counts, so keep tapping until the ± is small. A skipped beat is fine. The green
@@ -470,23 +477,23 @@ export function TempoStep(props: TempoStepProps) {
             first strong beat, or double-click the waveform there; drag the gold flag to fine-tune.
           </p>
           <div class="daw-btn-row">
-            <button class="daw-btn daw-btn-accent" onClick={(e) => { markDownbeat(time()); e.currentTarget.blur(); }}>
+            <button class="win-button primary" onClick={(e) => { markDownbeat(time()); e.currentTarget.blur(); }}>
               <i class="bi bi-flag-fill" /> Beat 1 here (D)
             </button>
-            <button class="daw-btn" disabled={downbeatNum() === null} onClick={() => seek((downbeatNum() ?? 0) - 1)}>
+            <button class="win-button" disabled={downbeatNum() === null} onClick={() => seek((downbeatNum() ?? 0) - 1)}>
               <i class="bi bi-skip-backward-fill" /> Go to it
             </button>
           </div>
           <div class="daw-field">
             <span>Time (s)</span>
-            <button class="daw-icon-btn" title="−10 ms" disabled={downbeatNum() === null} onClick={() => markDownbeat((downbeatNum() ?? 0) - 0.01)}>
+            <button class="win-button ds-btn-icon" title="−10 ms" disabled={downbeatNum() === null} onClick={() => markDownbeat((downbeatNum() ?? 0) - 0.01)}>
               <i class="bi bi-chevron-left" />
             </button>
             <input class="daw-num" placeholder="not set" value={props.downbeat} onInput={(e) => props.onDownbeat(e.currentTarget.value)} />
-            <button class="daw-icon-btn" title="+10 ms" disabled={downbeatNum() === null} onClick={() => markDownbeat((downbeatNum() ?? 0) + 0.01)}>
+            <button class="win-button ds-btn-icon" title="+10 ms" disabled={downbeatNum() === null} onClick={() => markDownbeat((downbeatNum() ?? 0) + 0.01)}>
               <i class="bi bi-chevron-right" />
             </button>
-            <button class="daw-btn daw-btn-sm" disabled={downbeatNum() === null} onClick={() => props.onDownbeat("")}>Clear</button>
+            <button class="win-button ds-btn-sm" disabled={downbeatNum() === null} onClick={() => props.onDownbeat("")}>Clear</button>
           </div>
           <p class="daw-wizard-note">With both set, the gold bar lines and the click should land on the music. If they drift, the tempo is off.</p>
         </section>
@@ -498,7 +505,7 @@ export function TempoStep(props: TempoStepProps) {
             then follows it, and the beat tracker expects that tempo from then on. Tap along to set a change's tempo.
           </p>
           <div class="daw-btn-row">
-            <button class="daw-btn daw-btn-accent" onClick={(e) => { addChange(); e.currentTarget.blur(); }}>
+            <button class="win-button primary" onClick={(e) => { addChange(); e.currentTarget.blur(); }}>
               <i class="bi bi-plus-lg" /> Tempo change here
             </button>
           </div>
@@ -509,10 +516,10 @@ export function TempoStep(props: TempoStepProps) {
                 <input class="daw-num" value={r().at} onInput={(e) => setRow(i, { at: e.currentTarget.value })} />
                 <span>BPM</span>
                 <input class="daw-num" value={r().bpm} onInput={(e) => setRow(i, { bpm: e.currentTarget.value })} />
-                <button class="daw-icon-btn" title="Go there" disabled={!(Number(r().at) > 0)} onClick={() => seek(Number(r().at))}>
+                <button class="win-button ds-btn-icon" title="Go there" disabled={!(Number(r().at) > 0)} onClick={() => seek(Number(r().at))}>
                   <i class="bi bi-skip-backward-fill" />
                 </button>
-                <button class="daw-icon-btn" title="Remove" onClick={() => props.onChanges(props.changes.filter((_, j) => j !== i))}>
+                <button class="win-button ds-btn-icon" title="Remove" onClick={() => props.onChanges(props.changes.filter((_, j) => j !== i))}>
                   <i class="bi bi-x-lg" />
                 </button>
               </div>

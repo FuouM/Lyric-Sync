@@ -3,7 +3,8 @@
 // vocal lanes (clips of rendered vocal tracks: drag a clip on the beat grid, cut it with the razor), lyric clips with editable syllable
 // edges, the other singers' lyrics (faint, read-only), overview scrollbar.
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
-import { theme } from "../stores/theme";
+import { readTokens } from "soulwindow/runtime";
+import { swState } from "../soulwindow";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
 import type { TempoMap } from "../lib/tempo-grid";
@@ -214,70 +215,28 @@ function layoutLanes(
 
 const RULER_STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 
-const C_DARK = {
-  bg: "#16181d",
-  laneAlt: "#1a1d23",
-  laneBorder: "#262a33",
-  ruler: "#1f232b",
-  rulerText: "#9aa3b2",
-  beat: "rgba(255,255,255,0.05)",
-  downbeat: "rgba(255,190,80,0.22)",
-  mixWave: "#6b7a90",
-  vocalWave: "#2bb3a3",
-  pitch: "#ffd166",
-  clipFree: "#2d5f9a",
-  clipFreeAlt: "#356bab",
-  clipFreeHead: "#22476f",
-  clipPinned: "#2f7d4f",
-  clipPinnedHead: "#235c3b",
-  clipSel: "#d9822b",
-  clipText: "#f1f5f9",
-  playhead: "#ff3b30",
-  snap: "#00e5ff",
-  edgeHover: "#ffffff",
-  hotspot: "#ff5d5d",
-  overviewBg: "#101216",
-  overviewBorder: "rgba(255,255,255,0.7)",
-  snapText: "#001318",
-  wordHeadText: "#cfd8e3",
-};
+/** The `--tl-*` tokens the canvas paints with (SoulWindow pro; per theme and accent). */
+const TL_KEYS = [
+  "bg", "laneAlt", "laneBorder", "ruler", "rulerText", "beat", "downbeat", "waveMix", "waveVocal", "pitch",
+  "clip", "clipAlt", "clipHead", "clipPinned", "clipPinnedHead", "clipSelected", "clipText",
+  "playhead", "snap", "snapText", "edgeHover", "hotspot", "overviewBg", "overviewBorder",
+] as const;
+type TlPalette = Record<(typeof TL_KEYS)[number], string>;
 
-const C_LIGHT = {
-  bg: "#ffffff",
-  laneAlt: "#f8f9fa",
-  laneBorder: "#e2e8f0",
-  ruler: "#f1f3f6",
-  rulerText: "#4b5563",
-  beat: "rgba(0,0,0,0.06)",
-  downbeat: "rgba(217,119,6,0.35)",
-  mixWave: "#475569",
-  vocalWave: "#0d9488",
-  pitch: "#b45309",
-  clipFree: "#3b82f6",
-  clipFreeAlt: "#2563eb",
-  clipFreeHead: "#1d4ed8",
-  clipPinned: "#16a34a",
-  clipPinnedHead: "#15803d",
-  clipSel: "#d97706",
-  clipText: "#ffffff",
-  playhead: "#dc2626",
-  snap: "#0284c7",
-  edgeHover: "#000000",
-  hotspot: "#ef4444",
-  overviewBg: "#f1f3f6",
-  overviewBorder: "rgba(0,0,0,0.6)",
-  snapText: "#ffffff",
-  wordHeadText: "#ffffff",
-};
+/** Reads every stylesheet, so call it only when the theme or accent changes. */
+function readPalette(): TlPalette {
+  const t = readTokens("--tl-");
+  for (const k of TL_KEYS) if (!t[k]) throw new Error(`SoulWindow token --tl-${k} is missing`);
+  return t as TlPalette;
+}
 
-let isDarkCurrent = true;
-let C = C_DARK;
-
+let C: TlPalette;
 
 export function TimelineCanvas(props: TimelineCanvasProps) {
   let container!: HTMLDivElement;
   let canvas!: HTMLCanvasElement;
   const [size, setSize] = createSignal({ w: 800, h: 320 });
+  const palette = createMemo(() => (swState.theme(), swState.accent(), readPalette()));
   const layout = createMemo(() => layoutLanes(size().h, props.lanes.length, props.hasVocal, props.faint.length));
   /** Vertical scroll of the vocal lanes area, in px. */
   const [laneScroll, setLaneScroll] = createSignal(0);
@@ -479,8 +438,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const dpr = window.devicePixelRatio || 1;
     const W = canvasW();
     const H = size().h;
-    isDarkCurrent = theme() !== "light";
-    C = isDarkCurrent ? C_DARK : C_LIGHT;
+    C = palette();
     if (!sceneCovers(W, H, dpr)) paintScene(W, H, dpr);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const s = sceneSpan;
@@ -535,8 +493,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     // Song end shading
     const endX = tToX(total());
     if (props.doc && endX < W) {
-      ctx.fillStyle = isDarkCurrent ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.06)";
+      ctx.fillStyle = C.overviewBg;
+      ctx.globalAlpha = 0.6;
       ctx.fillRect(Math.max(0, endX), contentTop, W - endX, contentBottom - contentTop);
+      ctx.globalAlpha = 1;
     }
 
     // Beat grid
@@ -565,8 +525,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     drawRuler(ctx, W, lanes.ruler, downs);
     drawMarkers(ctx, W, lanes.markers);
     drawTempo(ctx, W, lanes.tempo);
-    drawWave(ctx, lanes.mix, props.mixPeaks, C.mixWave, props.audible.mix);
-    drawWave(ctx, lanes.vocal, props.vocalPeaks, C.vocalWave, props.audible.vocal);
+    drawWave(ctx, lanes.mix, props.mixPeaks, C.waveMix, props.audible.mix);
+    drawWave(ctx, lanes.vocal, props.vocalPeaks, C.waveVocal, props.audible.vocal);
     drawVocalLanes(ctx, W, false);
     if (props.showPitch) drawPitch(ctx, lanes.vocal);
     drawLyrics(ctx, lanes.lyrics);
@@ -958,10 +918,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         roundRect(ctx, wx1, top, ww, h, 3);
         ctx.clip();
         // Word header strip
-        ctx.fillStyle = allPinned ? C.clipPinnedHead : C.clipFreeHead;
+        ctx.fillStyle = allPinned ? C.clipPinnedHead : C.clipHead;
         ctx.fillRect(wx1, top, ww, headH);
         if (ww > 16) {
-          ctx.fillStyle = C.wordHeadText;
+          ctx.fillStyle = C.clipText;
           ctx.font = "10px 'Segoe UI', sans-serif";
           ctx.fillText(w.w, wx1 + 4, top + 10);
         }
@@ -972,7 +932,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           const ref = { lineIdx: li, wordIdx: wi, sylIdx: si };
           const sel = sameSyl(ref, props.selectedSyl);
           const pinned = isSylPinned(line, w, si);
-          ctx.fillStyle = sel ? C.clipSel : pinned ? C.clipPinned : si % 2 === 0 ? C.clipFree : C.clipFreeAlt;
+          ctx.fillStyle = sel ? C.clipSelected : pinned ? C.clipPinned : si % 2 === 0 ? C.clip : C.clipAlt;
           ctx.fillRect(x1, top + headH, Math.max(1, x2 - x1), h - headH);
           if (x2 - x1 > 12) {
             ctx.fillStyle = C.clipText;
@@ -1042,7 +1002,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           w.syl.forEach(([s0, s1], si) => {
             const x1 = tToX(s0);
             const x2 = tToX(s1);
-            ctx.fillStyle = si % 2 === 0 ? C.clipFree : C.clipFreeAlt;
+            ctx.fillStyle = si % 2 === 0 ? C.clip : C.clipAlt;
             ctx.fillRect(x1, top, Math.max(1, x2 - x1 - 1), h);
             if (x2 - x1 > 12) {
               ctx.save();
@@ -1069,15 +1029,17 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       if (line.end < vStart() || line.start > vStart() + vDur()) return;
       const x1 = tToX(line.start);
       const w = Math.max(2, tToX(line.end) - x1);
-      ctx.fillStyle = li === selLine ? (isDarkCurrent ? "#8a5a22" : "#f59e0b") : line.calibrated ? (isDarkCurrent ? "#2a5a3c" : "#86efac") : (isDarkCurrent ? "#2a3a52" : "#bfdbfe");
+      ctx.fillStyle = li === selLine ? C.clipSelected : line.calibrated ? C.clipPinned : C.clip;
+      ctx.globalAlpha = 0.4;
       roundRect(ctx, x1, lane.y + 3, w, lane.h - 6, 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
       if (w > 22) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(x1, lane.y, w, lane.h);
         ctx.clip();
-        ctx.fillStyle = isDarkCurrent ? "#d6dde7" : "#1f2937";
+        ctx.fillStyle = C.rulerText;
         ctx.font = "10px 'Segoe UI', sans-serif";
         ctx.fillText(`L${line.i}  ${line.text}`, x1 + 4, lane.y + 14);
         ctx.restore();
@@ -1091,13 +1053,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const T = total();
     const sx = (t: number) => (t / T) * W;
     for (const line of props.doc?.lines ?? []) {
-      ctx.fillStyle = line.calibrated ? (isDarkCurrent ? "#3f9a62" : "#16a34a") : (isDarkCurrent ? "#3b5f8f" : "#2563eb");
+      ctx.fillStyle = line.calibrated ? C.clipPinned : C.clip;
       ctx.fillRect(sx(line.start), y + 6, Math.max(1, sx(line.end) - sx(line.start)), OVERVIEW_H - 12);
     }
     const vx = sx(props.viewStart);
     const vw = Math.max(6, sx(props.viewStart + props.viewDuration) - vx);
-    ctx.fillStyle = isDarkCurrent ? "rgba(255,255,255,0.10)" : "rgba(0,120,215,0.12)";
+    ctx.fillStyle = C.overviewBorder;
+    ctx.globalAlpha = 0.15;
     ctx.fillRect(vx, y + 2, vw, OVERVIEW_H - 4);
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = C.overviewBorder;
     ctx.strokeRect(vx + 0.5, y + 2.5, vw - 1, OVERVIEW_H - 5);
     ctx.fillStyle = C.playhead;
@@ -1110,7 +1074,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   // Scene data: anything that changes the painted lanes (not the playhead or the scroll, which only move the blit).
   createEffect(() => {
-    void [theme(), props.doc, props.viewDuration, props.beats, props.downbeats, props.bar1Index, props.mixPeaks, props.vocalPeaks,
+    void [palette(), props.doc, props.viewDuration, props.beats, props.downbeats, props.bar1Index, props.mixPeaks, props.vocalPeaks,
       props.peaksPerSec, props.pitchContour, props.showPitch, props.selectedSyl, props.hotspots, props.audible, props.duration, props.tempo,
       props.lanes, props.faint, laneScroll(), size()];
     sceneDirty = true;
@@ -1448,7 +1412,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         onChange={(e) => e.currentTarget.blur()}
       />
       <button
-        class="daw-icon-btn daw-ms-btn"
+        class="win-button ds-btn-icon daw-ms-btn"
         classList={{ "daw-mute-on": p.mix.mute }}
         disabled={p.disabled}
         title="Mute"
@@ -1458,7 +1422,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         M
       </button>
       <button
-        class="daw-icon-btn daw-ms-btn"
+        class="win-button ds-btn-icon daw-ms-btn"
         classList={{ "daw-solo-on": p.mix.solo }}
         disabled={p.disabled}
         title="Solo"
@@ -1477,19 +1441,19 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           <span class="daw-track-title">Bars · Time</span>
         </div>
         <Header lane={layout().lanes.tempo} title="Tempo" icon="speedometer2">
-          <button class="daw-icon-btn" title="Add tempo change at playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
+          <button class="win-button ds-btn-icon" title="Add tempo change at playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
             <i class="bi bi-plus-lg" />
           </button>
         </Header>
         <Header lane={layout().lanes.markers} title="Sections" icon="bookmark-fill">
-          <button class="daw-icon-btn" title="Add section marker at playhead (M)" onClick={() => props.onAddSection()}>
+          <button class="win-button ds-btn-icon" title="Add section marker at playhead (M)" onClick={() => props.onAddSection()}>
             <i class="bi bi-plus-lg" />
           </button>
         </Header>
         <Header lane={layout().lanes.mix} title="Mix" icon="music-note-beamed">
           <button
-            class="daw-icon-btn"
-            classList={{ "daw-on": props.monitor === "mix" }}
+            class="win-button ds-btn-icon"
+            classList={{ active: props.monitor === "mix" }}
             title="Listen to the full mix"
             onClick={() => props.onMonitor("mix")}
           >
@@ -1500,16 +1464,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         <Header lane={layout().lanes.vocal} title={props.hasVocal ? "Vocal" : "No vocal stem"} icon="mic-fill">
           <Show when={props.hasVocal}>
             <button
-              class="daw-icon-btn"
-              classList={{ "daw-on": props.showPitch }}
+              class="win-button ds-btn-icon"
+              classList={{ active: props.showPitch }}
               title="Show pitch contour"
               onClick={() => props.onTogglePitch()}
             >
               <i class="bi bi-graph-up" />
             </button>
             <button
-              class="daw-icon-btn"
-              classList={{ "daw-on": props.monitor === "vocal" }}
+              class="win-button ds-btn-icon"
+              classList={{ active: props.monitor === "vocal" }}
               title="Listen to the isolated vocal"
               onClick={() => props.onMonitor("vocal")}
             >
@@ -1543,7 +1507,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                         <i class="bi bi-exclamation-triangle-fill daw-lane-warn" title={lane().warning!} />
                       </Show>
                       <button
-                        class="daw-icon-btn"
+                        class="win-button ds-btn-icon"
                         title="Duplicate lane (the copy starts unplaced)"
                         onPointerDown={(e) => e.preventDefault()}
                         onClick={() => props.onLaneDuplicate(lane().id)}
@@ -1552,7 +1516,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                       </button>
                       <Show when={lane().removable}>
                         <button
-                          class="daw-icon-btn"
+                          class="win-button ds-btn-icon"
                           title="Remove this lane (another lane plays the same UST)"
                           onPointerDown={(e) => e.preventDefault()}
                           onClick={() => props.onLaneRemove(lane().id)}

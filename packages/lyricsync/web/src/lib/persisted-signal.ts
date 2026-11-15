@@ -31,16 +31,3 @@ export function persistedSignal<T>(key: string, initialValue: T, options?: {
 
   return [val, persist as Setter<T>]; // Setter<T> is an overload set no single function signature satisfies
 }
-
-export function parsePersistedId<T extends string>(raw: string, fallback: T): T {
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "string" ? (parsed as T) : fallback;
-  } catch {
-    return raw ? (raw as T) : fallback;
-  }
-}
-
-export function parsePersistedString(raw: string, fallback: string): string {
-  return parsePersistedId(raw, fallback);
-}

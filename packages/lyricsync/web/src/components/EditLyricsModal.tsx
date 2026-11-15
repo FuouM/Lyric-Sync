@@ -175,10 +175,10 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
       <div class="daw-wizard" role="dialog" aria-modal="true">
         <header class="daw-wizard-head">
           <span>
-            <i class="bi bi-pencil-square" style={{ color: "var(--daw-accent)", "font-size": "15px" }} />
+            <i class="bi bi-pencil-square" style={{ color: "var(--sys-primary)", "font-size": "15px" }} />
             <b>Edit Lyrics</b> — {props.songName}
           </span>
-          <button class="daw-icon-btn" onClick={tryClose} disabled={isBusy()} title="Close">
+          <button class="win-button ds-btn-icon" onClick={tryClose} disabled={isBusy()} title="Close">
             <i class="bi bi-x-lg" />
           </button>
         </header>
@@ -191,7 +191,7 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
                 when={job()?.state === "done"}
                 fallback={
                   <div style={{ flex: "1", "min-height": "0", display: "flex", "flex-direction": "column" }}>
-                    <div style={{ padding: "10px 16px 0 16px", "font-size": "12px", color: "var(--daw-muted)" }}>
+                    <div style={{ padding: "10px 16px 0 16px", "font-size": "12px", color: "var(--sys-text-secondary)" }}>
                       <Show
                         when={props.restore}
                         fallback={
@@ -228,9 +228,9 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
                 }
               >
                 <div style={{ padding: "40px", "text-align": "center", display: "flex", "flex-direction": "column", "align-items": "center", gap: "16px" }}>
-                  <i class="bi bi-check-circle-fill" style={{ "font-size": "48px", color: "var(--daw-ok)" }} />
-                  <h3 style={{ margin: "0", color: "#fff" }}>Lyrics Updated and Re-timed</h3>
-                  <p style={{ margin: "0", color: "var(--daw-muted)" }}>Updating editor timeline with new timings…</p>
+                  <i class="bi bi-check-circle-fill" style={{ "font-size": "48px", color: "var(--sw-ok)" }} />
+                  <h3 style={{ margin: "0" }}>Lyrics Updated and Re-timed</h3>
+                  <p style={{ margin: "0", color: "var(--sys-text-secondary)" }}>Updating editor timeline with new timings…</p>
                 </div>
               </Show>
             }
@@ -243,7 +243,7 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
               <pre class="daw-wizard-log">{job()?.log.join("\n")}</pre>
               <Show when={job()?.state === "error"}>
                 <button
-                  class="daw-btn"
+                  class="win-button"
                   style={{ "align-self": "flex-start" }}
                   onClick={() => setJob(null)}
                 >
@@ -260,11 +260,11 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
               {submitError()}
             </Show>
           </span>
-          <button class="daw-btn" onClick={tryClose} disabled={isBusy()}>
+          <button class="win-button" onClick={tryClose} disabled={isBusy()}>
             Cancel
           </button>
           <button
-            class="daw-btn daw-btn-accent"
+            class="win-button primary"
             disabled={isBusy() || checking() || !currentCheck()?.ok}
             onClick={() => void apply()}
           >

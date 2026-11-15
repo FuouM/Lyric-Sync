@@ -152,15 +152,16 @@ interface FileStore {
 
 ## 6. Editor UI
 
-Design system: **SoulWindow** (WinForms style), Light, Dark and High contrast themes, dense (12 px text, 24 px controls, group boxes rather than cards, no emoji).
+Design system: **SoulWindow** (WinForms style, [FuouM/soulwindow](https://github.com/FuouM/soulwindow)), Light, Dark and High contrast themes, dense (12 px text, `data-density="compact"`, group boxes rather than cards, no emoji).
 
-- **Framework:** SolidJS + Vite + TypeScript, the stack of DynastyReader and Project-Curator, so their components and stores carry over.
-- **From `K:/REALAI/DynastyReader`:**
-  - `src/styles/` (tokens, themes, `curator-ui-base.css`);
-  - `stores/theme.ts`, `stores/accent-color.ts`, `lib/color.ts`, `lib/persisted-signal.ts`;
-  - the components `Button`, `GroupBox`, `SubTabs`, `Modal`, `ListItem`, `SettingsRow`, `Feedback`;
-  - the `hotkeys/` registry (rebindable shortcuts, conflict detection, cheatsheet).
-  - They import `i18n`, `Icon` and `platform` from that app; those imports are replaced by small local equivalents when copied.
+- **Framework:** SolidJS + Vite + TypeScript, the stack of DynastyReader and Project-Curator.
+- **SoulWindow is a dependency, never copied** (`soulwindow` in `web/package.json`, pinned to a tag):
+  - CSS: `soulwindow/css` (tokens, themes, density, reset, base, components) and `soulwindow/css/pro/daw.css` (menu bar, transport, VFD readout, docks, tabs, splitter, timeline frame, status bar, chips). `web/src/styles/daw.css` holds only the editor's own rules, all in `@layer app`.
+  - Runtime: `createSoulWindow` (`web/src/soulwindow.ts`) owns theme, accent and density; the Vite plugin (`soulwindow/vite`) paints the saved theme before first paint. Options live in `web/src/soulwindow-options.ts`; the `ds-` storage prefix keeps the theme saved before the move.
+  - Components: `soulwindow/solid` (`GroupBox`, `Modal`, `ProgressBar` …) and `soulwindow/solid/pro` (`MenuBar`, `LcdDigits`). Buttons are `.win-button` (`.primary`, `.active`, `.ds-btn-sm`, `.ds-btn-xs`, `.ds-btn-icon`); the monitor switch is `.ds-segmented-switch`.
+  - Canvas colours (timeline, tempo wizard) come from the `--tl-*` tokens through `readTokens("--tl-")`, read again on a theme or accent change.
+  - Missing a primitive? Add it to SoulWindow first, tag a release, bump the dependency.
+- **Still to carry over from DynastyReader:** the `hotkeys/` registry (rebindable shortcuts, conflict detection, cheatsheet).
 - **Icons:** Bootstrap Icons, bundled from npm (no CDN).
 
 The layout is the one of a DAW / NLE: menu bar, transport, three docks, a resizable multi-track timeline.

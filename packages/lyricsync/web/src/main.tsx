@@ -1,19 +1,11 @@
 // packages/lyricsync/web/src/main.tsx
 import { render } from "solid-js/web";
-import { App } from "./App";
-import "./styles/tokens.css";
-import "./styles/themes/dark.css";
-import "./styles/themes/high-contrast.css";
-import "./styles/reset.css";
-import "./styles/curator-ui-base.css";
-import "./styles/utilities.css";
-import "./styles/index.css";
+import "bootstrap-icons/font/bootstrap-icons.css";
+import "soulwindow/css";
+import "soulwindow/css/pro/daw.css";
 import "./styles/daw.css";
-import { initAccentColor } from "./stores/accent-color";
-import { initAppTheme } from "./stores/theme";
-
-initAppTheme();
-initAccentColor();
+import "./soulwindow";
+import { App } from "./App";
 
 const root = document.getElementById("root");
 if (root) {

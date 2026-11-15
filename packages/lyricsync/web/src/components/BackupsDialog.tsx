@@ -5,7 +5,7 @@
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { errorMessage, listBackups, loadCalibration, type FileBackup, type SongStore } from "../lib/song-files";
-import { Modal } from "./Modal";
+import { Modal } from "soulwindow/solid";
 
 export interface BackupsDialogProps {
   open: boolean;
@@ -61,16 +61,16 @@ export function BackupsDialog(props: BackupsDialogProps) {
     <Modal
       open={props.open}
       title={`Backups of ${props.path}`}
-      width="620px"
+      width={620}
       onClose={props.onClose}
       footer={
         <>
-          <button type="button" class="daw-btn" onClick={props.onClose}>
+          <button type="button" class="win-button" onClick={props.onClose}>
             Close
           </button>
           <button
             type="button"
-            class="daw-btn daw-btn-accent"
+            class="win-button primary"
             disabled={!preview()}
             onClick={() => {
               const b = selected();

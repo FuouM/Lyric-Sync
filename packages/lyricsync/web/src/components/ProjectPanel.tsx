@@ -88,8 +88,8 @@ export function ProjectPanel(props: ProjectPanelProps) {
               <span class="daw-lines-count">{props.doc!.lines.length} lines</span>
               <button
                 type="button"
-                class="daw-toggle"
-                classList={{ "daw-on": autoScroll() }}
+                class="win-button ds-btn-sm"
+                classList={{ active: autoScroll() }}
                 title="Keep the playing line in view"
                 onClick={(e) => {
                   setAutoScroll(!autoScroll());
@@ -100,7 +100,7 @@ export function ProjectPanel(props: ProjectPanelProps) {
               </button>
               <button
                 type="button"
-                class="daw-btn daw-btn-sm"
+                class="win-button ds-btn-sm"
                 disabled={!props.onEditLyrics}
                 onClick={() => props.onEditLyrics?.()}
                 title={props.onEditLyrics ? "Edit lyrics in full text editor" : LEAD_ONLY}
@@ -186,7 +186,7 @@ export function ProjectPanel(props: ProjectPanelProps) {
                   <div class="daw-row daw-section-row">
                     <span class="daw-section-swatch" style={{ background: `hsl(${(idx() * 67 + 200) % 360}, 60%, 62%)` }} />
                     <input class="daw-text-input" value={sec.name} onChange={(e) => props.onRenameSection(idx(), e.currentTarget.value)} />
-                    <button class="daw-icon-btn" title="Delete section" onClick={() => props.onRemoveSection(idx())}>
+                    <button class="win-button ds-btn-icon" title="Delete section" onClick={() => props.onRemoveSection(idx())}>
                       <i class="bi bi-trash" />
                     </button>
                   </div>
@@ -205,7 +205,7 @@ export function ProjectPanel(props: ProjectPanelProps) {
                         else e.currentTarget.value = sec.start.toFixed(3);
                       }}
                     />
-                    <button class="daw-btn daw-btn-sm" disabled={idx() === 0} title="Start this section at the playhead" onClick={() => props.onSetSectionStart(idx(), props.currentTime)}>
+                    <button class="win-button ds-btn-sm" disabled={idx() === 0} title="Start this section at the playhead" onClick={() => props.onSetSectionStart(idx(), props.currentTime)}>
                       <i class="bi bi-cursor-text" /> Start here
                     </button>
                     <span class="daw-muted">→ {formatTimecode(sec.end)}</span>
@@ -213,7 +213,7 @@ export function ProjectPanel(props: ProjectPanelProps) {
                 </div>
               )}
             </For>
-            <button class="daw-btn daw-btn-block" onClick={() => props.onAddSection()}>
+            <button class="win-button daw-btn-block" onClick={() => props.onAddSection()}>
               <i class="bi bi-plus-lg" /> Add section at playhead (M)
             </button>
           </Show>
