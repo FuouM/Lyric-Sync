@@ -14,6 +14,8 @@
 //   lyricsync/lyricsync.json            lyricsync workspace manifest; "vocal" = vocal stem, relative to lyricsync/; absent = no workspace
 //   lyricsync/evidence/meta.json        evidence metadata (f0Hz pitch contour); part of the workspace
 //   lyricsync/out/review.json           solver review; absent until the first solve
+//   backups/<time>_<reason>/...         copies of hand-made files taken before an overwrite (src/backup-policy.ts); a save here takes one
+import { BACKUP_DIR, backupSnapshotName, snapshotsToPrune } from "../../../src/backup-policy";
 import { isLineReview, isNumber, isRecord } from "../../../src/guards";
 import type { LineReview } from "../../../src/types";
 import { parseCalibrationDoc, type CalibrationDoc } from "../../../src/calibration-doc";
@@ -54,6 +56,28 @@ export function handleStore(root: FileSystemDirectoryHandle): SongStore {
       throw e;
     }
   };
+  /** Copies `blob` (the file at `rel` before a save) into the save snapshot of the backups folder, then prunes old snapshots. */
+  const backup = async (rel: string, blob: Blob) => {
+    const backups = await root.getDirectoryHandle(BACKUP_DIR, { create: true });
+    let d = await backups.getDirectoryHandle(backupSnapshotName("save"), { create: true });
+    const segs = rel.split("/");
+    for (const s of segs.slice(0, -1)) d = await d.getDirectoryHandle(s, { create: true });
+    const name = segs[segs.length - 1]!;
+    const exists = await d.getFileHandle(name).then(
+      () => true,
+      (e: unknown) => {
+        if (isMissing(e)) return false;
+        throw e;
+      }
+    );
+    if (exists) return;
+    const w = await (await d.getFileHandle(name, { create: true })).createWritable();
+    await w.write(blob);
+    await w.close();
+    const names: string[] = [];
+    for await (const n of backups.keys()) names.push(n);
+    for (const old of snapshotsToPrune(names)) await backups.removeEntry(old, { recursive: true });
+  };
   return {
     name: root.name,
     read: async (path) => (await fileHandle(path))?.getFile() ?? null,
@@ -61,6 +85,8 @@ export function handleStore(root: FileSystemDirectoryHandle): SongStore {
     async write(path, text) {
       const h = await fileHandle(path, true);
       if (!h) throw new Error(`Cannot write ${path}.`);
+      const before = await h.getFile();
+      if (before.size > 0 && (await before.text()) !== text) await backup(path, before);
       const w = await h.createWritable();
       await w.write(text);
       await w.close();

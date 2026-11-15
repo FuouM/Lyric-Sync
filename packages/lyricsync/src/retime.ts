@@ -2,8 +2,10 @@
 // `lyricsync retime`: add one constant to every time of the calibration files (sections, lines, words, syllables).
 // Pins, text and flags stay as they are. generated/ and the cache are not touched.
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { parseCalibrationDoc, type CalibrationDoc } from './calibration-doc.ts';
 import { calibrationTargets, type TargetSelector } from './calibration-files.ts';
+import { backupSongFiles } from './song-backups.ts';
 
 /** Times in the files have at most six decimals. */
 const round6 = (x: number): number => Math.round(x * 1e6) / 1e6;
@@ -49,6 +51,7 @@ export function retimeSong(dir: string, by: number, sel: TargetSelector = {}): R
     const doc = parseCalibrationDoc(JSON.parse(fs.readFileSync(t.file, 'utf8')) as unknown);
     return { ...t, doc: retimeDoc(doc, by) };
   });
+  backupSongFiles(dir, planned.map((p) => path.relative(dir, p.file).split(path.sep).join('/')), 'retime');
   for (const p of planned) fs.writeFileSync(p.file, `${JSON.stringify(p.doc, null, 2)}\n`, 'utf8');
   return planned.map((p) => ({ singer: p.singer, file: p.file, lines: p.doc.lines.length }));
 }

@@ -13,6 +13,7 @@ import type { BeatsDocument } from "../../src/index.ts";
 import { isNumber, isRecord } from "../../src/guards.ts";
 import { findSongDir, readPromptManifest, readSongPrompt, songFolderPaths, withBeatMap, type PromptManifest, type SongsRoots } from "../../src/song-folder.ts";
 import { fixedGridOfPrompt } from "../../src/grid-song.ts";
+import { backupSongFiles } from "../../src/song-backups.ts";
 import { inferenceDevice } from "./device.ts";
 
 /** The beat map of a song: its tempo (a prior for the beat tracker) and the beats fixed by hand. */
@@ -149,6 +150,7 @@ async function refit(roots: SongsRoots, id: string, map: TempoMap): Promise<{ te
   const doc = await songBeatsDocument(dir, { ...prompt, nearestBpm: map.nearestBpm, tempoChanges: map.tempoChanges, beatPins: map.beatPins });
 
   const json = `${JSON.stringify(doc, null, 2)}\n`;
+  backupSongFiles(dir, ["user_input/prompt.yaml"], "tempo-map");
   fs.mkdirSync(path.dirname(paths.timingFile), { recursive: true });
   fs.writeFileSync(paths.timingFile, json, "utf8");
   const evidenceBeats = path.join(paths.workspaceDir, "evidence", "beats.json");
