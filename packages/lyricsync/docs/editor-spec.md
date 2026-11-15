@@ -186,7 +186,7 @@ lyricsync  File  Edit  Playback  View  Solve                     breaked — use
 | Lyrics [te▾]| word clips, syllables inside; drag an edge to retime; uncertain boundaries ▼    |
 |  ca         | other singers, faint, read-only (one row each)                                  |
 |  ko         |                                                                                 |
-| Lines       | line bars                                                                       |
+| Lines       | line bars (drag a bar = move the whole line; its edges get pinned)              |
 | Overview    | whole song, view window (drag to scroll)                                        |
 +-------------------------------------------------------------------------------------------+
 | status bar                                                                                |
@@ -200,6 +200,7 @@ lyricsync  File  Edit  Playback  View  Solve                     breaked — use
 | Inspector nudge / typed time | same as a drag |
 | C / Shift+C | pin or unpin the syllable / freeze or unfreeze the whole line |
 | Drag a section start (white grip on the Sections track), or type it / "Start here" in the Sections tab | moves it; the previous section's end follows (sections tile the song) |
+| Drag a line bar (Lines lane) | moves the whole line: every syllable shifts with it. Its start snaps like an edge drag (beats, bars, playhead, other lines' syllable edges), and the line stays between the lines around it. The line's first and last syllables become pinned and all others unpinned, so Auto-time re-times the middle between the new edges. One drag is one undo step; a click without moving selects the line and moves the playhead to its start |
 | M, or + in the Sections header | splits the section under the playhead |
 | E, or the Split field in the Inspector | re-splits the selected word: type its syllables separated by bars (`syl\|la\|bles`), Enter applies (Escape reverts). The same count only renames the syllables; another count divides the word's span evenly and unpins the word |
 | Re-analyze (transport, Solve menu) | shown when a word's split differs from the song's analysis (or the analysis is out of date): saves, writes the splits to the lyrics, and updates the analysis (incremental in < 100 ms on CPU when audio is unchanged, or full GPU prepare when audio changed). Auto-time stays off until then |

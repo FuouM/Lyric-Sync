@@ -1,6 +1,6 @@
 // packages/lyricsync/web/src/lib/doc-edit.ts
 // Pure edit operations and musical-time helpers for the lyrics timing editor.
-import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
+import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc.ts";
 
 export interface SylRef {
   lineIdx: number;
@@ -119,6 +119,27 @@ export function pinLineEdges(doc: CalibrationDoc, lineIdx: number): void {
   const line = doc.lines[lineIdx];
   if (!line || line.words.length === 0) return;
   updateLine(line, (pins) => {
+    pins[0]![0] = true;
+    const last = pins[pins.length - 1]!;
+    last[last.length - 1] = true;
+  });
+}
+
+/**
+ * Moves a whole line so it starts at `start` (every syllable shifts with it, clamped between the lines around it), then pins its
+ * edges: the first and the last syllable pinned, the others unpinned, so Auto-time re-times the middle between the new edges.
+ */
+export function moveLine(doc: CalibrationDoc, lineIdx: number, start: number): void {
+  const line = doc.lines[lineIdx];
+  if (!line || line.words.length === 0) return;
+  const lo = doc.lines[lineIdx - 1]?.end ?? 0;
+  const hi = (doc.lines[lineIdx + 1]?.start ?? Infinity) - (line.end - line.start);
+  const to = lo <= hi ? Math.min(hi, Math.max(lo, start)) : Math.max(0, start);
+  const dt = to - line.start;
+  const shift = (t: number) => Math.round((t + dt) * 1e6) / 1e6;
+  for (const w of line.words) w.syl = w.syl.map(([a, b]): [number, number] => [shift(a), shift(b)]);
+  updateLine(line, (pins) => {
+    for (const p of pins) p.fill(false);
     pins[0]![0] = true;
     const last = pins[pins.length - 1]!;
     last[last.length - 1] = true;

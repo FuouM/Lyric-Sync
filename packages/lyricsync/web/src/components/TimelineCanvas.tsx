@@ -102,6 +102,8 @@ export interface TimelineCanvasProps {
   /** `partner`: the touching syllable that moves along (roll edit), chosen when the drag starts; null to move this edge alone. */
   onBoundaryDrag: (ref: SylRef, edge: "start" | "end", t: number, partner: SylRef | null) => void;
   onSectionDrag: (sectionIdx: number, t: number) => void;
+  /** Moves line `lineIdx` to start at `start` while it is dragged in the Lines lane (`onEditBegin` ran before the first move). */
+  onLineMove: (lineIdx: number, start: number) => void;
   /** The song's tempo map from the dev server, or null when the song is not open through it. */
   tempo: TempoMap | null;
   /** A re-fit of the beats is running; the tempo changes cannot be dragged meanwhile. */
@@ -304,6 +306,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | { kind: "pan"; x0: number; view0: number; moved: boolean; click: () => void }
     /** A vocal lane clip: `grab` = pointer time minus the time of the clip's anchor (`anchorTick`); a release without moving is a click. */
     | { kind: "clip"; lane: string; clip: string; grab: number; x0: number; moved: boolean; begun: boolean; click: () => void }
+    /** A line in the Lines lane: `grab` = pointer time minus the line's start; a release without moving is a click. */
+    | { kind: "line"; idx: number; grab: number; x0: number; moved: boolean; begun: boolean; click: () => void }
     | null = null;
   let hoverEdge: { ref: SylRef; edge: "start" | "end" } | null = null;
   let snapGuide: { time: number; label: string } | null = null;
@@ -332,7 +336,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     return { lo, hi };
   });
 
-  const findSnap = (raw: number, exclude?: SylRef): { time: number; label: string } => {
+  /** `excludeLine`: the line being dragged, whose own syllable edges are not snap targets. */
+  const findSnap = (raw: number, exclude?: SylRef, excludeLine?: number): { time: number; label: string } => {
     if (!props.snapEnabled) return { time: raw, label: "" };
     const tol = (SNAP_PX / canvasW()) * props.viewDuration;
     let best = { time: raw, label: "", d: tol };
@@ -346,7 +351,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const doc = props.doc;
     if (doc) {
       doc.lines.forEach((line, li) => {
-        if (line.end < raw - 1 || line.start > raw + 1) return;
+        if (li === excludeLine || line.end < raw - 1 || line.start > raw + 1) return;
         line.words.forEach((w, wi) =>
           w.syl.forEach((pair, si) => {
             if (exclude && exclude.lineIdx === li && exclude.wordIdx === wi && exclude.sylIdx === si) return;
@@ -358,6 +363,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     }
     return { time: best.time, label: best.label };
   };
+
+  /** Index of the line whose span holds `t`, or -1. */
+  const lineHit = (t: number): number => props.doc?.lines.findIndex((l) => t >= l.start && t <= l.end) ?? -1;
 
   const clipSpans = (lane: TimelineLane): ClipSpan[] => {
     let parkedAt = props.viewStart;
@@ -1260,20 +1268,29 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         begun: false,
         click: () => props.onSeek(Math.max(0, t)),
       };
+    } else if (lane === "lines" && lineHit(t) >= 0) {
+      // A line: drag it whole (its start snaps; it stays between its neighbours); the drop pins its first and last syllable.
+      // A click selects it and moves the playhead to its start.
+      const li = lineHit(t);
+      const line = props.doc!.lines[li]!;
+      drag = {
+        kind: "line",
+        idx: li,
+        grab: t - line.start,
+        x0: e.clientX,
+        moved: false,
+        begun: false,
+        click: () => {
+          props.onSelectSyllable({ lineIdx: li, wordIdx: 0, sylIdx: 0 });
+          props.onSeek(line.start);
+        },
+      };
     } else {
       // Everything else: drag pans the view, a plain click selects what is under it and moves the playhead there.
       const click = () => {
-        const doc = props.doc;
         if (lane === "lyrics") {
           const hit = sylAt(x);
           if (hit) props.onSelectSyllable(hit.ref);
-        } else if (lane === "lines" && doc) {
-          const li = doc.lines.findIndex((l) => t >= l.start && t <= l.end);
-          if (li >= 0) {
-            props.onSelectSyllable({ lineIdx: li, wordIdx: 0, sylIdx: 0 });
-            props.onSeek(doc.lines[li]!.start);
-            return;
-          }
         }
         props.onSeek(Math.max(0, t));
       };
@@ -1294,17 +1311,20 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const onTempo = lane === "tempo" && tempoGripAt(x) !== null;
       const onBar = lane === "ruler" && y <= BAR_GRIP_H && !!props.tempo && barAt(x) !== null;
       const onClip = !props.razor && lane === "renders" && clipAt(x, y) !== null;
+      const onLine = lane === "lines" && lineHit(t) >= 0;
       updateRazorHover(x, y, e);
       canvas.style.cursor =
         props.razor && lane === "renders"
           ? "crosshair"
           : hoverEdge || onSection || onTempo || onBar || onClip
             ? "ew-resize"
-            : lane === "ruler"
-              ? "text"
-              : lane === "overview"
-                ? "pointer"
-                : "grab";
+            : onLine
+              ? "move"
+              : lane === "ruler"
+                ? "text"
+                : lane === "overview"
+                  ? "pointer"
+                  : "grab";
       requestDraw();
       return;
     }
@@ -1349,6 +1369,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         }
         props.onClipMove(d.lane, d.clip, atBeat);
       }
+    } else if (drag.kind === "line") {
+      if (!drag.moved && Math.abs(e.clientX - drag.x0) <= 3) return;
+      drag.moved = true;
+      if (!drag.begun) {
+        props.onEditBegin();
+        drag.begun = true;
+      }
+      const s = findSnap(t - drag.grab, undefined, drag.idx);
+      snapGuide = s.label ? s : null;
+      props.onLineMove(drag.idx, Math.max(0, s.time));
     } else {
       const s = findSnap(t, drag.ref);
       snapGuide = s.label ? s : null;
@@ -1359,7 +1389,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const onPointerUp = (e: PointerEvent) => {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-    if ((drag?.kind === "pan" || drag?.kind === "clip") && !drag.moved) drag.click();
+    if ((drag?.kind === "pan" || drag?.kind === "clip" || drag?.kind === "line") && !drag.moved) drag.click();
     if (drag?.kind === "tempo") props.onTempoDrop();
     if (drag?.kind === "bar" && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
     barGhost = null;

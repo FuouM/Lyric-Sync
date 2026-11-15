@@ -49,6 +49,7 @@ import {
   formatTimecode,
   lineAt,
   moveEdge,
+  moveLine,
   moveSectionStart,
   rollPartner,
   pinLineEdges,
@@ -1888,6 +1889,11 @@ export function App() {
             edit((d) => moveEdge(d, ref, edge, t, partner), `${edge === "start" ? "Start" : "End"} → ${t.toFixed(3)} s${partner ? "" : " (alone)"}`, false);
           }}
           onSectionDrag={(si, t) => edit((d) => moveSectionStart(d, si, t), `Section start → ${t.toFixed(2)} s`, false)}
+          onLineMove={(li, t) => {
+            edit((d) => moveLine(d, li, t), "", false);
+            const start = calDoc()?.lines[li]?.start;
+            if (start !== undefined) setStatus(`Line ${li} starts at ${formatTimecode(start)}: its first and last syllables are pinned; Auto-time re-times the middle`);
+          }}
           tempo={tempoMap()}
           tempoBusy={tempoBusy()}
           onAddTempo={addTempoChange}
