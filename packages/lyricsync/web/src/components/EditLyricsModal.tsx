@@ -6,12 +6,15 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { LyricsStep, type LyricsCheck, type Pronunciations } from "./wizard/LyricsStep";
 import { errorMessage } from "../lib/song-files";
 import { isRecord } from "../../../src/guards";
+import type { CalibrationDoc } from "../../../src/calibration-doc";
 
 export interface EditLyricsModalProps {
   songName: string;
   initialText: string;
   initialLine?: number | null;
   language?: "en" | "ja";
+  /** Restoring a backup (File > Backups…): the backup's timing, whose pins the lyrics keep instead of the saved file's. */
+  restore?: { calibration: CalibrationDoc; label: string } | null;
   onClose: () => void;
   onApplied: () => void;
 }
@@ -124,6 +127,7 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
         body: JSON.stringify({
           text: text(),
           pronunciations: pronunciations(),
+          ...(props.restore ? { calibration: props.restore.calibration } : {}),
         }),
       });
       const data: unknown = await res.json();
@@ -188,7 +192,20 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
                 fallback={
                   <div style={{ flex: "1", "min-height": "0", display: "flex", "flex-direction": "column" }}>
                     <div style={{ padding: "10px 16px 0 16px", "font-size": "12px", color: "var(--daw-muted)" }}>
-                      Edit the lyrics below. Syllable splits, phoneme syntax <code>{"{phones}"}</code>, additions, and deletions are supported. When applied, timings will automatically re-solve around preserved anchors.
+                      <Show
+                        when={props.restore}
+                        fallback={
+                          <>
+                            Edit the lyrics below. Syllable splits, phoneme syntax <code>{"{phones}"}</code>, additions, and deletions are supported. When applied, timings will automatically re-solve around preserved anchors.
+                          </>
+                        }
+                      >
+                        {(r) => (
+                          <>
+                            Restoring the backup from {r().label}. These are its lyrics; Apply makes them the song's lyrics again and redoes the analysis (about 2 minutes), keeping the backup's pins.
+                          </>
+                        )}
+                      </Show>
                     </div>
                     <div style={{ flex: "1", "min-height": "0", padding: "10px 16px", display: "flex", "flex-direction": "column" }}>
                       <LyricsStep

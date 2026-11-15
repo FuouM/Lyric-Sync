@@ -10,12 +10,14 @@ import { Inspector } from "./components/Inspector";
 import { TimelineCanvas, type MonitorTrack, type TimelineLane } from "./components/TimelineCanvas";
 import { NewSongWizard } from "./components/NewSongWizard";
 import { EditLyricsModal } from "./components/EditLyricsModal";
+import { BackupsDialog } from "./components/BackupsDialog";
 import { Logo } from "./components/Logo";
 import type { LineReview } from "../../src/types";
 import { isNumber, isRecord, isStringArray } from "../../src/guards";
 import { AudioPlayer, audibleTracks, bufferPeaks, UNITY_MIX, wholeBuffer, type TrackClip, type TrackMix } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
 import {
+  backupLyricsText,
   CALIBRATED_PATH,
   errorMessage,
   handleStore,
@@ -28,6 +30,7 @@ import {
   PLACEMENTS_PATH,
   readRenderWav,
   serverStore,
+  type FileBackup,
   type SongRenders,
   type SongStore,
 } from "./lib/song-files";
@@ -110,6 +113,7 @@ export function App() {
   const [dirty, setDirty] = createSignal(false);
   /** The lane placements have unsaved changes. */
   const [placementsDirty, setPlacementsDirty] = createSignal(false);
+  const [showBackups, setShowBackups] = createSignal(false);
   /** Undo steps of the selected singer: its calibration and the lane placements. */
   const [history, setHistory] = createSignal<EditState[]>([]);
   const [future, setFuture] = createSignal<EditState[]>([]);
@@ -210,6 +214,8 @@ export function App() {
   const [showEditLyrics, setShowEditLyrics] = createSignal(false);
   const [editLyricsText, setEditLyricsText] = createSignal("");
   const [editLyricsInitialLine, setEditLyricsInitialLine] = createSignal<number | null>(null);
+  /** Edit Lyrics restores a backup (File > Backups…): its timing, whose pins the lyrics keep. */
+  const [editLyricsRestore, setEditLyricsRestore] = createSignal<{ calibration: CalibrationDoc; label: string } | null>(null);
   // Syllables per editor line and word that the song's analysis (lyricsync workspace) was made for; null until known.
   const [analysed, setAnalysed] = createSignal<{ lines: string[][][]; fresh: boolean } | null>(null);
   const [analysing, setAnalysing] = createSignal(false);
@@ -547,6 +553,9 @@ export function App() {
     }
   };
 
+  /** A timing line as a lyrics line: its words, split syllables joined with "|". */
+  const lyricLineText = (l: CalLine): string => l.words.map((w) => (w.sylText && w.sylText.length > 1 ? splitText(w) : w.w)).join(" ");
+
   const reconstructLyricsText = (doc: CalibrationDoc): string => {
     const out: string[] = [];
     let curSection: string | null = null;
@@ -558,8 +567,7 @@ export function App() {
         curSection = sec.name;
         out.push(`[${sec.name}]`);
       }
-      const words = l.words.map((w) => (w.sylText && w.sylText.length > 1 ? splitText(w) : w.w)).join(" ");
-      out.push(words);
+      out.push(lyricLineText(l));
     }
     return out.join("\n");
   };
@@ -573,6 +581,7 @@ export function App() {
       return;
     }
     setEditLyricsInitialLine(lineIdx);
+    setEditLyricsRestore(null);
     let text = "";
     try {
       const blob = await s.store.read("user_input/lyrics.txt");
@@ -583,6 +592,29 @@ export function App() {
     }
     setEditLyricsText(text);
     setShowEditLyrics(true);
+  };
+
+  /** File > Backups… with a backup from before a lyrics edit: Edit Lyrics opens with its lyrics; Apply redoes the analysis keeping its pins. */
+  const restoreBackupLyrics = async (doc: CalibrationDoc, b: FileBackup) => {
+    const s = song();
+    if (!s) return;
+    if (!isLead()) {
+      setStatus(`Restoring a backup's lyrics: ${LEAD_ONLY}.`);
+      return;
+    }
+    try {
+      const found = await backupLyricsText(s.store, b, doc, lyricLineText);
+      setEditLyricsInitialLine(found && found.rebuilt.length > 0 ? found.rebuilt[0]! - 1 : null);
+      setEditLyricsText(found?.text ?? reconstructLyricsText(doc));
+      setEditLyricsRestore({ calibration: doc, label: b.time.toLocaleString() });
+      setShowEditLyrics(true);
+      setShowBackups(false);
+      if (!found) setStatus("No saved lyrics file fits this backup: its lyrics were rebuilt from its timing (check sections and {phones}).");
+      else if (found.rebuilt.length > 0)
+        setStatus(`This backup predates saved lyrics: line${found.rebuilt.length === 1 ? "" : "s"} ${found.rebuilt.join(", ")} rebuilt from its timing, the rest from the nearest saved lyrics file.`);
+    } catch (e: unknown) {
+      setStatus(`Cannot restore the backup's lyrics: ${errorMessage(e)}`);
+    }
   };
 
   const handleLyricsApplied = async () => {
@@ -1575,6 +1607,7 @@ export function App() {
           { label: "Save", shortcut: "Ctrl+S", action: () => void save(), disabled: !song() },
           { label: "Export Copy…", action: () => void exportCopy(), disabled: !hasDoc },
           { label: "Reload From Disk", action: () => { const s = song(); if (s && confirmDiscard()) void loadSong(s.store); }, disabled: !song() },
+          { label: "Backups…", action: () => setShowBackups(true), disabled: !song() || !hasDoc },
         ],
       },
       {
@@ -1890,6 +1923,7 @@ export function App() {
           songName={song()?.name ?? ""}
           initialText={editLyricsText()}
           initialLine={editLyricsInitialLine()}
+          restore={editLyricsRestore()}
           onClose={() => setShowEditLyrics(false)}
           onApplied={() => void handleLyricsApplied()}
         />
@@ -1934,6 +1968,24 @@ export function App() {
           <span class="daw-status-hint">Space: play · C: pin · [: start · ]: end · Ctrl+S: save</span>
         </div>
       </footer>
+      <BackupsDialog
+        open={showBackups()}
+        store={song()?.store ?? null}
+        path={activePath()}
+        current={calDoc()}
+        onClose={() => setShowBackups(false)}
+        onUse={(doc, b, lyricsDiffer) => {
+          if (lyricsDiffer) {
+            void restoreBackupLyrics(doc, b);
+            return;
+          }
+          snapshot();
+          setCalDoc(doc);
+          setDirty(true);
+          setShowBackups(false);
+          setStatus(`Using the backup from ${b.time.toLocaleString()} (unsaved: Save writes it; Undo takes it back)`);
+        }}
+      />
     </div>
   );
 }

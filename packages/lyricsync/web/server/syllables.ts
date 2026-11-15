@@ -66,6 +66,51 @@ export function matchInOrder<A, B>(a: readonly A[], b: readonly B[], same: (x: A
   return out;
 }
 
+/**
+ * The lines an edit changed in place: `matched` is matchInOrder's answer for the new lines (null = changed). A run of changed new
+ * lines between two matched ones pairs in order with the old lines between their partners, when both runs have the same length
+ * (lines edited, none added or removed there). For each new line, its old line's index, or null (matched lines stay null).
+ */
+export function pairEditedLines(matched: ReadonlyArray<number | null>, oldCount: number): Array<number | null> {
+  const out: Array<number | null> = new Array(matched.length).fill(null);
+  for (let i = 0; i < matched.length; ) {
+    if (matched[i] !== null) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < matched.length && matched[end] === null) end++;
+    const oldFrom = i === 0 ? 0 : matched[i - 1]! + 1;
+    const oldTo = end === matched.length ? oldCount : matched[end]!;
+    if (oldTo - oldFrom === end - i) for (let k = i; k < end; k++) out[k] = oldFrom + (k - i);
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * The words of an edited line that keep the old line's pins: the common prefix and suffix of the two word lists (`newKeys`,
+ * `oldKeys`: word text and syllable count). When they overlap (a repeated word was added or removed) the old words are split
+ * between them, so both line edges stay: "ah-ah ah-ah" -> "ah-ah ah-ah ah-ah" pairs the first and the last word and leaves the
+ * middle one new. For each new word, its old word's index or null; `prefix`/`suffix` are the paired counts at each end.
+ */
+export function carriedWords(newKeys: readonly string[], oldKeys: readonly string[]): { words: Array<number | null>; prefix: number; suffix: number } {
+  const n = Math.min(newKeys.length, oldKeys.length);
+  let p = 0;
+  while (p < n && newKeys[p] === oldKeys[p]) p++;
+  let s = 0;
+  while (s < n && newKeys[newKeys.length - 1 - s] === oldKeys[oldKeys.length - 1 - s]) s++;
+  if (p + s > n) {
+    s = Math.min(s, Math.floor(n / 2));
+    p = Math.min(p, n - s);
+    s = Math.min(s, n - p);
+  }
+  const words: Array<number | null> = new Array(newKeys.length).fill(null);
+  for (let k = 0; k < p; k++) words[k] = k;
+  for (let k = 1; k <= s; k++) words[newKeys.length - k] = oldKeys.length - k;
+  return { words, prefix: p, suffix: s };
+}
+
 export function parseSplitLines(raw: unknown): EditorSplitLine[] {
   if (!Array.isArray(raw)) throw new Error("lines must be an array.");
   return raw.map((l: unknown, i: number) => {
@@ -183,6 +228,11 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
 export interface UpdateLyricsInput {
   text: string;
   pronunciations?: Pronunciations;
+  /**
+   * The timing whose pins the new lyrics keep, when it is not the saved file: a backup the editor switched to (File > Backups…)
+   * whose lyrics are being restored. Same shape as lyrics.calibrated.json.
+   */
+  calibration?: unknown;
 }
 
 export function updateLyrics(
@@ -225,40 +275,66 @@ export function updateLyrics(
     lines?: RawCalLine[];
   }
   let oldCal: RawCalDoc | null = null;
-  if (fs.existsSync(calFile)) {
+  if (input.calibration !== undefined) {
+    if (!isRecord(input.calibration) || !Array.isArray(input.calibration.lines)) throw new Error("calibration must be a timing document with lines.");
+    oldCal = input.calibration as RawCalDoc;
+  } else if (fs.existsSync(calFile)) {
     try {
       oldCal = JSON.parse(fs.readFileSync(calFile, "utf8")) as RawCalDoc;
     } catch {}
   }
 
-  // Derive preserved anchors from oldCal: each new line takes the pins of the old line it matches (same text, words and
-  // syllable counts), matched in order so a repeated line (a chorus) keeps its own pins, not the first copy's.
+  // Derive preserved anchors from oldCal. Each new line takes the pins of the old line it matches (same text, words and syllable
+  // counts), matched in order so a repeated line (a chorus) keeps its own pins, not the first copy's. A line the edit changed in
+  // place keeps the pins of its unchanged words (carriedWords).
   const anchors = emptyAnchors();
   const oldLines = oldCal && Array.isArray(oldCal.lines) ? oldCal.lines : [];
+  const oldSyllables = (ow: RawCalWord) => (Array.isArray(ow.sylText) ? ow.sylText.length : Array.isArray(ow.syl) ? ow.syl.length : 0);
   const sameLine = (newLine: (typeof def.lines)[number], ol: RawCalLine) =>
     ol.text === newLine.text &&
     Array.isArray(ol.words) &&
     ol.words.length === newLine.words.length &&
-    newLine.words.every((nw, wi) => {
-      const ow = ol.words![wi]!;
-      return nw.syllables.length === (Array.isArray(ow.sylText) ? ow.sylText.length : Array.isArray(ow.syl) ? ow.syl.length : 0);
-    });
-  const oldFor = matchInOrder(def.lines, oldLines, sameLine).map((oi) => (oi === null ? null : oldLines[oi]!));
-  // The pins are the ones Auto-time takes from the same flags (realign.ts / importCalibrated): every boundary of a calibrated
-  // line, both edges of each calibrated syllable. Pinning less would let this solve move a flagged syllable's edge, and the
+    newLine.words.every((nw, wi) => nw.syllables.length === oldSyllables(ol.words![wi]!));
+  const matched = matchInOrder(def.lines, oldLines, sameLine);
+  const edited = pairEditedLines(matched, oldLines.length);
+  /** Per new line: the old line, whether it is the same line, and per word the old word's pin flags it keeps (null: none). */
+  const carry = def.lines.map((newLine, li) => {
+    const whole = matched[li] !== null;
+    const oi = matched[li] ?? edited[li] ?? null;
+    const ol = oi === null ? undefined : oldLines[oi];
+    if (!ol || !Array.isArray(ol.words)) return null;
+    const words = ol.words;
+    const flagsOf = (ow: RawCalWord) => {
+      const n = oldSyllables(ow);
+      return Array.from({ length: n }, (_, s) => ol.calibrated === true || (ow.sylCalibrated?.length === n ? ow.sylCalibrated[s] === true : ow.calibrated === true));
+    };
+    const keys = (ws: Array<{ w?: string }>, count: (k: number) => number) => ws.map((w, k) => `${w.w ?? ""}\u0000${count(k)}`);
+    const pairs = whole
+      ? { words: words.map((_, k) => k as number | null), prefix: words.length, suffix: 0 }
+      : carriedWords(keys(newLine.words, (k) => newLine.words[k]!.syllables.length), keys(words, (k) => oldSyllables(words[k]!)));
+    const flags = pairs.words.map((owi) => (owi === null ? null : flagsOf(words[owi]!)));
+    if (!whole) {
+      // The syllables facing the edit lose their pin: their edge there must move to make room for (or close) the change.
+      const facingEnd = pairs.prefix > 0 ? flags[pairs.prefix - 1] : null;
+      if (facingEnd) facingEnd[facingEnd.length - 1] = false;
+      const facingStart = pairs.suffix > 0 ? flags[newLine.words.length - pairs.suffix] : null;
+      if (facingStart) facingStart[0] = false;
+    }
+    return { ol, whole, words: pairs.words.map((owi) => (owi === null ? null : words[owi]!)), flags };
+  });
+  // The pins are the ones Auto-time takes from the same flags (realign.ts / importCalibrated): both edges of each flagged
+  // syllable (all of them on a calibrated line). Pinning less would let this solve move a flagged syllable's edge, and the
   // carried flag would then pin wherever it landed.
   for (const [li, newLine] of def.lines.entries()) {
-    const oldLine = oldFor[li];
-    if (!oldLine) continue;
+    const c = carry[li];
+    if (!c) continue;
     let flat = 0;
     for (const [wi, nw] of newLine.words.entries()) {
-      const ow = oldLine.words![wi]!;
+      const ow = c.words[wi];
       const n = nw.syllables.length;
       for (let s = 0; s < n; s++) {
-        const flagged =
-          oldLine.calibrated === true || (ow.sylCalibrated?.length === n ? ow.sylCalibrated[s] === true : ow.calibrated === true);
-        const syl = ow.syl?.[s];
-        if (!flagged || !syl) continue;
+        const syl = ow?.syl?.[s];
+        if (!c.flags[wi]?.[s] || !syl) continue;
         setBoundary(anchors, def, li, flat + s, syl[0]);
         setBoundary(anchors, def, li, flat + s + 1, syl[1]);
       }
@@ -319,19 +395,23 @@ export function updateLyrics(
           }>;
         }>;
       };
-      // Carry forward sylCalibrated flags from oldCal
+      // Carry the pin flags: a same line keeps its own; an edited line keeps those of its unchanged words (as pinned above).
       for (const [li, nl] of newCal.lines.entries()) {
-        const ol = oldFor[li];
-        if (!ol) continue;
+        const c = carry[li];
+        if (!c) continue;
         for (let wi = 0; wi < nl.words.length; wi++) {
           const nw = nl.words[wi]!;
-          const ow = ol.words![wi]!;
-          if (ow && nw.w === ow.w && nw.sylText?.length === ow.sylText?.length) {
+          const ow = c.words[wi];
+          if (!ow || nw.w !== ow.w || nw.sylText?.length !== ow.sylText?.length) continue;
+          if (c.whole) {
             if (Array.isArray(ow.sylCalibrated)) nw.sylCalibrated = [...ow.sylCalibrated];
             if (ow.calibrated) nw.calibrated = true;
+          } else if (c.flags[wi]?.some(Boolean)) {
+            nw.sylCalibrated = [...c.flags[wi]!];
+            if (c.flags[wi]!.every(Boolean)) nw.calibrated = true;
           }
         }
-        if (ol.calibrated) nl.calibrated = true;
+        if (c.whole && c.ol.calibrated) nl.calibrated = true;
       }
 
       fs.writeFileSync(calFile, `${JSON.stringify(newCal, null, 2)}\n`, "utf8");

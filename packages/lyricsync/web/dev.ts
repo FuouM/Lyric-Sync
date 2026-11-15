@@ -14,6 +14,7 @@
 //   POST /api/wizard/resume { id }        continues a failed build.
 //   GET  /api/wizard/job                  the current or last build: state and log.
 //   GET/PUT /api/project/<id>/file/<path> song folder files (server/project-files.ts), for songs opened without the folder picker.
+//   GET /api/project/<id>/list/backups[/...] the backup snapshots (server/project-files.ts).
 //   GET  /api/lyrics/<id>/splits          the analysed syllables per editor line and word, and whether the evidence is current.
 //   POST /api/lyrics/<id>/reanalyze { lines }   writes the editor's syllable splits (server/syllables.ts) and re-prepares.
 //   GET  /api/lyrics/job                  the current or last re-analysis: state and log.
@@ -35,7 +36,7 @@ import { createServer, type Plugin } from "vite";
 import { handleRealign } from "./server/realign.ts";
 import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } from "./server/wizard.ts";
 import { parseTempoChanges, parseTempoMap, readTempoMap, refitTempoMap, SongNotFoundError } from "./server/beats.ts";
-import { ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
+import { listProjectDir, ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
 import { findSongDir } from "../src/song-folder.ts";
 import { deviceConfig, isInferenceDevice, setInferenceDevice } from "./server/device.ts";
@@ -350,6 +351,15 @@ const localApi: Plugin = {
           return fail(res, 422, e);
         }
       }
+      const list = /^\/([^/]+)\/list\/(.+)$/.exec(raw);
+      if (list && req.method === "GET") {
+        try {
+          return send(res, 200, listProjectDir(ROOT_LIST, decodeURIComponent(list[1]!), decodeURIComponent(list[2]!)));
+        } catch (e: unknown) {
+          if (e instanceof ProjectFileError) return send(res, e.status, { error: "FILE", message: e.message });
+          return fail(res, 500, e);
+        }
+      }
       const m = /^\/([^/]+)\/file\/(.+)$/.exec(raw);
       if (!m) return send(res, 404, { error: "NOT_FOUND", message: req.url });
       const id = decodeURIComponent(m[1]!);
@@ -408,7 +418,7 @@ const localApi: Plugin = {
             const job = updateLyrics(
               ROOT_LIST,
               decodeURIComponent(m[2]!),
-              { text: body.text, pronunciations: prons },
+              { text: body.text, pronunciations: prons, ...(body.calibration !== undefined ? { calibration: body.calibration } : {}) },
               build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null
             );
             return send(res, 202, { job });

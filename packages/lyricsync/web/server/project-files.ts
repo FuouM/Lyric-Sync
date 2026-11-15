@@ -4,12 +4,14 @@
 //   PUT /api/project/<id>/file/<path>   writes the body; only the calibration files (lyrics.calibrated.json and lyrics.calibrated.<singer id>.json),
 //                                       prompt.yaml (bar 1) and placements.json are writable; a changed file is first copied to
 //                                       backups/ (src/song-backups.ts); returns { mtimeMs }
+//   GET /api/project/<id>/list/<path>   { names } in a folder under backups/ ([] when missing), for the editor's backup list
 // GET serves any file of the song folder, so the render wavs under generated/renders are readable. PUT never writes there.
 // Paths stay inside <songs>/<id> (dev.ts --songs).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { findSongDir, type SongsRoots } from "../../src/song-folder.ts";
 import { backupSongFiles } from "../../src/song-backups.ts";
+import { BACKUP_DIR } from "../../src/backup-policy.ts";
 
 const WRITABLE: Record<string, true> = {
   "user_input/lyrics.calibrated.json": true,
@@ -40,6 +42,12 @@ export function readProjectFile(roots: SongsRoots, id: string, rel: string): { f
   const file = resolve(roots, id, rel);
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new ProjectFileError(404, `${id}/${rel} not found.`);
   return { file, mtimeMs: fs.statSync(file).mtimeMs };
+}
+
+export function listProjectDir(roots: SongsRoots, id: string, rel: string): { names: string[] } {
+  if (rel !== BACKUP_DIR && !rel.startsWith(`${BACKUP_DIR}/`)) throw new ProjectFileError(403, `Only ${BACKUP_DIR}/ can be listed.`);
+  const dir = resolve(roots, id, rel);
+  return { names: fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? fs.readdirSync(dir) : [] };
 }
 
 export function writeProjectFile(roots: SongsRoots, id: string, rel: string, body: Uint8Array): { mtimeMs: number } {

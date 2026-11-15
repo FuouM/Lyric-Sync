@@ -10,21 +10,24 @@ let dir = '';
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('song backups', () => {
-  test('a snapshot keeps the files as they were before the operation, also when it writes twice', () => {
+  test('a snapshot keeps the files, and the lyrics they belong to, as they were before the operation, also when it writes twice', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyricsync-backup-'));
     const cal = path.join(dir, 'user_input', 'lyrics.calibrated.json');
     fs.mkdirSync(path.dirname(cal), { recursive: true });
     fs.writeFileSync(cal, 'before');
+    fs.writeFileSync(path.join(dir, 'user_input', 'lyrics.txt'), 'old lyrics');
 
     const at = new Date('2026-11-15T09:17:02.400Z');
-    const snap = backupSongFiles(dir, ['user_input/lyrics.calibrated.json', 'user_input/lyrics.txt'], 'Edit Lyrics', at)!;
+    const snap = backupSongFiles(dir, ['user_input/lyrics.calibrated.json'], 'save', at)!;
+    fs.writeFileSync(path.join(dir, 'user_input', 'lyrics.txt'), 'new lyrics');
     fs.writeFileSync(cal, 'first write');
-    expect(backupSongFiles(dir, ['user_input/lyrics.calibrated.json'], 'Edit Lyrics', new Date('2026-11-15T09:17:02.900Z'))).toBeNull();
+    expect(backupSongFiles(dir, ['user_input/lyrics.calibrated.json'], 'save', new Date('2026-11-15T09:17:02.900Z'))).toBeNull();
     fs.writeFileSync(cal, 'second write');
 
-    expect(path.basename(snap)).toBe('2026-11-15T09-17-02Z_edit-lyrics');
+    expect(path.basename(snap)).toBe('2026-11-15T09-17-02Z_save');
     expect(fs.readFileSync(path.join(snap, 'user_input', 'lyrics.calibrated.json'), 'utf8')).toBe('before');
-    expect(fs.existsSync(path.join(snap, 'user_input', 'lyrics.txt'))).toBe(false);
+    expect(fs.readFileSync(path.join(snap, 'user_input', 'lyrics.txt'), 'utf8')).toBe('old lyrics');
+    expect(fs.existsSync(path.join(snap, 'user_input', 'lyrics.sync.json'))).toBe(false);
     expect(fs.readdirSync(path.join(dir, BACKUP_DIR))).toEqual([path.basename(snap)]);
     expect(backupSongFiles(dir, ['user_input/missing.json'], 'save')).toBeNull();
   });

@@ -6,8 +6,10 @@
 
 export const BACKUP_DIR = 'backups';
 export const BACKUP_KEEP = 50;
+/** Copied into every snapshot along with the files it is for, so a backup also holds the lyrics its timing belongs to. */
+export const BACKUP_WITH = ['user_input/lyrics.txt', 'user_input/lyrics.sync.json'];
 
-const SNAPSHOT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z_[a-z0-9-]+$/;
+const SNAPSHOT_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z_([a-z0-9-]+)$/;
 
 /**
  * The snapshot folder name for an operation at `now`: "2026-11-15T09-17-02Z_edit-lyrics". Names sort by time. Writes of one
@@ -22,4 +24,10 @@ export function backupSnapshotName(reason: string, now: Date = new Date()): stri
 export function snapshotsToPrune(names: readonly string[], keep: number = BACKUP_KEEP): string[] {
   const snapshots = names.filter((n) => SNAPSHOT_RE.test(n)).sort();
   return snapshots.slice(0, Math.max(0, snapshots.length - keep));
+}
+
+/** The time and reason of a snapshot folder name, or null when `name` is not one. */
+export function parseSnapshotName(name: string): { time: Date; reason: string } | null {
+  const m = SNAPSHOT_RE.exec(name);
+  return m ? { time: new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`), reason: m[5]! } : null;
 }

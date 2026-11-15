@@ -770,9 +770,23 @@
 }
 
 .daw-lines-count {
+  margin-right: auto;
   font-size: 11px;
   color: var(--sys-text-secondary, #555555);
   font-family: var(--daw-mono);
+}
+
+/* Same height as the toolbar's .daw-btn-sm. */
+.daw-lines-toolbar .daw-toggle {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.daw-backup-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--sys-border-medium, #cccccc);
 }
 
 .daw-line-num {

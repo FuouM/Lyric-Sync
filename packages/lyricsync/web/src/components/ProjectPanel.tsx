@@ -4,6 +4,7 @@ import { createEffect, For, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import type { LineReview } from "../../../src/types";
 import { formatTimecode } from "../lib/doc-edit";
+import { persistedSignal } from "../lib/persisted-signal";
 import { LEAD_ONLY } from "./TransportBar";
 
 export type ProjectTab = "songs" | "lines" | "review" | "sections";
@@ -32,10 +33,18 @@ export interface ProjectPanelProps {
 
 export function ProjectPanel(props: ProjectPanelProps) {
   let listEl: HTMLDivElement | undefined;
+  const [autoScroll, setAutoScroll] = persistedSignal("lyricsync.lines.autoScroll", true);
 
   createEffect(() => {
     const li = props.selectedLine;
     if (props.tab !== "lines" || li === null || !listEl) return;
+    listEl.querySelector(`[data-line="${li}"]`)?.scrollIntoView({ block: "nearest" });
+  });
+
+  // Auto-scroll: keep the line being played in view.
+  createEffect(() => {
+    const li = props.playingLine;
+    if (!autoScroll() || props.tab !== "lines" || li < 0 || !listEl) return;
     listEl.querySelector(`[data-line="${li}"]`)?.scrollIntoView({ block: "nearest" });
   });
 
@@ -77,6 +86,18 @@ export function ProjectPanel(props: ProjectPanelProps) {
           <Show when={props.doc} fallback={<div class="daw-empty-note">No lyrics loaded.</div>}>
             <div class="daw-lines-toolbar">
               <span class="daw-lines-count">{props.doc!.lines.length} lines</span>
+              <button
+                type="button"
+                class="daw-toggle"
+                classList={{ "daw-on": autoScroll() }}
+                title="Keep the playing line in view"
+                onClick={(e) => {
+                  setAutoScroll(!autoScroll());
+                  e.currentTarget.blur();
+                }}
+              >
+                <i class="bi bi-arrow-down-up" /> Auto-scroll
+              </button>
               <button
                 type="button"
                 class="daw-btn daw-btn-sm"

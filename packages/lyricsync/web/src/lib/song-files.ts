@@ -15,10 +15,11 @@
 //   lyricsync/evidence/meta.json        evidence metadata (f0Hz pitch contour); part of the workspace
 //   lyricsync/out/review.json           solver review; absent until the first solve
 //   backups/<time>_<reason>/...         copies of hand-made files taken before an overwrite (src/backup-policy.ts); a save here takes one
-import { BACKUP_DIR, backupSnapshotName, snapshotsToPrune } from "../../../src/backup-policy";
+import { BACKUP_DIR, BACKUP_WITH, backupSnapshotName, parseSnapshotName, snapshotsToPrune } from "../../../src/backup-policy";
 import { isLineReview, isNumber, isRecord } from "../../../src/guards";
 import type { LineReview } from "../../../src/types";
-import { parseCalibrationDoc, type CalibrationDoc } from "../../../src/calibration-doc";
+import { scanLyricLines } from "../../../src/lyrics/scan";
+import { parseCalibrationDoc, type CalibrationDoc, type CalLine } from "../../../src/calibration-doc";
 import { parseSingers, type Singers } from "../../../src/singers";
 import { defaultPlacements, parsePlacements, parseRenderIndex, type Placements, type RenderEntry, type RenderIndex } from "../../../src/placements";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat } from "./beat-grid";
@@ -39,6 +40,8 @@ export interface SongStore {
   mtime(path: string): Promise<number | null>;
   /** Writes text and returns the new modification time. */
   write(path: string, text: string): Promise<number>;
+  /** Names in the folder at `path` ("" = the song folder), or [] when it does not exist. */
+  list(path: string): Promise<string[]>;
 }
 
 const isMissing = (e: unknown) => e instanceof DOMException && (e.name === "NotFoundError" || e.name === "TypeMismatchError");
@@ -56,24 +59,35 @@ export function handleStore(root: FileSystemDirectoryHandle): SongStore {
       throw e;
     }
   };
-  /** Copies `blob` (the file at `rel` before a save) into the save snapshot of the backups folder, then prunes old snapshots. */
+  /**
+   * Copies `blob` (the file at `rel` before a save) into the save snapshot of the backups folder, with the lyrics files
+   * (BACKUP_WITH), then prunes old snapshots. A file already in the snapshot is kept: it is the older state.
+   */
   const backup = async (rel: string, blob: Blob) => {
     const backups = await root.getDirectoryHandle(BACKUP_DIR, { create: true });
-    let d = await backups.getDirectoryHandle(backupSnapshotName("save"), { create: true });
-    const segs = rel.split("/");
-    for (const s of segs.slice(0, -1)) d = await d.getDirectoryHandle(s, { create: true });
-    const name = segs[segs.length - 1]!;
-    const exists = await d.getFileHandle(name).then(
-      () => true,
-      (e: unknown) => {
-        if (isMissing(e)) return false;
-        throw e;
-      }
-    );
-    if (exists) return;
-    const w = await (await d.getFileHandle(name, { create: true })).createWritable();
-    await w.write(blob);
-    await w.close();
+    const snapshot = await backups.getDirectoryHandle(backupSnapshotName("save"), { create: true });
+    const copy = async (path: string, data: Blob) => {
+      const segs = path.split("/");
+      let d = snapshot;
+      for (const s of segs.slice(0, -1)) d = await d.getDirectoryHandle(s, { create: true });
+      const name = segs[segs.length - 1]!;
+      const exists = await d.getFileHandle(name).then(
+        () => true,
+        (e: unknown) => {
+          if (isMissing(e)) return false;
+          throw e;
+        }
+      );
+      if (exists) return;
+      const w = await (await d.getFileHandle(name, { create: true })).createWritable();
+      await w.write(data);
+      await w.close();
+    };
+    await copy(rel, blob);
+    for (const path of BACKUP_WITH) {
+      const f = await (await fileHandle(path))?.getFile();
+      if (f) await copy(path, f);
+    }
     const names: string[] = [];
     for await (const n of backups.keys()) names.push(n);
     for (const old of snapshotsToPrune(names)) await backups.removeEntry(old, { recursive: true });
@@ -82,6 +96,18 @@ export function handleStore(root: FileSystemDirectoryHandle): SongStore {
     name: root.name,
     read: async (path) => (await fileHandle(path))?.getFile() ?? null,
     mtime: async (path) => (await (await fileHandle(path))?.getFile())?.lastModified ?? null,
+    async list(path) {
+      try {
+        let d = root;
+        for (const s of path.split("/").filter(Boolean)) d = await d.getDirectoryHandle(s);
+        const names: string[] = [];
+        for await (const n of d.keys()) names.push(n);
+        return names;
+      } catch (e: unknown) {
+        if (isMissing(e)) return [];
+        throw e;
+      }
+    },
     async write(path, text) {
       const h = await fileHandle(path, true);
       if (!h) throw new Error(`Cannot write ${path}.`);
@@ -95,7 +121,7 @@ export function handleStore(root: FileSystemDirectoryHandle): SongStore {
   };
 }
 
-/** A project the dev server serves (GET/HEAD/PUT /api/project/<id>/file/<path>). */
+/** A project the dev server serves (GET/HEAD/PUT /api/project/<id>/file/<path>, GET /api/project/<id>/list/<path>). */
 export function serverStore(id: string): SongStore {
   const url = (path: string) => `/api/project/${encodeURIComponent(id)}/file/${path.split("/").map(encodeURIComponent).join("/")}`;
   const failed = async (res: Response) => {
@@ -115,6 +141,13 @@ export function serverStore(id: string): SongStore {
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${path}`);
       return Number(res.headers.get("X-Mtime-Ms"));
+    },
+    async list(path) {
+      const res = await fetch(`/api/project/${encodeURIComponent(id)}/list/${path.split("/").map(encodeURIComponent).join("/")}`);
+      if (!res.ok) throw await failed(res);
+      const body: unknown = await res.json();
+      if (!isRecord(body) || !Array.isArray(body.names) || !body.names.every((n) => typeof n === "string")) throw new Error("Unexpected answer to a folder listing.");
+      return body.names;
     },
     async write(path, text) {
       const res = await fetch(url(path), { method: "PUT", body: text });
@@ -179,6 +212,69 @@ export async function loadCalibration(store: SongStore, path: string): Promise<C
   if (!blob) return { doc: { sections: [], lines: [] }, exists: false, mtime: 0 };
   const doc = parseCalibrationDoc(JSON.parse(await blob.text()));
   return { doc, exists: true, mtime: (await store.mtime(path)) ?? 0 };
+}
+
+/** A backup snapshot (src/backup-policy.ts) that holds a copy of one song file. */
+export interface FileBackup {
+  /** The snapshot folder (in backups/). */
+  snapshot: string;
+  /** The copy's path in the song folder. */
+  path: string;
+  time: Date;
+  /** What overwrote the file after the copy was taken: save, edit-lyrics, retime... */
+  reason: string;
+}
+
+/** The backups of the song file at `path`, newest first. */
+export async function listBackups(store: SongStore, path: string): Promise<FileBackup[]> {
+  const out: FileBackup[] = [];
+  for (const name of await store.list(BACKUP_DIR)) {
+    const snap = parseSnapshotName(name);
+    const copy = `${BACKUP_DIR}/${name}/${path}`;
+    if (snap && (await store.mtime(copy)) !== null) out.push({ snapshot: name, path: copy, ...snap });
+  }
+  return out.sort((a, b) => b.time.getTime() - a.time.getTime());
+}
+
+const LYRICS_PATH = "user_input/lyrics.txt";
+
+/**
+ * The lyrics text a backup's timing `doc` belongs to: the lyrics.txt of the backup's own snapshot, else of a later snapshot (backups
+ * taken before snapshots held the lyrics), else the song's current one; the first whose lines are the timing's lines. When none
+ * is, the nearest of them with as many lines, its differing lines rebuilt from the timing (`rebuild`; sections, comments and the
+ * other lines' {phones} stay): `rebuilt` lists those lines (1-based). Null when there is neither.
+ */
+export async function backupLyricsText(
+  store: SongStore,
+  backup: FileBackup,
+  doc: CalibrationDoc,
+  rebuild: (line: CalLine) => string
+): Promise<{ text: string; rebuilt: number[] } | null> {
+  // A timing line's text is its words without the syllable marks ("|"; "+" too in Japanese).
+  const textOf = (tokens: Array<{ word: string }>, marks: RegExp) => tokens.map((t) => t.word.replace(marks, "")).join(" ");
+  const same = (tokens: Array<{ word: string }>, line: CalLine | undefined) =>
+    line !== undefined && (textOf(tokens, /\|/g) === line.text || textOf(tokens, /[|+]/g) === line.text);
+  const later = (await store.list(BACKUP_DIR)).filter((n) => parseSnapshotName(n) !== null && n >= backup.snapshot).sort();
+  let nearest: string | null = null;
+  for (const p of [...later.map((n) => `${BACKUP_DIR}/${n}/${LYRICS_PATH}`), LYRICS_PATH]) {
+    const text = await (await store.read(p))?.text();
+    if (text === undefined) continue;
+    const lines = scanLyricLines(text);
+    if (lines.length === doc.lines.length && lines.every((l, i) => same(l.tokens, doc.lines[i]))) return { text, rebuilt: [] };
+    nearest ??= text;
+  }
+  if (nearest === null) return null;
+  const lines = scanLyricLines(nearest);
+  if (lines.length !== doc.lines.length) return null;
+  let text = nearest;
+  const rebuilt: number[] = [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]!;
+    if (same(l.tokens, doc.lines[i])) continue;
+    text = text.slice(0, l.from) + rebuild(doc.lines[i]!) + text.slice(l.to);
+    rebuilt.unshift(i + 1);
+  }
+  return { text, rebuilt };
 }
 
 /** The singers of the song (user_input/singers.json), or null when the song has no singers file. */
