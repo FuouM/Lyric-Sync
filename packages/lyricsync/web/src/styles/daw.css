@@ -14,7 +14,6 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    font-size: inherit;
   }
 
   .daw-lcd-slash {
@@ -569,11 +568,6 @@
 
   .kara-line--sub .kara-syl-bar {
     height: 3px;
-  }
-
-  /* The reset sets `* { font-size }`; everything in the line takes the line's size instead. */
-  .kara-line * {
-    font: inherit;
   }
 
   .kara-rest {
