@@ -12,12 +12,14 @@ import {
   parseLyricsText,
   Session,
   syllableCount,
-  type LineAnchor,
+  setBoundary,
+  validateAnchors,
   type Pronunciations,
   type SyllableChange,
 } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { findSongDir, songInputs, type SongsRoots } from "../../src/song-folder.ts";
+import { backupSongFiles } from "../../src/song-backups.ts";
 import { calibrationFromSolve, checkLyrics, syncLines } from "./wizard.ts";
 import { inferenceDevice } from "./device.ts";
 
@@ -37,6 +39,31 @@ let job: ReanalyzeJob | null = null;
 
 export function currentReanalyzeJob(): ReanalyzeJob | null {
   return job;
+}
+
+/**
+ * The longest in-order matching of `a` to `b` (longest common subsequence under `same`): for each item of `a`, the index of
+ * its partner in `b`, or null. Partners keep their order, so the k-th copy of a repeated line pairs with the k-th copy.
+ */
+export function matchInOrder<A, B>(a: readonly A[], b: readonly B[], same: (x: A, y: B) => boolean): Array<number | null> {
+  const n = a.length;
+  const m = b.length;
+  // len[i][j]: LCS length of a[i..] and b[j..]
+  const len = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      len[i]![j] = same(a[i]!, b[j]!) ? len[i + 1]![j + 1]! + 1 : Math.max(len[i + 1]![j]!, len[i]![j + 1]!);
+    }
+  }
+  const out: Array<number | null> = new Array(n).fill(null);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (same(a[i]!, b[j]!) && len[i]![j] === len[i + 1]![j + 1]! + 1) out[i++] = j++;
+    else if (len[i + 1]![j]! >= len[i]![j + 1]!) i++;
+    else j++;
+  }
+  return out;
 }
 
 export function parseSplitLines(raw: unknown): EditorSplitLine[] {
@@ -124,6 +151,7 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
       // A re-split word has other syllables than the "+" joins were written for.
       delete syncWords[k]!.sylJoin;
     });
+    backupSongFiles(findSongDir(roots, id)!, ["user_input/lyrics.sync.json"], "reanalyze");
     fs.writeFileSync(project.syncFile, `${JSON.stringify(sync, null, 2)}\n`, "utf8");
   }
 
@@ -203,6 +231,45 @@ export function updateLyrics(
     } catch {}
   }
 
+  // Derive preserved anchors from oldCal: each new line takes the pins of the old line it matches (same text, words and
+  // syllable counts), matched in order so a repeated line (a chorus) keeps its own pins, not the first copy's.
+  const anchors = emptyAnchors();
+  const oldLines = oldCal && Array.isArray(oldCal.lines) ? oldCal.lines : [];
+  const sameLine = (newLine: (typeof def.lines)[number], ol: RawCalLine) =>
+    ol.text === newLine.text &&
+    Array.isArray(ol.words) &&
+    ol.words.length === newLine.words.length &&
+    newLine.words.every((nw, wi) => {
+      const ow = ol.words![wi]!;
+      return nw.syllables.length === (Array.isArray(ow.sylText) ? ow.sylText.length : Array.isArray(ow.syl) ? ow.syl.length : 0);
+    });
+  const oldFor = matchInOrder(def.lines, oldLines, sameLine).map((oi) => (oi === null ? null : oldLines[oi]!));
+  // The pins are the ones Auto-time takes from the same flags (realign.ts / importCalibrated): every boundary of a calibrated
+  // line, both edges of each calibrated syllable. Pinning less would let this solve move a flagged syllable's edge, and the
+  // carried flag would then pin wherever it landed.
+  for (const [li, newLine] of def.lines.entries()) {
+    const oldLine = oldFor[li];
+    if (!oldLine) continue;
+    let flat = 0;
+    for (const [wi, nw] of newLine.words.entries()) {
+      const ow = oldLine.words![wi]!;
+      const n = nw.syllables.length;
+      for (let s = 0; s < n; s++) {
+        const flagged =
+          oldLine.calibrated === true || (ow.sylCalibrated?.length === n ? ow.sylCalibrated[s] === true : ow.calibrated === true);
+        const syl = ow.syl?.[s];
+        if (!flagged || !syl) continue;
+        setBoundary(anchors, def, li, flat + s, syl[0]);
+        setBoundary(anchors, def, li, flat + s + 1, syl[1]);
+      }
+      flat += n;
+    }
+  }
+  validateAnchors(anchors, def);
+
+  // The edit rewrites the lyrics and, after the solve, the lead's calibration: keep them as they are now.
+  backupSongFiles(dir, ["user_input/lyrics.txt", "user_input/lyrics.sync.json", "user_input/lyrics.calibrated.json"], "edit-lyrics");
+
   // Write user_input/lyrics.txt
   fs.writeFileSync(path.join(dir, "user_input", "lyrics.txt"), input.text.endsWith("\n") ? input.text : `${input.text}\n`, "utf8");
 
@@ -210,55 +277,6 @@ export function updateLyrics(
   const syncFile = path.join(dir, "user_input", "lyrics.sync.json");
   const syncData = { language: def.language, lines: syncLines(parsed) };
   fs.writeFileSync(syncFile, `${JSON.stringify(syncData, null, 2)}\n`, "utf8");
-
-  // Derive preserved anchors from oldCal
-  const anchors = emptyAnchors();
-  if (oldCal && Array.isArray(oldCal.lines)) {
-    for (let li = 0; li < def.lines.length; li++) {
-      const newLine = def.lines[li]!;
-      const oldLine = oldCal.lines.find(
-        (ol) => ol.text === newLine.text && Array.isArray(ol.words) && ol.words.length === newLine.words.length
-      );
-      if (oldLine) {
-        let sylsMatch = true;
-        for (let wi = 0; wi < newLine.words.length; wi++) {
-          const nw = newLine.words[wi]!;
-          const ow = oldLine.words![wi]!;
-          const owSylLen = Array.isArray(ow.sylText) ? ow.sylText.length : Array.isArray(ow.syl) ? ow.syl.length : 0;
-          if (nw.syllables.length !== owSylLen) {
-            sylsMatch = false;
-            break;
-          }
-        }
-        if (sylsMatch) {
-          const m = syllableCount(newLine);
-          const lineAnchor: LineAnchor = {};
-          if (oldLine.calibrated === true) {
-            if (typeof oldLine.start === "number") lineAnchor.start = oldLine.start;
-            if (typeof oldLine.end === "number") lineAnchor.end = oldLine.end;
-          }
-          let boundaryIdx = 0;
-          const boundaries: Record<string, number> = {};
-          for (let wi = 0; wi < newLine.words.length; wi++) {
-            const ow = oldLine.words![wi]!;
-            const sylCount = newLine.words[wi]!.syllables.length;
-            for (let si = 0; si < sylCount; si++) {
-              if (boundaryIdx > 0 && boundaryIdx < m) {
-                if (ow.sylCalibrated?.[si] === true && Array.isArray(ow.syl?.[si]) && typeof ow.syl[si]![0] === "number") {
-                  boundaries[String(boundaryIdx)] = ow.syl[si]![0];
-                }
-              }
-              boundaryIdx++;
-            }
-          }
-          if (Object.keys(boundaries).length > 0) lineAnchor.boundaries = boundaries;
-          if (lineAnchor.start !== undefined || lineAnchor.end !== undefined || lineAnchor.boundaries !== undefined) {
-            anchors.lines[String(li)] = lineAnchor;
-          }
-        }
-      }
-    }
-  }
 
   // Update workspace session
   const session = Session.open(inputs.workspaceDir);
@@ -302,21 +320,18 @@ export function updateLyrics(
         }>;
       };
       // Carry forward sylCalibrated flags from oldCal
-      if (oldCal && Array.isArray(oldCal.lines)) {
-        for (const nl of newCal.lines) {
-          const ol = oldCal.lines.find((o) => o.text === nl.text && o.words?.length === nl.words?.length);
-          if (ol) {
-            for (let wi = 0; wi < nl.words.length; wi++) {
-              const nw = nl.words[wi]!;
-              const ow = ol.words![wi]!;
-              if (ow && nw.w === ow.w && nw.sylText?.length === ow.sylText?.length) {
-                if (Array.isArray(ow.sylCalibrated)) nw.sylCalibrated = [...ow.sylCalibrated];
-                if (ow.calibrated) nw.calibrated = true;
-              }
-            }
-            if (ol.calibrated) nl.calibrated = true;
+      for (const [li, nl] of newCal.lines.entries()) {
+        const ol = oldFor[li];
+        if (!ol) continue;
+        for (let wi = 0; wi < nl.words.length; wi++) {
+          const nw = nl.words[wi]!;
+          const ow = ol.words![wi]!;
+          if (ow && nw.w === ow.w && nw.sylText?.length === ow.sylText?.length) {
+            if (Array.isArray(ow.sylCalibrated)) nw.sylCalibrated = [...ow.sylCalibrated];
+            if (ow.calibrated) nw.calibrated = true;
           }
         }
+        if (ol.calibrated) nl.calibrated = true;
       }
 
       fs.writeFileSync(calFile, `${JSON.stringify(newCal, null, 2)}\n`, "utf8");

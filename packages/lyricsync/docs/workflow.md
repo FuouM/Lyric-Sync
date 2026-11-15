@@ -83,6 +83,6 @@ When vocal separation fails, or when a song uses synthesizer project files (such
 | `Workspace is not prepared` / `changed since "prepare"` | run `lyricsync prepare ws` |
 | `Workspace already exists` | `init` never overwrites: choose a new directory |
 | `The imported file has N lines but the lyrics have M` | use `--skip-lines` for lyric lines the file lacks, or fix the file |
-| `... must be earlier than boundary ...` | pinned times in one line are not increasing |
+| `... must be earlier than boundary ...` | pinned times in one line are not increasing; for a song's editor file, see [calibration-repair.md](calibration-repair.md) |
 | `Decoding .mp3 files needs ffmpeg` | install ffmpeg or convert to WAV |
 | `Bundled model file is missing` | the installed package is incomplete (its `models/` directory was not shipped) |
