@@ -11,6 +11,12 @@ import { loadTrainingSongs, writeTrainedWeights } from './train/songs.ts';
 import { trainMode } from './train/train.ts';
 import type { BeatSource } from './workspace/manifest.ts';
 import type { Language, LineReview } from './types.ts';
+import { songNotes, songUstImport } from './ust-song.ts';
+import { SUB_FORMATS, type SubFormat } from './formats/subs.ts';
+import { retimeSong } from './retime.ts';
+import { exportSubs } from './subs-song.ts';
+import { songMidiNotes } from './midi-song.ts';
+import { writeFixedGrid } from './grid-song.ts';
 
 const HELP = `lyricsync - singing-voice lyrics timing (vocal stem + lyrics -> word/syllable lyrics.json)
 
@@ -37,8 +43,22 @@ Commands
                    --list                 show current anchors
   status <ws>    Workspace state.
   run <ws>       init + prepare + solve in one go (init options, plus: --out <file>, --method <...>, --anchors-from <file> --level <...>).
+  notes <song>   Write <song>/generated/notes.json: every UST note that a placed clip plays (user_input/placements.json), on the
+                 song beat grid (generated/timing.ai.json), with its singer (user_input/singers.json).
+  import ust <song>  Write the singers' calibration files from the placed UST notes and user_input/ust.map.json. Every map
+                 check runs first; a failure names the lane, the lyric line and the UST note.   [--dry: check, write nothing] [--singer <id,...>]
   train <manifest.json>  (developers) Fit anchored + free DP weights on annotated songs: --out-dir <dir> [--held-out-dir <dir>]
                  [--epochs 3] [--lr 0.1] [--l2 0.2] [--tau-ms 4]. See docs/training.md.
+  export subs <song>  Write subtitle files from the calibration files (a line at a time, a syllable lit at a time, as in the pve player).
+                 --out <dir> (required; never the song folder by default)   [--format ttml|srt|ass|ytt|all (default ass)] [--lang <code>, TTML]
+                 [--singer <id> | --all]  (default: the lead). With --all, ASS and YTT also get <song>.all.<format>: one row per singer.
+  retime <song>  Add --by <seconds> (use --by=-0.5 for a negative value) to every time of the calibration files (sections, lines, words,
+                 syllables). Pins, text and flags stay. generated/ and the cache stay.   [--singer <id> | --all]  (default: the lead)
+  grid <song>    Write generated/timing.ai.json for a song with "grid: fixed" in user_input/prompt.yaml: a constant tempo (nearest_bpm), bar 1 at
+                 first_downbeat_s (default 0), every beat to the end of the mix. No models. Other songs get their beats from the editor or the wizard.
+  midi <song>    Write the notes of a MIDI file on the song beat grid (generated/timing.ai.json) as JSON: track, channel, program, drum role,
+                 pitch, velocity, beat, start, end. --file <mid> --out <file> (required)   [--offset-beats <n>: song beats added to every MIDI beat]
+                 [--bpm <n>: time = beat * 60 / n instead of the beat grid]   [--encoding <label>: text encoding of track names, e.g. gbk]
   version
 
 Global options: --json (machine-readable stdout), --device gpu|cpu (where prepare/solve run the models; default gpu, which uses
@@ -145,6 +165,15 @@ async function main(argv: string[]): Promise<number> {
       method: { type: 'string' },
       'no-snap': { type: 'boolean' },
       device: { type: 'string' },
+      dry: { type: 'boolean' },
+      format: { type: 'string' },
+      lang: { type: 'string' },
+      singer: { type: 'string' },
+      all: { type: 'boolean' },
+      by: { type: 'string' },
+      file: { type: 'string' },
+      'offset-beats': { type: 'string' },
+      encoding: { type: 'string' },
     },
   });
   if (values.help) {
@@ -198,7 +227,115 @@ async function main(argv: string[]): Promise<number> {
     );
   };
 
+  const songFolder = (arg: string | undefined): string => {
+    if (arg === undefined) throw new UsageError(`"${command}" needs a song folder.`);
+    const song = path.resolve(arg);
+    if (!fs.existsSync(path.join(song, 'user_input'))) throw new UsageError(`${song} is not a song folder (no user_input/).`);
+    return song;
+  };
+  const writeJson = (file: string, data: unknown): void => fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+
+  const selector = (): { singer?: string; all?: boolean } => ({ ...(values.singer === undefined ? {} : { singer: values.singer }), ...(values.all === true ? { all: true } : {}) });
   switch (command) {
+    case 'export': {
+      if (dir !== 'subs') throw new UsageError(`Unknown export "${dir}": only "subs" is supported.`);
+      const song = songFolder(positionals[1]);
+      if (values.out === undefined) throw new UsageError('export subs needs --out <dir>.');
+      const raw = values.format ?? 'ass';
+      const formats = raw === 'all' ? [...SUB_FORMATS] : raw.split(',').map((f) => f.trim()).filter(Boolean);
+      for (const f of formats) if (!(SUB_FORMATS as readonly string[]).includes(f)) throw new UsageError(`--format is ttml, srt, ass, ytt or all, got "${f}".`);
+      const files = exportSubs(song, { ...selector(), formats: formats as SubFormat[], out: path.resolve(values.out), lang: values.lang });
+      emit(
+        { files },
+        files.map((f) => `${path.relative(process.cwd(), f.file)}  ${f.cues} cues  ${f.first.toFixed(2)} - ${f.last.toFixed(2)} s  (${f.singers.join(', ')})`).join('\n'),
+      );
+      return 0;
+    }
+    case 'grid': {
+      const song = songFolder(dir);
+      const { file, doc } = await writeFixedGrid(song);
+      emit(
+        { out: file, bpm: doc.bpm, beats: doc.beats.length, bars: doc.downbeats.length, duration: doc.duration },
+        `Wrote ${file}: ${doc.beats.length} beats, ${doc.downbeats.length} downbeats, ${doc.bpm} BPM, ${doc.duration} s.`,
+      );
+      return 0;
+    }
+    case 'midi': {
+      const song = songFolder(dir);
+      if (values.file === undefined) throw new UsageError('midi needs --file <mid>.');
+      if (values.out === undefined) throw new UsageError('midi needs --out <file> (never the song folder by default).');
+      const doc = songMidiNotes(song, path.resolve(values.file), {
+        offsetBeats: values['offset-beats'] === undefined ? undefined : num(values['offset-beats'], '--offset-beats'),
+        bpm: values.bpm === undefined ? undefined : num(values.bpm, '--bpm'),
+        encoding: values.encoding,
+      });
+      const out = path.resolve(values.out);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      writeJson(out, doc);
+      emit(
+        { out, notes: doc.notes.length, dropped: doc.dropped, tracks: doc.tracks },
+        `Wrote ${out}: ${doc.notes.length} notes, ${doc.dropped} dropped (before beat 0 or after the song end).\n${doc.tracks.map((t) => `  ${t.track} "${t.name}" ch ${t.channels.join(',') || '-'}: ${t.notes} notes${t.programs.length ? ` (${t.programs.map((p) => p.name).join(', ')})` : ''}`).join('\n')}`,
+      );
+      return 0;
+    }
+    case 'retime': {
+      const song = songFolder(dir);
+      if (values.by === undefined) throw new UsageError('retime needs --by <seconds>.');
+      const by = num(values.by, '--by');
+      const files = retimeSong(song, by, selector());
+      emit({ by, files }, `Shifted by ${by} s:\n${files.map((f) => `  ${path.relative(process.cwd(), f.file)} (${f.singer}): ${f.lines} lines`).join('\n')}`);
+      return 0;
+    }
+    case 'notes': {
+      const song = songFolder(dir);
+      const doc = songNotes(song);
+      const file = path.join(song, 'generated', 'notes.json');
+      writeJson(file, doc);
+      const lanes = new Map<string, { notes: number; first: number; last: number }>();
+      for (const n of doc.notes) {
+        const l = lanes.get(n.lane) ?? { notes: 0, first: n.start, last: n.start };
+        l.notes++;
+        l.first = Math.min(l.first, n.start);
+        l.last = Math.max(l.last, n.start);
+        lanes.set(n.lane, l);
+      }
+      const perLane = [...lanes].map(([lane, l]) => ({ lane, ...l }));
+      emit(
+        { out: file, notes: doc.notes.length, lanes: perLane },
+        `Wrote ${file}: ${doc.notes.length} notes.\n${perLane.map((l) => `  ${l.lane}: ${l.notes} notes, ${l.first.toFixed(3)} s to ${l.last.toFixed(3)} s`).join('\n')}`,
+      );
+      return 0;
+    }
+    case 'import': {
+      if (dir !== 'ust') throw new UsageError(`Unknown import format "${dir}": only "ust" is supported.`);
+      const song = songFolder(positionals[1]);
+      const dry = values.dry === true;
+      const allFiles = songUstImport(song);
+      const singers = values.singer ? values.singer.split(',').map((s) => s.trim()) : undefined;
+      const files = singers ? allFiles.filter((f) => singers.includes(f.singer)) : allFiles;
+      if (singers && files.length === 0) throw new UsageError(`No matching singer for --singer "${values.singer}". Mapped singers: ${allFiles.map((f) => f.singer).join(', ')}.`);
+      if (!dry) for (const f of files) writeJson(path.join(song, f.file), f.doc);
+      const report = files.map((f) => {
+        const flags = f.doc.lines.flatMap((l) => l.words.flatMap((w) => w.sylCalibrated ?? w.syl.map(() => false)));
+        const pinned = flags.filter(Boolean).length;
+        return {
+          singer: f.singer,
+          file: f.file,
+          lines: f.doc.lines.length,
+          syllables: flags.length,
+          pinned,
+          unpinned: flags.length - pinned,
+          sections: f.doc.sections.length,
+          first: f.doc.lines[0] ? [f.doc.lines[0].start, f.doc.lines[0].end] : null,
+          last: f.doc.lines.at(-1) ? [f.doc.lines.at(-1)!.start, f.doc.lines.at(-1)!.end] : null,
+        };
+      });
+      emit(
+        { dry, files: report },
+        `${dry ? 'Check passed; would write' : 'Wrote'}:\n${report.map((r) => `  ${r.file} (${r.singer}): ${r.lines} lines, ${r.syllables} syllables (${r.pinned} pinned, ${r.unpinned} unpinned), ${r.sections} sections`).join('\n')}`,
+      );
+      return 0;
+    }
     case 'init':
       initFromOptions(true);
       return 0;

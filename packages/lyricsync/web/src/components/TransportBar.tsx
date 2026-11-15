@@ -1,5 +1,5 @@
 // packages/lyricsync/web/src/components/TransportBar.tsx
-// DAW transport: playback controls, timecode + bar/beat counter, monitor source, snap/click/follow, zoom, save and solve.
+// DAW transport: playback controls, timecode + bar/beat counter, monitor source, snap/click/follow/razor, zoom, save and solve.
 import { Show } from "solid-js";
 import { formatTimecode } from "../lib/doc-edit";
 import { LcdDigits } from "./LcdDigits";
@@ -31,6 +31,9 @@ export interface TransportBarProps {
   onMetronome: () => void;
   follow: boolean;
   onFollow: () => void;
+  /** Razor tool for the vocal lane clips. */
+  razor: boolean;
+  onRazor: () => void;
   onZoom: (factor: number) => void;
   onZoomFit: () => void;
   dirty: boolean;
@@ -45,7 +48,12 @@ export interface TransportBarProps {
   analysing: boolean;
   onReanalyze: () => void;
   onEditLyrics?: () => void;
+  /** The selected singer is not the lead: Auto-time, Re-analyze and Edit Lyrics (they run the solver on the lead's workspace) are off. */
+  notLead: boolean;
 }
+
+/** Tooltip of the solver actions while another singer than the lead is selected. */
+export const LEAD_ONLY = "lead singer only for now";
 
 export function TransportBar(props: TransportBarProps) {
   return (
@@ -113,6 +121,9 @@ export function TransportBar(props: TransportBarProps) {
         <button class="daw-toggle" classList={{ "daw-on": props.follow }} title="Scroll timeline with playhead (F)" onClick={() => props.onFollow()}>
           <i class="bi bi-arrow-right-square-fill" /> Follow
         </button>
+        <button class="daw-toggle" classList={{ "daw-on": props.razor }} title="Razor: click a vocal lane clip to split it (R; Escape leaves)" onClick={() => props.onRazor()}>
+          <i class="bi bi-scissors" /> Razor
+        </button>
       </div>
 
       <div class="daw-transport-group">
@@ -129,7 +140,7 @@ export function TransportBar(props: TransportBarProps) {
 
       <div class="daw-transport-spacer" />
 
-      <Show when={props.resplitWords > 0 || props.analysisStale || props.analysing}>
+      <Show when={!props.notLead && (props.resplitWords > 0 || props.analysisStale || props.analysing)}>
         <button
           class="daw-btn daw-btn-warn"
           disabled={props.analysing || props.solving}
@@ -143,21 +154,27 @@ export function TransportBar(props: TransportBarProps) {
       <button
         type="button"
         class="daw-btn"
-        disabled={!props.canSolve || props.solving || props.analysing}
-        title="Edit lyrics in full text editor, add or delete words/syllables, and re-time"
+        disabled={!props.canSolve || props.solving || props.analysing || props.notLead}
+        title={props.notLead ? LEAD_ONLY : "Edit lyrics in full text editor, add or delete words/syllables, and re-time"}
         onClick={() => props.onEditLyrics?.()}
       >
         <i class="bi bi-pencil" /> Edit Lyrics
       </button>
       <button
         class="daw-btn daw-btn-accent"
-        disabled={!props.canSolve || props.solving || props.analysing || props.resplitWords > 0 || props.analysisStale}
-        title={props.resplitWords > 0 || props.analysisStale ? "Re-analyze first: the analysis does not match the syllables" : "Re-time every unpinned syllable around your pins"}
+        disabled={!props.canSolve || props.solving || props.analysing || props.resplitWords > 0 || props.analysisStale || props.notLead}
+        title={
+          props.notLead
+            ? LEAD_ONLY
+            : props.resplitWords > 0 || props.analysisStale
+              ? "Re-analyze first: the analysis does not match the syllables"
+              : "Re-time every unpinned syllable around your pins"
+        }
         onClick={() => props.onSolve()}
       >
         <i class={`bi bi-${props.solving ? "hourglass-split" : "magic"}`} /> {props.solving ? "Solving…" : "Auto-time unpinned"}
       </button>
-      <button class="daw-btn" classList={{ "daw-btn-dirty": props.dirty }} disabled={!props.canSave} title="Save lyrics.calibrated.json (Ctrl+S)" onClick={() => props.onSave()}>
+      <button class="daw-btn" classList={{ "daw-btn-dirty": props.dirty }} disabled={!props.canSave} title="Save every changed calibration file and the placements (Ctrl+S)" onClick={() => props.onSave()}>
         <i class="bi bi-floppy-fill" /> Save
         <Show when={props.dirty}>
           <span class="daw-dirty-dot" />

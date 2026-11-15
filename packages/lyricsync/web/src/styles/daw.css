@@ -1058,10 +1058,41 @@
 
 .kara-head {
   display: flex;
-  justify-content: flex-end;
-  min-height: 1.2em;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 1.4em;
   font-family: var(--daw-mono);
   color: var(--k-gray);
+  gap: 8px;
+}
+
+.kara-singer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--k-dark);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--k-trough);
+  color: var(--k-text);
+  user-select: none;
+  font-family: var(--daw-mono);
+  flex-shrink: 0;
+}
+
+.kara-singer-badge--main {
+  background: var(--k-hl);
+  color: var(--k-hl-text);
+  border-color: var(--k-hl);
+  font-weight: 700;
+}
+
+.kara-singer-badge--sub {
+  font-size: 10px;
+  min-width: 58px;
+  justify-content: center;
 }
 
 /* The lyrics sit in a sunken white well, like a read-only TextBox. */
@@ -1079,6 +1110,66 @@
   font-size: clamp(16px, min(3.2cqw, 10cqh), 38px);
   font-weight: 700;
   line-height: 1.25;
+}
+
+.kara-line--main {
+  font-size: clamp(16px, min(3.2cqw, 8cqh), 36px);
+}
+
+.kara-other-singers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  border-top: 1px solid var(--k-dark);
+  padding-top: 8px;
+  max-height: 38cqh;
+  overflow-y: auto;
+}
+
+.kara-sub-singer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: opacity 0.1s ease;
+}
+
+.kara-sub-singer-row:hover .kara-singer-badge--sub {
+  border-color: var(--k-hl);
+  color: var(--k-hl);
+}
+
+.kara-line--sub {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 3px 0.35em;
+  min-height: 1.4em;
+  padding: 4px 8px 3px;
+  background: var(--k-well);
+  border: 1px solid;
+  border-color: var(--k-dark) var(--k-light) var(--k-light) var(--k-dark);
+  box-shadow: inset 1px 1px 0 var(--k-darker);
+  font-size: clamp(11px, min(1.8cqw, 3.8cqh), 16px);
+  font-weight: 600;
+  line-height: 1.25;
+  opacity: 0.92;
+  transition: border-color 0.1s ease;
+}
+
+.kara-sub-singer-row:hover .kara-line--sub {
+  border-color: var(--k-hl);
+  opacity: 1;
+}
+
+.kara-line--sub .kara-syl-bar {
+  height: 3px;
 }
 
 /* The base stylesheet sets `* { font-size: 12px }`; everything in the line takes the line's size instead. */
@@ -1548,6 +1639,126 @@
   text-align: center;
   color: #4b5564;
   pointer-events: none;
+}
+
+/* Vocal lanes: the header column scrolls with the lanes (TimelineCanvas sets the offset). */
+.daw-lane-headers {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
+
+.daw-lane-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid var(--sys-border-medium, #cccccc);
+  background: var(--sys-control-bg, #ececec);
+  box-sizing: border-box;
+}
+
+.daw-lane-parked .daw-lane-label {
+  color: var(--sys-text-muted, #777777);
+  font-style: italic;
+}
+
+.daw-lane-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.daw-lane-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sys-control-text, #000000);
+}
+
+.daw-lane-warn {
+  color: #d97706;
+  font-size: 12px;
+}
+
+.daw-lane-block,
+.daw-singer-select {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 11px;
+  border: 1px solid var(--sys-button-border, #7a7a7a);
+  background: var(--sys-window-bg, #ffffff);
+  color: var(--sys-window-text, #000000);
+  box-sizing: border-box;
+}
+
+.daw-lane-block:focus,
+.daw-singer-select:focus {
+  border-color: var(--sys-border-focus, #0078d7);
+  outline: 1px solid var(--sys-border-focus, #0078d7);
+}
+
+.daw-lane-block::placeholder {
+  color: var(--sys-text-muted, #888888);
+}
+
+.daw-singer-select {
+  flex: 0 0 auto;
+  width: 84px;
+}
+
+.daw-singer-select option {
+  background: var(--sys-window-bg, #ffffff);
+  color: var(--sys-window-text, #000000);
+}
+
+/* Other singers under the Lyrics lane: one row per singer, the header names them. */
+.daw-faint-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.daw-faint-row {
+  height: 16px;
+  line-height: 16px;
+  font-size: 10px;
+  color: var(--sys-text-muted, #777777);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.daw-gain {
+  width: 40px;
+  height: 14px;
+  margin: 0 2px;
+}
+
+.daw-ms-btn {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.daw-ms-btn.daw-mute-on {
+  background: #dc2626;
+  border-color: #991b1b;
+  color: #ffffff;
+}
+
+.daw-ms-btn.daw-solo-on {
+  background: #eab308;
+  border-color: #a16207;
+  color: #000000;
 }
 
 /* ── Status bar ───────────────────────────────────────────────────────── */

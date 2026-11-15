@@ -68,6 +68,10 @@ lyricsync run ws --vocal vocal.wav --lyrics lyrics.txt --language en --mix song.
 ```
 
 `known.json` is lyrics.json-style (`lines[].start/end`). If it omits a sung line of your lyrics, name that lyric line with `--skip-lines`.
+## When vocals come from synthesizers (UST, multi-singer, DAW edits)
+
+When vocal separation fails, or when a song uses synthesizer project files (such as UTAU) with multiple singers and post-synthesis DAW edits, use the synthesizer workflow: see [multivocal-ust-workflow.md](multivocal-ust-workflow.md).
+
 
 ## Troubleshooting
 

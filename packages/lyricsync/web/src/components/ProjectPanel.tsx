@@ -4,6 +4,7 @@ import { createEffect, For, Show } from "solid-js";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import type { LineReview } from "../../../src/types";
 import { formatTimecode } from "../lib/doc-edit";
+import { LEAD_ONLY } from "./TransportBar";
 
 export type ProjectTab = "songs" | "lines" | "review" | "sections";
 
@@ -25,6 +26,7 @@ export interface ProjectPanelProps {
   currentTime: number;
   onRemoveSection: (idx: number) => void;
   onAddSection: () => void;
+  /** Absent while another singer than the lead is selected: Edit Lyrics re-times the lead's workspace only. */
   onEditLyrics?: (lineIdx?: number) => void;
 }
 
@@ -78,8 +80,9 @@ export function ProjectPanel(props: ProjectPanelProps) {
               <button
                 type="button"
                 class="daw-btn daw-btn-sm"
+                disabled={!props.onEditLyrics}
                 onClick={() => props.onEditLyrics?.()}
-                title="Edit lyrics in full text editor"
+                title={props.onEditLyrics ? "Edit lyrics in full text editor" : LEAD_ONLY}
               >
                 <i class="bi bi-pencil" /> Edit Lyrics
               </button>

@@ -3,20 +3,38 @@
 // program monitor, inspector and a multi-track timeline.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { MenuBar, type MenuDef } from "./components/MenuBar";
-import { TransportBar } from "./components/TransportBar";
+import { LEAD_ONLY, TransportBar } from "./components/TransportBar";
 import { ProjectPanel, type ProjectTab } from "./components/ProjectPanel";
 import { ProgramMonitor } from "./components/ProgramMonitor";
 import { Inspector } from "./components/Inspector";
-import { TimelineCanvas, type MonitorTrack } from "./components/TimelineCanvas";
+import { TimelineCanvas, type MonitorTrack, type TimelineLane } from "./components/TimelineCanvas";
 import { NewSongWizard } from "./components/NewSongWizard";
 import { EditLyricsModal } from "./components/EditLyricsModal";
 import { Logo } from "./components/Logo";
 import type { LineReview } from "../../src/types";
 import { isNumber, isRecord, isStringArray } from "../../src/guards";
-import { AudioPlayer, extractPeaks } from "./lib/audio-player";
+import { AudioPlayer, audibleTracks, bufferPeaks, UNITY_MIX, wholeBuffer, type TrackClip, type TrackMix } from "./lib/audio-player";
 import { storeLibraryHandle, getStoredLibraryHandle, clearStoredLibraryHandle } from "./lib/idb-storage";
-import { CALIBRATED_PATH, errorMessage, handleStore, isAbort, loadReview, loadSongFiles, serverStore, type SongStore } from "./lib/song-files";
+import {
+  CALIBRATED_PATH,
+  errorMessage,
+  handleStore,
+  isAbort,
+  loadCalibration,
+  loadRenders,
+  loadReview,
+  loadSingers,
+  loadSongFiles,
+  PLACEMENTS_PATH,
+  readRenderWav,
+  serverStore,
+  type SongRenders,
+  type SongStore,
+} from "./lib/song-files";
 import { isSylPinned, parseCalibrationDoc, type CalibrationDoc, type CalLine } from "../../src/calibration-doc";
+import { clipTickRange, parsePlacements, splitClip, type Placements, type RenderEntry } from "../../src/placements";
+import { calibratedFileFor, type Singer } from "../../src/singers";
+import { blockNames, clipTime, isDuplicate, nextLaneId, renderOf, secPerTick, tempoWarning } from "./lib/lanes";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat, writeFirstDownbeat } from "./lib/beat-grid";
 import { readTempoMap, tempoAt, type TempoMap } from "./lib/tempo-grid";
 import { persistedSignal } from "./lib/persisted-signal";
@@ -53,9 +71,32 @@ interface OpenSong {
   store: SongStore;
 }
 
+/** One undo step: the calibration or the lane placements as they were. */
+type EditState = { doc: CalibrationDoc } | { placements: Placements | null };
+
+/** The calibration of a singer that is not selected: kept with its own undo steps and unsaved state while another singer is edited. */
+interface SingerState {
+  doc: CalibrationDoc;
+  history: EditState[];
+  future: EditState[];
+  dirty: boolean;
+  /** The file exists (else the first save with lines or sections creates it). */
+  exists: boolean;
+  mtime: number;
+}
+
+/** The decoded wav of a render, or why there is none. */
+interface LaneAudio {
+  buffer?: AudioBuffer;
+  peaks?: Float32Array;
+  problem?: string;
+}
+
 /** Lines with unpinned boundaries, most uncertain first. */
 const sortReview = (review: LineReview[]) =>
   review.filter((r) => r.uncertain.length > 0).sort((a, b) => b.meanExpectedErrorMs - a.meanExpectedErrorMs);
+
+const hasContent = (doc: CalibrationDoc) => doc.lines.length > 0 || doc.sections.length > 0;
 
 export function App() {
   // Library / song
@@ -63,11 +104,20 @@ export function App() {
   const [songs, setSongs] = createSignal<string[]>([]);
   const [song, setSong] = createSignal<OpenSong | null>(null);
 
-  // Document + history
+  // Document + history of the selected singer
   const [calDoc, setCalDoc] = createSignal<CalibrationDoc | null>(null);
+  /** The selected singer's calibration has unsaved changes. */
   const [dirty, setDirty] = createSignal(false);
-  const [history, setHistory] = createSignal<CalibrationDoc[]>([]);
-  const [future, setFuture] = createSignal<CalibrationDoc[]>([]);
+  /** The lane placements have unsaved changes. */
+  const [placementsDirty, setPlacementsDirty] = createSignal(false);
+  /** Undo steps of the selected singer: its calibration and the lane placements. */
+  const [history, setHistory] = createSignal<EditState[]>([]);
+  const [future, setFuture] = createSignal<EditState[]>([]);
+  // Singers (user_input/singers.json, D28), lead first; null when the song has no singers file (one calibration file, the lead's).
+  const [singers, setSingers] = createSignal<Singer[] | null>(null);
+  const [activeSinger, setActiveSinger] = createSignal<string | null>(null);
+  /** The singers that are not selected, by id. */
+  const [otherSingers, setOtherSingers] = createSignal<Record<string, SingerState>>({});
   const [selectedSyl, setSelectedSyl] = createSignal<SylRef | null>(null);
 
   // Analysis data
@@ -90,8 +140,16 @@ export function App() {
   const [monitor, setMonitor] = persistedSignal<MonitorTrack>("lyricsync.editor.monitor", "vocal", {
     deserialize: (raw) => (raw === '"mix"' || raw === '"vocal"' ? JSON.parse(raw) : "vocal"),
   });
-  const [vocalUrl, setVocalUrl] = createSignal<string | null>(null);
-  const [mixUrl, setMixUrl] = createSignal<string | null>(null);
+  const [hasVocal, setHasVocal] = createSignal(false);
+  /** Gain, mute and solo by mixer track id: "mix", "vocal", `lane:<lane id>`. Not saved. */
+  const [trackMix, setTrackMix] = createSignal<Record<string, TrackMix>>({});
+
+  // Vocal lanes: the renders of the song, their placements (undoable, saved to user_input/placements.json) and their decoded audio by UST
+  const [renders, setRenders] = createSignal<SongRenders | null>(null);
+  const [placements, setPlacements] = createSignal<Placements | null>(null);
+  const [laneAudio, setLaneAudio] = createSignal<Record<string, LaneAudio>>({});
+  /** Razor tool: a click on a placed clip splits it (R toggles, Escape leaves). Clip drags are off meanwhile. */
+  const [razor, setRazor] = createSignal(false);
 
   // View
   const [viewStart, setViewStart] = createSignal(0);
@@ -158,6 +216,45 @@ export function App() {
   let player: AudioPlayer | null = null;
   let stopAt: number | null = null;
   let lastMtime = 0;
+  /** The calibration file exists (else the first save after an edit creates it). */
+  let calExists = true;
+  /** Increments with every song load; a decode that finishes for an older load is dropped. */
+  let loadToken = 0;
+
+  const singerOf = (id: string | null) => singers()?.find((s) => s.id === id) ?? null;
+  /** The calibration file the Lyrics and Lines lanes, the Inspector, undo and save act on. */
+  const activePath = () => {
+    const s = singerOf(activeSinger());
+    return s ? calibratedFileFor(s) : CALIBRATED_PATH;
+  };
+  /** Auto-time, Re-analyze and Edit Lyrics run the solver on the lead's workspace, so they are for the lead only. */
+  const isLead = () => {
+    const s = singerOf(activeSinger());
+    return s === null || s.lead === true;
+  };
+  const unsaved = () => dirty() || placementsDirty() || Object.values(otherSingers()).some((o) => o.dirty);
+  /** The other singers whose calibration exists (or has content), in singer order: drawn faint under the Lyrics lane. */
+  const faintSingers = createMemo(() => {
+    const others = otherSingers();
+    return (singers() ?? []).flatMap((s) => {
+      const o = others[s.id];
+      return o && (o.exists || hasContent(o.doc)) ? [{ id: s.id, doc: o.doc }] : [];
+    });
+  });
+  /** All singers with their live documents, for the karaoke stage monitor. */
+  const monitorSingers = createMemo(() => {
+    const list = singers();
+    if (!list || list.length <= 1) return [];
+    const cur = activeSinger();
+    const others = otherSingers();
+    const activeDoc = calDoc();
+    return list.map((s) => ({
+      id: s.id,
+      lead: s.lead === true,
+      active: s.id === cur,
+      doc: s.id === cur ? activeDoc : (others[s.id]?.doc ?? null),
+    }));
+  });
 
   const duration = createMemo(() => Math.max(audioDuration(), calDoc()?.lines.at(-1)?.end ?? 0));
   const bpm = createMemo(() => tempoBpm(beats()));
@@ -171,19 +268,19 @@ export function App() {
     return li >= 0 && currentTime() <= doc.lines[li]!.end ? li : -1;
   });
   const hotspots = createMemo(() =>
-    reviewLines().flatMap((r) => r.uncertain.map((u) => ({ time: u.time, expectedErrorMs: u.expectedErrorMs })))
+    isLead() ? reviewLines().flatMap((r) => r.uncertain.map((u) => ({ time: u.time, expectedErrorMs: u.expectedErrorMs }))) : []
   );
 
   /** Words whose syllables in the document differ from the analysed ones. */
   const resplitWords = createMemo(() => {
     const a = analysed();
     const doc = calDoc();
-    if (!a || !doc) return [];
+    if (!a || !doc || !isLead()) return [];
     return doc.lines.flatMap((l, li) =>
       l.words.flatMap((w, wi) => (a.lines[li]?.[wi]?.join("|") === w.sylText.join("|") ? [] : [{ lineIdx: li, wordIdx: wi }]))
     );
   });
-  const analysisStale = () => analysed()?.fresh === false;
+  const analysisStale = () => isLead() && analysed()?.fresh === false;
   const selectedAnalysedSplit = () => {
     const s = selectedSyl();
     return s ? (analysed()?.lines[s.lineIdx]?.[s.wordIdx] ?? null) : null;
@@ -191,11 +288,29 @@ export function App() {
 
   // ── Editing ──────────────────────────────────────────────────────────────
 
+  const pushUndo = (step: EditState) => {
+    setHistory([...history().slice(-(HISTORY_LIMIT - 1)), step]);
+    setFuture([]);
+  };
+
+  /** Undo step before a calibration edit (the timeline calls it before a syllable or section drag). */
   const snapshot = () => {
     const cur = calDoc();
-    if (!cur) return;
-    setHistory([...history().slice(-(HISTORY_LIMIT - 1)), cur]);
-    setFuture([]);
+    if (cur) pushUndo({ doc: cur });
+  };
+
+  /**
+   * Undo step before a placements edit (the timeline calls it before a clip drag). The other singers' placements steps are dropped:
+   * undoing one of them later would also take back this edit.
+   */
+  const snapshotPlacements = () => {
+    pushUndo({ placements: placements() });
+    const others = otherSingers();
+    const isDoc = (s: EditState) => "doc" in s;
+    if (Object.values(others).every((o) => o.history.every(isDoc) && o.future.every(isDoc))) return;
+    setOtherSingers(
+      Object.fromEntries(Object.entries(others).map(([id, o]) => [id, { ...o, history: o.history.filter(isDoc), future: o.future.filter(isDoc) }]))
+    );
   };
 
   /** Apply a mutation to a copy of the document. `undoable=false` is used while a drag is in progress. */
@@ -210,14 +325,37 @@ export function App() {
     setStatus(message);
   };
 
+  /** Apply a mutation to a copy of the lane placements. `undoable=false` is used while a lane is dragged. */
+  const editPlacements = (fn: (p: Placements) => void, message: string, undoable = true) => {
+    const cur = placements();
+    if (!cur) return;
+    if (undoable) snapshotPlacements();
+    const next = structuredClone(cur);
+    fn(next);
+    setPlacements(next);
+    setPlacementsDirty(true);
+    setStatus(message);
+  };
+
+  /** Restores the state of `step` and returns the step that takes it back. */
+  const applyStep = (step: EditState, cur: CalibrationDoc): EditState => {
+    if ("doc" in step) {
+      setCalDoc(step.doc);
+      setDirty(true);
+      return { doc: cur };
+    }
+    const was = placements();
+    setPlacements(step.placements);
+    setPlacementsDirty(true);
+    return { placements: was };
+  };
+
   const undo = () => {
     const prev = history().at(-1);
     const cur = calDoc();
     if (!prev || !cur) return;
-    setFuture([cur, ...future()]);
     setHistory(history().slice(0, -1));
-    setCalDoc(prev);
-    setDirty(true);
+    setFuture([applyStep(prev, cur), ...future()]);
     setStatus("Undo");
   };
 
@@ -225,11 +363,30 @@ export function App() {
     const next = future()[0];
     const cur = calDoc();
     if (!next || !cur) return;
-    setHistory([...history(), cur]);
     setFuture(future().slice(1));
-    setCalDoc(next);
-    setDirty(true);
+    setHistory([...history(), applyStep(next, cur)]);
     setStatus("Redo");
+  };
+
+  /** Selects the singer whose calibration is edited. Each singer keeps its own undo steps and unsaved changes; Ctrl+S saves them all. */
+  const switchSinger = (id: string) => {
+    const cur = activeSinger();
+    const target = otherSingers()[id];
+    const doc = calDoc();
+    if (cur === null || id === cur || !target || !doc) return;
+    const others = { ...otherSingers() };
+    delete others[id];
+    others[cur] = { doc, history: history(), future: future(), dirty: dirty(), exists: calExists, mtime: lastMtime };
+    setOtherSingers(others);
+    setActiveSinger(id);
+    setCalDoc(target.doc);
+    setHistory(target.history);
+    setFuture(target.future);
+    setDirty(target.dirty);
+    calExists = target.exists;
+    lastMtime = target.mtime;
+    setSelectedSyl(target.doc.lines[0] ? { lineIdx: 0, wordIdx: 0, sylIdx: 0 } : null);
+    setStatus(`Editing ${id}: ${activePath()}${target.exists ? "" : " (new: written by the first save with lines or sections)"}`);
   };
 
   const selInfo = () => {
@@ -333,9 +490,13 @@ export function App() {
     const s = song();
     const doc = calDoc();
     if (!s || !doc || analysing()) return;
-    if (dirty()) {
+    if (!isLead()) {
+      setStatus(`Re-analyze: ${LEAD_ONLY}.`);
+      return;
+    }
+    if (unsaved()) {
       await save();
-      if (dirty()) return;
+      if (unsaved()) return;
     }
     setAnalysing(true);
     let target = getProjectPath(s.name);
@@ -407,6 +568,10 @@ export function App() {
     const s = song();
     const doc = calDoc();
     if (!s || !doc) return;
+    if (!isLead()) {
+      setStatus(`Edit Lyrics: ${LEAD_ONLY}.`);
+      return;
+    }
     setEditLyricsInitialLine(lineIdx);
     let text = "";
     try {
@@ -427,6 +592,7 @@ export function App() {
       setStatus("Reloading updated song files…");
       const files = await loadSongFiles(s.store);
       setCalDoc(files.doc);
+      calExists = files.calExists;
       setReviewLines(sortReview(await loadReview(s.store)));
       await loadAnalysed(s.name);
       setDirty(false);
@@ -683,16 +849,185 @@ export function App() {
     setViewDuration(Math.max(5, duration() + 1));
   };
 
+  /** The monitor presets: "vocal" mutes the mix, "mix" mutes the vocal stem (and clears their solo). The lanes keep their state. */
+  const applyMonitor = (track: MonitorTrack) => {
+    const m = trackMix();
+    setTrackMix({
+      ...m,
+      mix: { ...(m.mix ?? UNITY_MIX), mute: track === "vocal", solo: false },
+      vocal: { ...(m.vocal ?? UNITY_MIX), mute: track === "mix", solo: false },
+    });
+  };
+
   const switchMonitor = (track: MonitorTrack) => {
     setMonitor(track);
-    const url = track === "vocal" ? vocalUrl() : mixUrl();
-    if (!url || !player) return;
-    const wasPlaying = isPlaying();
-    const t = currentTime();
-    player.loadSource(url);
-    player.seek(t);
-    if (wasPlaying) player.play();
+    applyMonitor(track);
     setStatus(`Listening to ${track}`);
+  };
+
+  const setMixOf = (id: string, patch: Partial<TrackMix>) => {
+    const m = trackMix();
+    setTrackMix({ ...m, [id]: { ...(m[id] ?? UNITY_MIX), ...patch } });
+  };
+
+  // ── Vocal lanes ──────────────────────────────────────────────────────────
+
+  /** The mixer tracks that can play now: the mix, the vocal stem, and the lanes with a placed clip and decoded audio. */
+  const playableIds = createMemo(() => {
+    const audio = laneAudio();
+    const lanes = (placements()?.lanes ?? []).filter((l) => l.clips.some((c) => c.atBeat !== null) && audio[l.ust]?.buffer);
+    return ["mix", ...(hasVocal() ? ["vocal"] : []), ...lanes.map((l) => `lane:${l.id}`)];
+  });
+  const audible = createMemo(() => audibleTracks(trackMix(), playableIds()));
+
+  const timelineLanes = createMemo((): TimelineLane[] => {
+    const p = placements();
+    const r = renders();
+    if (!p || !r) return [];
+    const b = beats() ?? [];
+    const audio = laneAudio();
+    const mixes = trackMix();
+    const sounding = audible();
+    return p.lanes.map((lane) => {
+      // parsePlacements checked that every lane's UST is in the index.
+      const render = renderOf(r.index, lane.ust)!;
+      const a = audio[lane.ust];
+      const clips = lane.clips.map((clip) => {
+        // The wav range and the length do not depend on where the clip is (beat 0 stands in for a parked clip).
+        const span = clipTime(b, clip.atBeat ?? 0, clip, render, r.index.sampleRate);
+        const at = clip.atBeat === null ? null : span;
+        return {
+          id: clip.id,
+          atBeat: clip.atBeat,
+          from: clip.from,
+          to: clip.to,
+          tick0: at?.tick0 ?? null,
+          start: at?.start ?? null,
+          end: at?.end ?? null,
+          offset: span.offset,
+          duration: span.duration,
+          warning: clip.atBeat === null ? null : tempoWarning(b, clip.atBeat, clip, render),
+        };
+      });
+      return {
+        id: lane.id,
+        ust: lane.ust,
+        block: lane.block,
+        secPerTick: secPerTick(render),
+        clips,
+        peaks: a?.peaks,
+        mix: mixes[`lane:${lane.id}`] ?? UNITY_MIX,
+        audible: sounding.has(`lane:${lane.id}`),
+        warning: clips.find((c) => c.warning)?.warning ?? null,
+        removable: isDuplicate(p, lane),
+        problem: a?.problem ?? null,
+      };
+    });
+  });
+
+  // The mixer follows the lanes: one track per lane with decoded audio, one source per placed clip (parked clips are silent).
+  createEffect(() => {
+    const lanes = timelineLanes();
+    const audio = laneAudio();
+    if (!player) return;
+    const want = new Set<string>();
+    for (const lane of lanes) {
+      const buffer = audio[lane.ust]?.buffer;
+      if (!buffer) continue;
+      const id = `lane:${lane.id}`;
+      want.add(id);
+      const clips: TrackClip[] = lane.clips.flatMap((c) => (c.start === null ? [] : [{ id: c.id, start: c.start, offset: c.offset, duration: c.duration }]));
+      if (player.hasTrack(id)) player.setClips(id, clips);
+      else player.setTrack(id, buffer, clips);
+    }
+    for (const id of player.trackIds()) if (id.startsWith("lane:") && !want.has(id)) player.removeTrack(id);
+  });
+
+  createEffect(() => {
+    const mixes = trackMix();
+    player?.setMix(mixes);
+  });
+
+  /** Decodes the wav of one render for the lanes of song load `token`. */
+  const loadLaneAudio = async (store: SongStore, render: RenderEntry, token: number) => {
+    let entry: LaneAudio;
+    try {
+      const wav = await readRenderWav(store, render);
+      const buffer = await player!.decode(await wav.blob.arrayBuffer());
+      entry = { buffer, peaks: bufferPeaks(buffer, PEAKS_PER_SEC) };
+    } catch (e: unknown) {
+      entry = { problem: `${render.wav}: ${errorMessage(e)}` };
+      setStatus(`Vocal lane ${render.ust} has no audio: ${errorMessage(e)}`);
+    }
+    if (token === loadToken) setLaneAudio({ ...laneAudio(), [render.ust]: entry });
+  };
+
+  const laneLabel = (id: string) => `Lane ${id}`;
+
+  const moveClip = (laneId: string, clipId: string, atBeat: number) =>
+    editPlacements(
+      (p) => {
+        const clip = p.lanes.find((l) => l.id === laneId)?.clips.find((c) => c.id === clipId);
+        if (clip) clip.atBeat = atBeat;
+      },
+      `Clip ${clipId}: tick 0 at beat ${Number(atBeat.toFixed(3))}`,
+      false
+    );
+
+  const splitLaneClip = (laneId: string, clipId: string, atTick: number) => {
+    const lane = placements()?.lanes.find((l) => l.id === laneId);
+    if (!lane) return;
+    let next: typeof lane;
+    try {
+      // Cut ticks are kept to 1e-3 tick (far under one sample), so the file does not get float noise like 1425.6000000000004.
+      next = splitClip(lane, clipId, Math.round(atTick * 1000) / 1000);
+    } catch (e: unknown) {
+      setStatus(`Cannot split ${clipId}: ${errorMessage(e)}`);
+      return;
+    }
+    const added = next.clips.find((c) => !lane.clips.some((o) => o.id === c.id));
+    editPlacements(
+      (p) => void p.lanes.splice(p.lanes.findIndex((l) => l.id === laneId), 1, next),
+      `Clip ${clipId} split at tick ${Number(atTick.toFixed(3))}${added ? `: new clip ${added.id}` : ""}`
+    );
+  };
+
+  const setLaneBlock = (id: string, block: string) => {
+    if (placements()?.lanes.find((l) => l.id === id)?.block === block) return;
+    editPlacements(
+      (p) => {
+        const lane = p.lanes.find((l) => l.id === id);
+        if (lane) lane.block = block;
+      },
+      block ? `${laneLabel(id)} lyric block: ${block}` : `${laneLabel(id)} has no lyric block`
+    );
+  };
+
+  /** Adds a lane for the same UST under lane `id`: one parked clip of the whole render, like a new lane of `defaultPlacements`. */
+  const duplicateLane = (id: string) => {
+    const p = placements();
+    const r = renders();
+    const src = p?.lanes.find((l) => l.id === id);
+    if (!p || !r || !src) return;
+    const copy = nextLaneId(p, src);
+    const range = clipTickRange(renderOf(r.index, src.ust)!, r.index.sampleRate);
+    const lane = { id: copy, ust: src.ust, block: src.block, clips: [{ id: `${copy}/1`, atBeat: null, from: range.min, to: range.max }] };
+    editPlacements(
+      (d) => void d.lanes.splice(d.lanes.findIndex((l) => l.id === id) + 1, 0, lane),
+      `${laneLabel(copy)} added (not placed: drag its clip onto the timeline)`
+    );
+  };
+
+  const removeLane = (id: string) => {
+    const p = placements();
+    const lane = p?.lanes.find((l) => l.id === id);
+    if (!p || !lane || !isDuplicate(p, lane)) return;
+    editPlacements((d) => void d.lanes.splice(d.lanes.findIndex((l) => l.id === id), 1), `${laneLabel(id)} removed`);
+  };
+
+  const toggleRazor = (on = !razor()) => {
+    setRazor(on);
+    setStatus(on ? "Razor on: click a placed clip to split it (beat; Shift = bar; Alt = free). R or Escape leaves." : "Razor off");
   };
 
   // Follow playhead: while playing, the view scrolls so the playhead stays in the middle.
@@ -704,7 +1039,7 @@ export function App() {
 
   // ── Files ────────────────────────────────────────────────────────────────
 
-  const confirmDiscard = () => !dirty() || window.confirm("Discard unsaved timing changes?");
+  const confirmDiscard = () => !unsaved() || window.confirm("Discard unsaved timing changes?");
 
   /** Opens a song the wizard just built, through the dev server (it lives in the server's songs folder; no folder picker needed). */
   const openCreated = async (id: string) => {
@@ -810,37 +1145,69 @@ export function App() {
 
   const loadSong = async (store: SongStore) => {
     const name = store.name;
+    const token = ++loadToken;
     setStatus(`Opening ${name}…`);
     player?.pause();
     try {
       const files = await loadSongFiles(store);
-      for (const u of [vocalUrl(), mixUrl()]) if (u) URL.revokeObjectURL(u);
-      const vUrl = URL.createObjectURL(files.vocal.blob);
-      const mUrl = URL.createObjectURL(files.mix.blob);
+      const songRenders = await loadRenders(store);
+      // The other singers' calibrations (the lead's is files.doc); a missing file is an empty document.
+      const singerFile = await loadSingers(store);
+      const ordered = singerFile ? [...singerFile.singers].sort((a, b) => Number(b.lead === true) - Number(a.lead === true)) : null;
+      const others: Record<string, SingerState> = {};
+      for (const singer of ordered ?? []) {
+        if (singer.lead) continue;
+        const cal = await loadCalibration(store, calibratedFileFor(singer));
+        others[singer.id] = { doc: cal.doc, history: [], future: [], dirty: false, exists: cal.exists, mtime: cal.mtime };
+      }
+      if (token !== loadToken) return;
+      player?.clear();
       setSong({ name, store });
+      setSingers(ordered);
+      setActiveSinger(ordered?.[0]?.id ?? null);
+      setOtherSingers(others);
       lastMtime = files.calMtime;
+      calExists = files.calExists;
       setCalDoc(files.doc);
       setDirty(false);
+      setPlacementsDirty(false);
       setHistory([]);
       setFuture([]);
       setBeats(files.beats);
       setDownbeats(files.downbeats);
       setBar1Index(files.bar1Index);
-      setPitchContour(files.f0Hz);
+      setPitchContour(files.f0Hz ?? undefined);
       setReviewLines(sortReview(files.review));
-      void loadAnalysed(name);
+      if (files.vocal) void loadAnalysed(name);
+      else setAnalysed(null);
       void loadTempo(name);
-      setVocalUrl(vUrl);
-      setMixUrl(mUrl);
+      setHasVocal(files.vocal !== null);
       setVocalPeaks(undefined);
       setMixPeaks(undefined);
-      player?.loadSource(monitor() === "vocal" ? vUrl : mUrl);
-      for (const [file, set] of [[files.vocal, setVocalPeaks], [files.mix, setMixPeaks]] as const) {
-        file.blob.arrayBuffer().then((b) => extractPeaks(b, PEAKS_PER_SEC)).then(
-          (r) => set(r.peaks),
-          (err: unknown) => setStatus(`Cannot decode ${file.name}: ${errorMessage(err)}`)
-        );
+      setRenders(songRenders);
+      setPlacements(songRenders?.placements ?? null);
+      setLaneAudio({});
+      setTrackMix({});
+      // Without a vocal stem only the mix preset makes sense; the saved preference stays for songs that have one.
+      applyMonitor(files.vocal ? monitor() : "mix");
+      const stems = [
+        { id: "mix", file: files.mix, setPeaks: setMixPeaks },
+        ...(files.vocal ? [{ id: "vocal", file: files.vocal, setPeaks: setVocalPeaks }] : []),
+      ];
+      for (const { id, file, setPeaks } of stems) {
+        file.blob
+          .arrayBuffer()
+          .then((b) => player!.decode(b))
+          .then(
+            (buffer) => {
+              if (token !== loadToken) return;
+              player!.setTrack(id, buffer, wholeBuffer(id, buffer), true);
+              setPeaks(bufferPeaks(buffer, PEAKS_PER_SEC));
+            },
+            (err: unknown) => setStatus(`Cannot decode ${file.name}: ${errorMessage(err)}`)
+          );
       }
+      for (const render of songRenders?.index.renders ?? []) void loadLaneAudio(store, render, token);
 
       const first = files.doc.lines[0];
       setSelectedSyl(first ? { lineIdx: 0, wordIdx: 0, sylIdx: 0 } : null);
@@ -848,20 +1215,54 @@ export function App() {
       setViewStart(Math.max(0, (first?.start ?? 0) - 1));
       seek(first?.start ?? 0);
       if (panelTab() === "songs") setPanelTab("lines");
-      setStatus(`Opened ${name}: ${files.doc.lines.length} lines`);
+      const lanes = songRenders ? `, ${songRenders.placements.lanes.length} vocal lanes` : "";
+      const voices = ordered ? `, ${ordered.length} singers` : "";
+      setStatus(`Opened ${name}: ${files.doc.lines.length} lines${lanes}${voices}`);
     } catch (e: unknown) {
       setStatus(`Cannot open ${name}: ${errorMessage(e)}`);
     }
   };
 
+  /**
+   * Saves the calibration files and the lane placements (when the song has renders). Without a singers file the one calibration is
+   * written when it exists or holds something; with one, every changed singer file is written (a missing file only once it holds lines
+   * or sections) and the others are left as they are.
+   */
   const save = async () => {
     const doc = calDoc();
     const s = song();
     if (!doc || !s) return;
+    const r = renders();
+    const p = placements();
     try {
-      lastMtime = await s.store.write(CALIBRATED_PATH, `${JSON.stringify(doc, null, 2)}\n`);
+      // Validate the placements before anything is written.
+      const placementsText = r && p ? `${JSON.stringify(parsePlacements(p, r.index), null, 2)}\n` : null;
+      const saved: string[] = [];
+      const path = activePath();
+      if ((singers() === null || dirty()) && (calExists || hasContent(doc))) {
+        lastMtime = await s.store.write(path, `${JSON.stringify(doc, null, 2)}\n`);
+        calExists = true;
+        saved.push(path);
+      }
       setDirty(false);
-      setStatus(`Saved ${CALIBRATED_PATH}`);
+      for (const singer of singers() ?? []) {
+        const o = otherSingers()[singer.id];
+        if (!o?.dirty) continue;
+        let next: SingerState = { ...o, dirty: false };
+        if (o.exists || hasContent(o.doc)) {
+          const file = calibratedFileFor(singer);
+          next = { ...next, exists: true, mtime: await s.store.write(file, `${JSON.stringify(o.doc, null, 2)}\n`) };
+          saved.push(file);
+        }
+        // Keep edits made to that singer while the write ran (it cannot be selected and edited that fast, but stay safe).
+        if (otherSingers()[singer.id] === o) setOtherSingers({ ...otherSingers(), [singer.id]: next });
+      }
+      if (placementsText !== null) {
+        await s.store.write(PLACEMENTS_PATH, placementsText);
+        saved.push(PLACEMENTS_PATH);
+      }
+      setPlacementsDirty(false);
+      setStatus(saved.length > 0 ? `Saved ${saved.join(", ")}` : "Nothing to save");
     } catch (e: unknown) {
       setStatus(`Save failed: ${errorMessage(e)}`);
     }
@@ -872,7 +1273,7 @@ export function App() {
     if (!doc) return;
     try {
       const fh = await window.showSaveFilePicker({
-        suggestedName: "lyrics.calibrated.json",
+        suggestedName: activePath().split("/").at(-1)!,
         types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
       });
       const w = await fh.createWritable();
@@ -889,6 +1290,10 @@ export function App() {
     const s = song();
     const doc = calDoc();
     if (!s || !doc) return;
+    if (!isLead()) {
+      setStatus(`Auto-time: ${LEAD_ONLY}.`);
+      return;
+    }
     if (resplitWords().length > 0 || analysisStale()) {
       setStatus("Re-analyze first: the song's analysis does not match the syllables.");
       return;
@@ -954,7 +1359,7 @@ export function App() {
     const s = song();
     const doc = calDoc();
     const label = `Snap Auto-timing to Beats ${on ? "on" : "off"}`;
-    if (!modes || !s || !doc || modes.song !== s.name) {
+    if (!modes || !s || !doc || modes.song !== s.name || !isLead()) {
       setStatus(`${label}: applies from the next Auto-time.`);
       return;
     }
@@ -1000,6 +1405,11 @@ export function App() {
       case "t": case "T": addTempoChange(); break;
       case "s": case "S": setSnap(!snap()); setStatus(`Snap ${snap() ? "on" : "off"}`); break;
       case "f": case "F": setFollow(!follow()); setStatus(`Follow playhead ${follow() ? "on" : "off"}`); break;
+      case "r": case "R": toggleRazor(); break;
+      case "Escape":
+        if (!razor()) return;
+        toggleRazor(false);
+        break;
       case "+": case "=": zoom(1 / 1.5); break;
       case "-": case "_": zoom(1.5); break;
       case "Home": seek(0); break;
@@ -1025,29 +1435,55 @@ export function App() {
       }
       setCurrentTime(st.currentTime);
     });
-    // Reload lyrics.calibrated.json when another tool (CLI, agent) rewrites it.
+    player.setMix(trackMix());
+    // Reload the calibration files when another tool (CLI, agent) rewrites them.
     const poll = window.setInterval(async () => {
       const s = song();
       if (!s || solving()) return;
-      const mtime = await s.store.mtime(CALIBRATED_PATH);
-      if (mtime === null || mtime <= lastMtime) return;
-      lastMtime = mtime;
-      if (dirty()) {
-        setStatus(`${CALIBRATED_PATH} changed on disk, but you have unsaved edits. Save to overwrite it, or File › Reload to take the disk version.`);
-        return;
+      const path = activePath();
+      const mtime = await s.store.mtime(path);
+      if (mtime !== null && mtime > lastMtime && path === activePath()) {
+        lastMtime = mtime;
+        if (dirty()) {
+          setStatus(`${path} changed on disk, but you have unsaved edits. Save to overwrite it, or File › Reload to take the disk version.`);
+        } else {
+          try {
+            const cal = await loadCalibration(s.store, path);
+            if (cal.exists && path === activePath()) {
+              setCalDoc(cal.doc);
+              calExists = true;
+              setStatus(`${path} changed on disk; reloaded.`);
+            }
+          } catch (err: unknown) {
+            setStatus(`${path} changed on disk but cannot be read: ${errorMessage(err)}`);
+          }
+        }
       }
-      try {
-        const blob = await s.store.read(CALIBRATED_PATH);
-        if (!blob) return;
-        setCalDoc(parseCalibrationDoc(JSON.parse(await blob.text())));
-        setStatus(`${CALIBRATED_PATH} changed on disk; reloaded.`);
-      } catch (err: unknown) {
-        setStatus(`${CALIBRATED_PATH} changed on disk but cannot be read: ${errorMessage(err)}`);
+      for (const singer of singers() ?? []) {
+        const file = calibratedFileFor(singer);
+        const o = otherSingers()[singer.id];
+        if (!o) continue;
+        const m = await s.store.mtime(file);
+        if (m === null || m <= o.mtime || otherSingers()[singer.id] !== o) continue;
+        if (o.dirty) {
+          setOtherSingers({ ...otherSingers(), [singer.id]: { ...o, mtime: m } });
+          setStatus(`${file} changed on disk, but you have unsaved edits for ${singer.id}. Save to overwrite it, or File › Reload to take the disk version.`);
+          continue;
+        }
+        try {
+          const cal = await loadCalibration(s.store, file);
+          if (otherSingers()[singer.id] !== o) continue;
+          setOtherSingers({ ...otherSingers(), [singer.id]: { ...o, doc: cal.doc, exists: cal.exists, mtime: cal.mtime } });
+          setStatus(`${file} changed on disk; reloaded.`);
+        } catch (err: unknown) {
+          setOtherSingers({ ...otherSingers(), [singer.id]: { ...o, mtime: m } });
+          setStatus(`${file} changed on disk but cannot be read: ${errorMessage(err)}`);
+        }
       }
     }, 2000);
 
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      if (dirty()) e.preventDefault();
+      if (unsaved()) e.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("beforeunload", beforeUnload);
@@ -1058,8 +1494,37 @@ export function App() {
       window.removeEventListener("beforeunload", beforeUnload);
     });
 
-    // Test seam: headless browser runs cannot use the folder picker, so they open a song folder copied into OPFS.
-    Object.assign(window, { __openSong: (handle: FileSystemDirectoryHandle) => loadSong(handleStore(handle)), __openProject: (id: string) => loadSong(serverStore(id)) });
+    // Test seams: headless browser runs cannot use the folder picker, so they open a song folder copied into OPFS or served by the dev
+    // server. __vocalLanes reports the lanes, their clips (song times and the source each one gets from the mixer: song time `start`,
+    // `offset` into the wav, `duration`, all in seconds) and the sources the mixer has scheduled while playing.
+    Object.assign(window, {
+      __openSong: (handle: FileSystemDirectoryHandle) => loadSong(handleStore(handle)),
+      __openProject: (id: string) => loadSong(serverStore(id)),
+      __vocalLanes: () => ({
+        sampleRate: player?.ctx.sampleRate ?? null,
+        renderSampleRate: renders()?.index.sampleRate ?? null,
+        lanes: timelineLanes().map((l) => {
+          const mixer = player?.clips(`lane:${l.id}`) ?? [];
+          return {
+            id: l.id,
+            ust: l.ust,
+            block: l.block,
+            audible: l.audible,
+            clips: l.clips.map((c) => ({
+              id: c.id,
+              atBeat: c.atBeat,
+              from: c.from,
+              to: c.to,
+              tick0: c.tick0,
+              start: c.start,
+              end: c.end,
+              mixer: mixer.find((m) => m.id === c.id) ?? null,
+            })),
+          };
+        }),
+        scheduled: player?.scheduled() ?? [],
+      }),
+    });
 
     void getStoredLibraryHandle().then(async (handle) => {
       if (!handle || (await handle.queryPermission({ mode: "readwrite" })) !== "granted") return;
@@ -1118,7 +1583,7 @@ export function App() {
           { label: "Undo", shortcut: "Ctrl+Z", action: undo, disabled: history().length === 0 },
           { label: "Redo", shortcut: "Ctrl+Y", action: redo, disabled: future().length === 0 },
           "separator",
-          { label: "Edit Lyrics...", shortcut: "Ctrl+Shift+L", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
+          { label: "Edit Lyrics...", shortcut: "Ctrl+Shift+L", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() || !isLead() },
           "separator",
           { label: "Set Start to Playhead", shortcut: "[", action: () => setEdge("start", currentTime()), disabled: !hasSel },
           { label: "Set End to Playhead", shortcut: "]", action: () => setEdge("end", currentTime()), disabled: !hasSel },
@@ -1142,8 +1607,8 @@ export function App() {
           { label: "Next Line", shortcut: "↓", action: () => stepLine(1), disabled: !hasDoc },
           { label: "Next Unfrozen Line", shortcut: "Tab", action: () => nextUnpinnedLine(1), disabled: !hasDoc },
           "separator",
-          { label: "Listen: Vocal", action: () => switchMonitor("vocal"), checked: monitor() === "vocal", disabled: !vocalUrl() },
-          { label: "Listen: Mix", action: () => switchMonitor("mix"), checked: monitor() === "mix", disabled: !mixUrl() },
+          { label: "Listen: Vocal", action: () => switchMonitor("vocal"), checked: monitor() === "vocal", disabled: !hasVocal() },
+          { label: "Listen: Mix", action: () => switchMonitor("mix"), checked: monitor() === "mix", disabled: !song() },
           { label: "Metronome Click", action: () => setMetronome(!metronome()), checked: metronome() },
         ],
       },
@@ -1156,6 +1621,7 @@ export function App() {
           "separator",
           { label: "Follow Playhead", shortcut: "F", action: () => setFollow(!follow()), checked: follow() },
           { label: "Snap", shortcut: "S", action: () => setSnap(!snap()), checked: snap() },
+          { label: "Razor Tool", shortcut: "R", action: () => toggleRazor(), checked: razor() },
           { label: "Pitch Contour", action: () => setShowPitch(!showPitch()), checked: showPitch() },
           "separator",
           { label: "Theme: Light", action: () => setTheme("light"), checked: theme() === "light" },
@@ -1166,9 +1632,9 @@ export function App() {
       {
         label: "Solve",
         items: [
-          { label: "Auto-time Unpinned Syllables", action: solve, disabled: !hasDoc || solving() || analysing() || resplitWords().length > 0 || analysisStale() },
-          { label: "Re-analyze (apply syllable splits)", action: () => void reanalyze(), disabled: !hasDoc || analysing() || solving() },
-          { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() },
+          { label: "Auto-time Unpinned Syllables", action: solve, disabled: !hasDoc || solving() || analysing() || resplitWords().length > 0 || analysisStale() || !isLead() },
+          { label: "Re-analyze (apply syllable splits)", action: () => void reanalyze(), disabled: !hasDoc || analysing() || solving() || !isLead() },
+          { label: "Edit Lyrics and Retime...", action: () => void openEditLyrics(), disabled: !hasDoc || analysing() || !isLead() },
           "separator",
           { label: "Snap Auto-timing to Beats", action: toggleSolveSnap, checked: solveSnap(), disabled: solving() },
           {
@@ -1218,8 +1684,8 @@ export function App() {
               const n = song()!.name.replace(/\\/g, "/");
               return n.includes("/") ? n.split("/").filter(Boolean).at(-1)! : song()!.name;
             })()}
-            <span class="daw-doc-path"> — {CALIBRATED_PATH}</span>
-            <Show when={dirty()}>
+            <span class="daw-doc-path"> — {activePath()}</span>
+            <Show when={unsaved()}>
               <span class="daw-dirty-dot" title="Unsaved changes" />
             </Show>
           </span>
@@ -1240,8 +1706,8 @@ export function App() {
         onPrevLine={() => stepLine(-1)}
         onNextLine={() => stepLine(1)}
         monitor={monitor()}
-        hasMix={!!mixUrl()}
-        hasVocal={!!vocalUrl()}
+        hasMix={!!song()}
+        hasVocal={hasVocal()}
         onMonitor={switchMonitor}
         snap={snap()}
         onSnap={() => setSnap(!snap())}
@@ -1249,9 +1715,11 @@ export function App() {
         onMetronome={() => setMetronome(!metronome())}
         follow={follow()}
         onFollow={() => setFollow(!follow())}
+        razor={razor()}
+        onRazor={() => toggleRazor()}
         onZoom={(f) => zoom(f)}
         onZoomFit={zoomFit}
-        dirty={dirty()}
+        dirty={unsaved()}
         canSave={!!song()}
         onSave={() => void save()}
         solving={solving()}
@@ -1262,6 +1730,7 @@ export function App() {
         analysing={analysing()}
         onReanalyze={() => void reanalyze()}
         onEditLyrics={() => void openEditLyrics()}
+        notLead={!isLead()}
       />
 
       <div class="daw-upper">
@@ -1273,7 +1742,7 @@ export function App() {
             activeSong={song()?.name ?? null}
             onOpenSong={(n) => void openLibrarySong(n)}
             doc={calDoc()}
-            reviewLines={reviewLines()}
+            reviewLines={isLead() ? reviewLines() : []}
             selectedLine={selectedSyl()?.lineIdx ?? null}
             playingLine={playingLine()}
             onSelectLine={gotoLine}
@@ -1283,7 +1752,7 @@ export function App() {
             currentTime={currentTime()}
             onRemoveSection={(i) => edit((d) => removeSection(d, i), "Section removed")}
             onAddSection={addSection}
-            onEditLyrics={(lineIdx) => void openEditLyrics(lineIdx ?? null)}
+            onEditLyrics={isLead() ? (lineIdx) => void openEditLyrics(lineIdx ?? null) : undefined}
           />
         </div>
 
@@ -1300,6 +1769,10 @@ export function App() {
             isPlaying={isPlaying()}
             metronome={metronome()}
             empty={welcome}
+            singers={monitorSingers()}
+            activeSingerId={activeSinger()}
+            activeSingerLead={isLead()}
+            onSinger={switchSinger}
           />
         </div>
 
@@ -1377,6 +1850,7 @@ export function App() {
           onSelectSyllable={setSelectedSyl}
           onPlayRange={playRange}
           onEditBegin={snapshot}
+          onClipDragBegin={snapshotPlacements}
           onBoundaryDrag={(ref, edge, t, partner) => {
             edit((d) => moveEdge(d, ref, edge, t, partner), `${edge === "start" ? "Start" : "End"} → ${t.toFixed(3)} s${partner ? "" : " (alone)"}`, false);
           }}
@@ -1388,6 +1862,23 @@ export function App() {
           onTempoDrop={() => void applyTempo()}
           onBarDrop={pinBar}
           onBarUnpin={unpinBar}
+          trackMix={{ mix: trackMix().mix ?? UNITY_MIX, vocal: trackMix().vocal ?? UNITY_MIX }}
+          audible={{ mix: audible().has("mix"), vocal: audible().has("vocal") }}
+          hasVocal={hasVocal()}
+          onTrackMix={setMixOf}
+          lanes={timelineLanes()}
+          blockOptions={blockNames(placements())}
+          onLaneMix={(id, patch) => setMixOf(`lane:${id}`, patch)}
+          razor={razor()}
+          onClipMove={moveClip}
+          onClipSplit={splitLaneClip}
+          onLaneBlock={setLaneBlock}
+          onLaneDuplicate={duplicateLane}
+          onLaneRemove={removeLane}
+          singers={(singers() ?? []).map((s) => ({ id: s.id, lead: s.lead === true }))}
+          activeSinger={activeSinger()}
+          onSinger={switchSinger}
+          faint={faintSingers()}
         />
       </div>
 

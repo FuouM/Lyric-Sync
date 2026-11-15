@@ -17,7 +17,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { checkTempoChanges, computeFeatures, type TempoChange } from "../../../beatsync/src/index.ts";
-import { beatsDocument, trackSongBeats } from "./beats.ts";
+import { songBeatsDocument } from "./beats.ts";
 import { inferenceDevice } from "./device.ts";
 import {
   emptyAnchors,
@@ -246,7 +246,7 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
     const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
     say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
-    const doc = beatsDocument(await trackSongBeats(dir, prompt));
+    const doc = await songBeatsDocument(dir, prompt);
     writeJson(beatsFile, doc);
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);
   }

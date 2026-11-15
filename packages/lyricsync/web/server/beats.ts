@@ -4,14 +4,15 @@
 // beats, which costs milliseconds, so the editor can move a tempo change and see the grid follow.
 //   trackSongBeats   the beats of a song from its logits (the wizard build and the re-fit use it)
 //   readTempoMap     the tempo map (and beat pins) of a song
-//   refitTempoMap    sets a new tempo map: re-fits the beats and rewrites generated/timing.ai.json, lyricsync/evidence/beats.json
-//                    (what the editor reads) and prompt.yaml
+//   refitTempoMap    sets a new tempo map: re-fits the beats and rewrites generated/timing.ai.json (what the editor reads),
+//                    lyricsync/evidence/beats.json and prompt.yaml
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BeatTracker, beatsFromLogits, checkBeatPins, checkTempoChanges, type BeatAnalysis, type BeatLogits, type BeatPin, type TempoChange } from "../../../beatsync/src/index.ts";
 import type { BeatsDocument } from "../../src/index.ts";
 import { isNumber, isRecord } from "../../src/guards.ts";
 import { findSongDir, readPromptManifest, readSongPrompt, songFolderPaths, withBeatMap, type PromptManifest, type SongsRoots } from "../../src/song-folder.ts";
+import { fixedGridOfPrompt } from "../../src/grid-song.ts";
 import { inferenceDevice } from "./device.ts";
 
 /** The beat map of a song: its tempo (a prior for the beat tracker) and the beats fixed by hand. */
@@ -101,6 +102,12 @@ export function beatsDocument(a: BeatAnalysis): BeatsDocument {
   };
 }
 
+/** generated/timing.ai.json of the song in `dir`: a constant-tempo grid when prompt.yaml says `grid: fixed`, else the beat tracker's. */
+export async function songBeatsDocument(dir: string, prompt: PromptManifest): Promise<BeatsDocument> {
+  if (prompt.grid === "fixed") return fixedGridOfPrompt({ mixPath: prompt.songPath, nearestBpm: prompt.nearestBpm, firstDownbeat: prompt.firstDownbeat });
+  return beatsDocument(await trackSongBeats(dir, prompt));
+}
+
 /** The song is in none of the known song directories. */
 export class SongNotFoundError extends Error {}
 
@@ -139,8 +146,7 @@ async function refit(roots: SongsRoots, id: string, map: TempoMap): Promise<{ te
 
   const paths = songFolderPaths(dir);
   const prompt = readPromptManifest(roots, id);
-  const analysis = await trackSongBeats(dir, { ...prompt, nearestBpm: map.nearestBpm, tempoChanges: map.tempoChanges, beatPins: map.beatPins });
-  const doc = beatsDocument(analysis);
+  const doc = await songBeatsDocument(dir, { ...prompt, nearestBpm: map.nearestBpm, tempoChanges: map.tempoChanges, beatPins: map.beatPins });
 
   const json = `${JSON.stringify(doc, null, 2)}\n`;
   fs.mkdirSync(path.dirname(paths.timingFile), { recursive: true });

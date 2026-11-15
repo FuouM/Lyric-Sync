@@ -4,18 +4,28 @@
 //
 // Song folder layout (one fixed location per file):
 //   project.json                        assets.song.src = full mix, relative to the song folder
-//   user_input/lyrics.calibrated.json   human calibration (the file this editor saves)
+//   user_input/lyrics.calibrated.json   human calibration of the lead singer (the file this editor saves); absent = an empty document, written by the first save after an edit
+//   user_input/singers.json             the singers (src/singers.ts); absent = one singer, the file above. Another singer's calibration:
+//                                       user_input/lyrics.calibrated.<id>.json (calibratedFileFor), same rules as above
 //   user_input/prompt.yaml              first_downbeat_s = bar 1 of the beat grid (lib/beat-grid.ts; the editor rewrites that line)
-//   lyricsync/lyricsync.json            lyricsync workspace manifest; "vocal" = vocal stem, relative to lyricsync/
-//   lyricsync/evidence/beats.json       beat grid written by "lyricsync prepare"
-//   lyricsync/evidence/meta.json        evidence metadata (f0Hz pitch contour)
+//   user_input/placements.json          the vocal lanes and their clips (lib/lanes.ts); absent = one lane per render with one parked clip
+//   generated/timing.ai.json            the song beat grid (beats, downbeats)
+//   generated/renders/index.json        rendered vocal tracks (wavs in generated/renders/); absent = no vocal lanes
+//   lyricsync/lyricsync.json            lyricsync workspace manifest; "vocal" = vocal stem, relative to lyricsync/; absent = no workspace
+//   lyricsync/evidence/meta.json        evidence metadata (f0Hz pitch contour); part of the workspace
 //   lyricsync/out/review.json           solver review; absent until the first solve
 import { isLineReview, isNumber, isRecord } from "../../../src/guards";
 import type { LineReview } from "../../../src/types";
 import { parseCalibrationDoc, type CalibrationDoc } from "../../../src/calibration-doc";
+import { parseSingers, type Singers } from "../../../src/singers";
+import { defaultPlacements, parsePlacements, parseRenderIndex, type Placements, type RenderEntry, type RenderIndex } from "../../../src/placements";
 import { gridFromBar1, nearestBeatIndex, PROMPT_PATH, readFirstDownbeat } from "./beat-grid";
 
 export const CALIBRATED_PATH = "user_input/lyrics.calibrated.json";
+export const PLACEMENTS_PATH = "user_input/placements.json";
+const TIMING_PATH = "generated/timing.ai.json";
+const SINGERS_PATH = "user_input/singers.json";
+const RENDER_INDEX_PATH = "generated/renders/index.json";
 
 /** A song folder. Paths are relative to it, with forward slashes. */
 export interface SongStore {
@@ -92,15 +102,19 @@ export function serverStore(id: string): SongStore {
 
 export interface SongFiles {
   doc: CalibrationDoc;
+  /** False when the song folder has no calibration yet (`doc` is empty then). */
+  calExists: boolean;
   calMtime: number;
-  vocal: { blob: Blob; name: string };
+  /** The vocal stem of the lyricsync workspace; null when the song has no workspace. */
+  vocal: { blob: Blob; name: string } | null;
   mix: { blob: Blob; name: string };
   beats: number[];
   /** Every 4th beat from bar 1 (pickup bars included). */
   downbeats: number[];
   /** Index in `downbeats` of bar 1. */
   bar1Index: number;
-  f0Hz: number[];
+  /** Pitch contour of the vocal stem; null when the song has no workspace. */
+  f0Hz: number[] | null;
   review: LineReview[];
 }
 
@@ -127,23 +141,44 @@ const readJson = async (store: SongStore, path: string): Promise<unknown> => JSO
 
 const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNumber);
 
+/** A calibration file: its document (empty when the file does not exist), whether it exists and its modification time (0 when not). */
+export interface CalibrationFile {
+  doc: CalibrationDoc;
+  exists: boolean;
+  mtime: number;
+}
+
+export async function loadCalibration(store: SongStore, path: string): Promise<CalibrationFile> {
+  const blob = await store.read(path);
+  if (!blob) return { doc: { sections: [], lines: [] }, exists: false, mtime: 0 };
+  const doc = parseCalibrationDoc(JSON.parse(await blob.text()));
+  return { doc, exists: true, mtime: (await store.mtime(path)) ?? 0 };
+}
+
+/** The singers of the song (user_input/singers.json), or null when the song has no singers file. */
+export async function loadSingers(store: SongStore): Promise<Singers | null> {
+  const blob = await store.read(SINGERS_PATH);
+  if (!blob) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await blob.text());
+  } catch (e: unknown) {
+    throw new Error(`${SINGERS_PATH}: ${errorMessage(e)}`);
+  }
+  return parseSingers(raw);
+}
+
 export async function loadSongFiles(store: SongStore): Promise<SongFiles> {
   const project = await readJson(store, "project.json");
   const mixRel = isRecord(project) && isRecord(project.assets) && isRecord(project.assets.song) ? project.assets.song.src : undefined;
   if (typeof mixRel !== "string") throw new Error("project.json has no assets.song.src (the full mix).");
 
-  const manifest = await readJson(store, "lyricsync/lyricsync.json");
-  if (!isRecord(manifest) || typeof manifest.vocal !== "string") throw new Error('lyricsync/lyricsync.json has no "vocal" path.');
+  const cal = await loadCalibration(store, CALIBRATED_PATH);
 
-  const doc = parseCalibrationDoc(JSON.parse(await (await need(store, CALIBRATED_PATH)).text()));
-  const calMtime = await store.mtime(CALIBRATED_PATH);
-
-  const beatsDoc = await readJson(store, "lyricsync/evidence/beats.json");
+  const beatsDoc = await readJson(store, TIMING_PATH);
   if (!isRecord(beatsDoc) || !isNumberArray(beatsDoc.beats) || !isNumberArray(beatsDoc.downbeats)) {
-    throw new Error("lyricsync/evidence/beats.json needs numeric beats and downbeats arrays.");
+    throw new Error(`${TIMING_PATH} needs numeric beats and downbeats arrays.`);
   }
-  const meta = await readJson(store, "lyricsync/evidence/meta.json");
-  if (!isRecord(meta) || !isNumberArray(meta.f0Hz)) throw new Error("lyricsync/evidence/meta.json has no f0Hz pitch contour.");
   const review = await loadReview(store);
   // Bar 1 from prompt.yaml when set (the beat tracker's downbeats otherwise), as the video editor does on load.
   const firstDownbeat = readFirstDownbeat(await (await need(store, PROMPT_PATH)).text());
@@ -152,22 +187,58 @@ export async function loadSongFiles(store: SongStore): Promise<SongFiles> {
       ? { downbeats: beatsDoc.downbeats, bar1Index: 0 }
       : gridFromBar1(beatsDoc.beats, nearestBeatIndex(beatsDoc.beats, firstDownbeat));
 
-  const vocalPath = resolvePath(["lyricsync"], manifest.vocal, "Vocal stem");
   const mixPath = resolvePath([], mixRel, "Mix");
-  const vocal = await need(store, vocalPath, " (the vocal stem named in lyricsync/lyricsync.json)");
   const mix = await need(store, mixPath, " (the mix named in project.json)");
 
+  // The lyricsync workspace (vocal stem and its pitch contour) is there once the song was prepared for lyric timing.
+  const manifestBlob = await store.read("lyricsync/lyricsync.json");
+  let vocal: SongFiles["vocal"] = null;
+  let f0Hz: number[] | null = null;
+  if (manifestBlob) {
+    const manifest: unknown = JSON.parse(await manifestBlob.text());
+    if (!isRecord(manifest) || typeof manifest.vocal !== "string") throw new Error('lyricsync/lyricsync.json has no "vocal" path.');
+    const meta = await readJson(store, "lyricsync/evidence/meta.json");
+    if (!isRecord(meta) || !isNumberArray(meta.f0Hz)) throw new Error("lyricsync/evidence/meta.json has no f0Hz pitch contour.");
+    const vocalPath = resolvePath(["lyricsync"], manifest.vocal, "Vocal stem");
+    vocal = { blob: await need(store, vocalPath, " (the vocal stem named in lyricsync/lyricsync.json)"), name: vocalPath };
+    f0Hz = meta.f0Hz;
+  }
+
   return {
-    doc,
-    calMtime: calMtime ?? 0,
-    vocal: { blob: vocal, name: vocalPath },
+    doc: cal.doc,
+    calExists: cal.exists,
+    calMtime: cal.mtime,
+    vocal,
     mix: { blob: mix, name: mixPath },
     beats: beatsDoc.beats,
     downbeats: grid.downbeats,
     bar1Index: grid.bar1Index,
-    f0Hz: meta.f0Hz,
+    f0Hz,
     review,
   };
+}
+
+export interface SongRenders {
+  index: RenderIndex;
+  placements: Placements;
+  /** False when user_input/placements.json does not exist yet (`placements` is the default then). */
+  placementsExist: boolean;
+}
+
+/** The rendered vocal tracks and their placements, or null when the song has no generated/renders/index.json. */
+export async function loadRenders(store: SongStore): Promise<SongRenders | null> {
+  const indexBlob = await store.read(RENDER_INDEX_PATH);
+  if (!indexBlob) return null;
+  const index = parseRenderIndex(JSON.parse(await indexBlob.text()));
+  const placementsBlob = await store.read(PLACEMENTS_PATH);
+  const placements = placementsBlob ? parsePlacements(JSON.parse(await placementsBlob.text()), index) : defaultPlacements(index);
+  return { index, placements, placementsExist: placementsBlob !== null };
+}
+
+/** The wav of a render (`wav` is relative to generated/renders/). */
+export async function readRenderWav(store: SongStore, render: RenderEntry): Promise<{ blob: Blob; name: string }> {
+  const name = resolvePath(["generated", "renders"], render.wav, "Render wav");
+  return { blob: await need(store, name, ` (the wav of ${render.ust} in ${RENDER_INDEX_PATH})`), name };
 }
 
 /** The last solve's review (lyricsync/out/review.json), or none before the first solve. */

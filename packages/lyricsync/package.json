@@ -21,6 +21,11 @@
       "bun": "./src/song-folder.ts",
       "types": "./dist/song-folder.d.ts",
       "default": "./dist/song-folder.js"
+    },
+    "./formats": {
+      "bun": "./src/formats/index.ts",
+      "types": "./dist/formats/index.d.ts",
+      "default": "./dist/formats/index.js"
     }
   },
   "files": [

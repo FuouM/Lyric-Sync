@@ -3,21 +3,44 @@
 //   <dir>/project.json                       marks the folder as a song
 //   <dir>/user_input/prompt.yaml             mix and stem file names, nearest_bpm, tempo_changes, beat_pins, first_downbeat_s
 //   <dir>/user_input/lyrics.sync.json        the lyricsync lyrics contract; optional "unannotatedLines"
-//   <dir>/user_input/lyrics.calibrated.json  the human calibration and the sections (lyrics editor)
+//   <dir>/user_input/lyrics.calibrated.json  the human calibration and the sections (lyrics editor); the lead singer's
+//   <dir>/user_input/lyrics.calibrated.<id>.json  the calibration of singer <id> (not the lead)
+//   <dir>/user_input/lyrics.txt, lyrics.<id>.txt  the lyrics of the lead singer / of singer <id> (UST import)
+//   <dir>/user_input/singers.json            the singers: UST VoiceDir -> singer id, one lead
+//   <dir>/user_input/ust/*.ust               the UTAU files of the rendered vocal tracks
+//   <dir>/user_input/ust.map.json            the sung UST notes of each lane -> syllables of its singer's lyrics (written by hand)
 //   <dir>/generated/timing.ai.json           the beat grid (beatsync)
 //   <dir>/generated/features.json            audio feature envelopes (beatsync features)
+//   <dir>/generated/renders/index.json       the rendered vocal tracks (UTAU renders, wav files beside it)
+//   <dir>/user_input/placements.json         the clips of each rendered vocal track on the beat grid (lyrics editor)
 //   <dir>/generated/lyrics.json              the last free solve
+//   <dir>/generated/notes.json               every placed UST note on the song grid (lyricsync notes)
 //   <dir>/lyricsync/                         the lyricsync workspace (evidence cache, anchors, results)
-// This module imports only node:fs, node:path and the guards, so other tools can import it without the models
+// This module imports only node:fs, node:path, the guards and the browser-safe parsers, so other tools can import it without the models
 // (subpath export "lyricsync/song-folder"). prompt.yaml is parsed with Bun.YAML, so the prompt readers need Bun.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { BeatPin, FeaturesDocument, TempoChange } from 'beatsync';
 import { parseCalibrationDoc, type CalibrationDoc } from './calibration-doc.ts';
+import { parseUst, type Ust } from './formats/ust.ts';
 import { isNumber, isRecord } from './guards.ts';
+import { parsePlacements, parseRenderIndex, type Placements, type RenderIndex } from './placements.ts';
+import { calibratedFileFor, parseSingers, type Singers } from './singers.ts';
 import type { Language } from './types.ts';
+import { parseUstMap, type UstMap } from './ust-import.ts';
 
 export type { CalibrationDoc, CalLine, CalSection, CalWord } from './calibration-doc.ts';
+export type { PlacementClip, PlacementLane, Placements, RenderEntry, RenderIndex } from './placements.ts';
+export { clipTickRange, defaultPlacements, parsePlacements, parseRenderIndex, splitClip } from './placements.ts';
+export type { Singer, Singers } from './singers.ts';
+export { calibratedFileFor, leadSinger, lyricsFileFor, parseSingers, SINGER_ID_RE, singerOfVoiceDir } from './singers.ts';
+export type { Ust, UstNote } from './formats/ust.ts';
+export { parseUst, UST_TICKS_PER_BEAT } from './formats/ust.ts';
+export { beatAt, beatTime } from './beat-grid.ts';
+export type { NotesFile, PlacedNote } from './placed-notes.ts';
+export { placedNotes } from './placed-notes.ts';
+export type { UstImportFile, UstImportGrid, UstImportInput, UstMap, UstMapEntry, UstMapIssue, UstMapSection } from './ust-import.ts';
+export { checkUstMap, formatUstMapIssue, importUst, mapSections, parseUstMap } from './ust-import.ts';
 export type { FeaturesDocument } from 'beatsync';
 
 /** A valid song id (also the folder name). */
@@ -39,6 +62,13 @@ export interface SongFolderPaths {
   featuresFile: string;
   generatedLyricsFile: string;
   vocalFusedFile: string;
+  rendersDir: string;
+  renderIndexFile: string;
+  placementsFile: string;
+  singersFile: string;
+  ustDir: string;
+  ustMapFile: string;
+  notesFile: string;
 }
 
 /** Stem files from prompt.yaml, as absolute paths. A key without stems is an empty array. */
@@ -50,6 +80,15 @@ export interface SongStems {
   drums: string[];
   bass: string[];
   other: string[];
+}
+
+/** How the beat grid is made: by the beat tracker, or as a constant tempo (see fixed-grid.ts). */
+export type GridMode = 'tracked' | 'fixed';
+
+function gridMode(value: unknown, file: string): GridMode {
+  if (value === undefined || value === null || value === 'tracked') return 'tracked';
+  if (value === 'fixed') return 'fixed';
+  throw new Error(`${file}: grid must be "tracked" or "fixed".`);
 }
 
 /** user_input/prompt.yaml, with file names resolved to absolute paths. Files are not checked for existence. */
@@ -68,6 +107,8 @@ export interface SongPrompt {
   /** beat_pins: beat number `beat` (0 = the first beat) is at `at` seconds, set by dragging bar lines in the editor. Empty when none is fixed. */
   beatPins: BeatPin[];
   firstDownbeat: number | null;
+  /** `grid` of prompt.yaml: "tracked" (default, the beat tracker) or "fixed" (a constant tempo from nearest_bpm and first_downbeat_s; tempo_changes and beat_pins are ignored). */
+  grid: GridMode;
 }
 
 /** generated/timing.ai.json (beatsync output). */
@@ -90,6 +131,7 @@ export interface PromptManifest {
   /** Fixed beats (see SongPrompt.beatPins). */
   beatPins: BeatPin[];
   firstDownbeat: number | null;
+  grid: GridMode;
 }
 
 export interface SongInputs {
@@ -158,6 +200,13 @@ export function songFolderPaths(dir: string): SongFolderPaths {
     featuresFile: path.join(generatedDir, 'features.json'),
     generatedLyricsFile: path.join(generatedDir, 'lyrics.json'),
     vocalFusedFile: path.join(generatedDir, 'vocal_fused.wav'),
+    rendersDir: path.join(generatedDir, 'renders'),
+    renderIndexFile: path.join(generatedDir, 'renders', 'index.json'),
+    placementsFile: path.join(userInputDir, 'placements.json'),
+    singersFile: path.join(userInputDir, 'singers.json'),
+    ustDir: path.join(userInputDir, 'ust'),
+    ustMapFile: path.join(userInputDir, 'ust.map.json'),
+    notesFile: path.join(generatedDir, 'notes.json'),
   };
 }
 
@@ -168,6 +217,45 @@ function readJsonFile(file: string, what: string): unknown {
   } catch (e) {
     throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
+}
+
+/** Reads and checks generated/renders/index.json of the song folder `dir`. Null when the file is absent. */
+export function readRenderIndex(dir: string): RenderIndex | null {
+  const file = songFolderPaths(dir).renderIndexFile;
+  if (!fs.existsSync(file)) return null;
+  return parseRenderIndex(readJsonFile(file, 'Render index'));
+}
+
+/** Reads and checks user_input/placements.json of the song folder `dir`, against the render index when there is one. Null when the file is absent. */
+export function readPlacements(dir: string): Placements | null {
+  const file = songFolderPaths(dir).placementsFile;
+  if (!fs.existsSync(file)) return null;
+  return parsePlacements(readJsonFile(file, 'Placements'), readRenderIndex(dir) ?? undefined);
+}
+
+/** Reads and checks user_input/singers.json of the song folder `dir`. Null when the file is absent. */
+export function readSingers(dir: string): Singers | null {
+  const file = songFolderPaths(dir).singersFile;
+  if (!fs.existsSync(file)) return null;
+  return parseSingers(readJsonFile(file, 'Singers'));
+}
+
+/** Reads user_input/ust/<name> of the song folder `dir` (`name` is a lane's `ust`). */
+export function readUst(dir: string, name: string): Ust {
+  const file = path.join(songFolderPaths(dir).ustDir, name);
+  if (!fs.existsSync(file)) throw new Error(`UST not found: ${file}`);
+  try {
+    return parseUst(fs.readFileSync(file));
+  } catch (e) {
+    throw new Error(`${file}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Reads and checks the shape of user_input/ust.map.json of the song folder `dir`. Null when the file is absent. */
+export function readUstMap(dir: string): UstMap | null {
+  const file = songFolderPaths(dir).ustMapFile;
+  if (!fs.existsSync(file)) return null;
+  return parseUstMap(readJsonFile(file, 'UST map'));
 }
 
 function readPromptRecord(file: string): Record<string, unknown> {
@@ -245,6 +333,7 @@ export function readSongPrompt(dir: string): SongPrompt {
     tempoChanges: tempoChanges(prompt.tempo_changes, promptFile),
     beatPins: beatPins(prompt.beat_pins, promptFile),
     firstDownbeat: isNumber(prompt.first_downbeat_s) ? prompt.first_downbeat_s : null,
+    grid: gridMode(prompt.grid, promptFile),
   };
 }
 
@@ -267,9 +356,20 @@ export function readTimingAi(dir: string): TimingAi {
   };
 }
 
-/** Reads and checks user_input/lyrics.calibrated.json of the song folder `dir`. */
-export function readCalibratedLyrics(dir: string): CalibrationDoc {
-  const file = songFolderPaths(dir).calibratedFile;
+/**
+ * Reads and checks a calibration file of the song folder `dir`: the file of singer `singerId` (user_input/singers.json), or without
+ * it the lead singer's file, user_input/lyrics.calibrated.json (also the file of a song without singers.json).
+ */
+export function readCalibratedLyrics(dir: string, singerId?: string): CalibrationDoc {
+  const paths = songFolderPaths(dir);
+  let file = paths.calibratedFile;
+  if (singerId !== undefined) {
+    const singers = readSingers(dir);
+    if (!singers) throw new Error(`Singer "${singerId}": ${paths.singersFile} not found.`);
+    const singer = singers.singers.find((s) => s.id === singerId);
+    if (!singer) throw new Error(`Singer "${singerId}" is not in ${paths.singersFile}.`);
+    file = path.join(dir, calibratedFileFor(singer));
+  }
   return parseCalibrationDoc(readJsonFile(file, 'Calibrated lyrics'));
 }
 
@@ -310,7 +410,7 @@ export function readFeatures(dir: string): FeaturesDocument {
 export function readPromptManifest(roots: SongsRoots, id: string): PromptManifest {
   const prompt = readSongPrompt(existingSongDir(roots, id));
   if (!fs.existsSync(prompt.mixPath)) throw new Error(`Full mix not found: ${prompt.mixPath}`);
-  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, tempoChanges: prompt.tempoChanges, beatPins: prompt.beatPins, firstDownbeat: prompt.firstDownbeat };
+  return { songPath: prompt.mixPath, nearestBpm: prompt.nearestBpm, tempoChanges: prompt.tempoChanges, beatPins: prompt.beatPins, firstDownbeat: prompt.firstDownbeat, grid: prompt.grid };
 }
 
 /** The lyricsync inputs of song `id`: lyrics contract, language, vocal and beat grid. */

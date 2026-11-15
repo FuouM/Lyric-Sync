@@ -83,15 +83,38 @@ await session.prepare();                                    // the evidence depe
 `lyricsync/song-folder` reads a song folder (the layout the New Song wizard writes). It does not load the models, so other tools (for example the pve video editor) can import it. It needs Bun: `prompt.yaml` is parsed with `Bun.YAML`. The same functions are also in the main entry.
 
 ```ts
-import { readCalibratedLyrics, readFeatures, readSongPrompt, readTimingAi, songFolderPaths } from 'lyricsync/song-folder';
+import { readCalibratedLyrics, readFeatures, readSingers, readSongPrompt, readTimingAi, readUst, songFolderPaths } from 'lyricsync/song-folder';
 
 const prompt = readSongPrompt(dir);      // mixPath, stems { vocal, mainVocal, drums, bass, other }, nearestBpm, firstDownbeat
 const timing = readTimingAi(dir);        // generated/timing.ai.json: duration, bpm, beat_period, beats, downbeats
 const lyrics = readCalibratedLyrics(dir); // user_input/lyrics.calibrated.json: sections, lines[].words[].syl / sylText
+const ko = readCalibratedLyrics(dir, 'ko'); // the calibration file of singer "ko" (user_input/singers.json)
+const singers = readSingers(dir);        // user_input/singers.json, or null
+const ust = readUst(dir, 'te_0.ust');    // user_input/ust/te_0.ust: tempo, voiceDir, notes[] with absolute ticks
 const features = readFeatures(dir);      // generated/features.json v1 (beatsync features)
 ```
 
 Each reader checks the file. A missing file gives an error with the full path of the file.
+
+### UTAU songs (UST)
+
+A song with rendered UST vocal tracks (`generated/renders/`, `user_input/placements.json`, `user_input/ust/`) has two more commands. The song folder is the argument:
+
+```bash
+lyricsync notes <song> [--json]              # writes generated/notes.json: every UST note that a placed clip plays, on the song grid
+lyricsync import ust <song> [--dry] [--json] # writes the singers' calibration files from the placed notes and user_input/ust.map.json
+```
+
+`import ust` runs every check of `user_input/ust.map.json` first. A failure names the lane, the lyric line and the UST note number, and nothing is written. `--dry` runs the checks and writes nothing. File formats: [docs/formats.md](docs/formats.md) (singers, UST files, placed notes, UST map, UST import). Complete workflow guide: [docs/multivocal-ust-workflow.md](docs/multivocal-ust-workflow.md).
+
+`export subs` and `retime` work on the calibration files of a song folder:
+
+```
+lyricsync export subs <song> --out <dir> [--format ttml|srt|ass|ytt|all] [--singer <id>|--all]   # subtitle files with a karaoke highlight
+lyricsync retime <song> --by <seconds> [--singer <id>|--all]                                       # shift every time of the calibration files
+```
+
+The cue model and the writers are pure functions in `lyricsync/formats`. See [docs/formats.md](docs/formats.md#subtitles-lyricsync-export-subs-song---out-dir).
 
 ## Accuracy
 
@@ -128,6 +151,7 @@ The syllable-boundary model (`models/boundary/`) is trained on [GTSinger](https:
 - [docs/workflow.md](docs/workflow.md) is the step-by-step guide; [AGENTS.md](AGENTS.md) is the terse version for automated agents.
 - [docs/refinement.md](docs/refinement.md): the interactive loop, anchor levels, editor round trip.
 - [docs/formats.md](docs/formats.md): every input and output file.
+- [docs/multivocal-ust-workflow.md](docs/multivocal-ust-workflow.md): multi-vocal, synthesizer, and post-DAW chopped alignment workflow.
 - [docs/evidence.md](docs/evidence.md): what `prepare` computes, models, fidelity to the research pipeline.
 - [docs/training.md](docs/training.md): training weights on your own annotated songs.
 - [docs/guided.md](docs/guided.md): the default method, its boundary model, accuracy and model size.

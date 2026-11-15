@@ -1,17 +1,68 @@
 // packages/lyricsync/web/src/components/TimelineCanvas.tsx
-// Multi-track NLE-style timeline: track headers, ruler (time + bars), section markers,
-// mix and vocal waveforms with pitch, lyric clips with editable syllable edges, overview scrollbar.
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+// Multi-track NLE-style timeline: track headers, ruler (time + bars), section markers, mix and vocal waveforms with pitch,
+// vocal lanes (clips of rendered vocal tracks: drag a clip on the beat grid, cut it with the razor), lyric clips with editable syllable
+// edges, the other singers' lyrics (faint, read-only), overview scrollbar.
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { theme } from "../stores/theme";
 import { isSylPinned, type CalibrationDoc } from "../../../src/calibration-doc";
 import { floorIndex, rollPartner, sameSyl, type SylRef } from "../lib/doc-edit";
 import type { TempoMap } from "../lib/tempo-grid";
+import type { TrackMix } from "../lib/audio-player";
+import { anchorTick, atBeatForTick, laneSnapMode, snapClipTime, type SnapResult } from "../lib/lanes";
 
 export type MonitorTrack = "vocal" | "mix";
 
 export interface TimelineHotspot {
   time: number;
   expectedErrorMs: number;
+}
+
+/** A clip of a vocal lane as the timeline shows it. Times in song seconds. */
+export interface TimelineClip {
+  id: string;
+  atBeat: number | null;
+  /** UST tick range [from, to) of the render that the clip plays. */
+  from: number;
+  to: number;
+  /** UST tick 0, the clip start and the clip end; null while the clip is parked. */
+  tick0: number | null;
+  start: number | null;
+  end: number | null;
+  /** Seconds from the first wav sample to the clip's first sample. */
+  offset: number;
+  /** Clip length in seconds. */
+  duration: number;
+  /** Tempo mismatch between the UST and the grid under the clip, or null. */
+  warning: string | null;
+}
+
+/** A vocal lane as the timeline shows it. */
+export interface TimelineLane {
+  id: string;
+  ust: string;
+  /** The lyric block the lane sings (first romaji line of the block, D24); empty = no lyrics. */
+  block: string;
+  /** Seconds per UST tick of the render (fixed render tempo). */
+  secPerTick: number;
+  clips: TimelineClip[];
+  /** Peaks of the whole wav; index 0 is wav sample 0. */
+  peaks?: Float32Array;
+  mix: TrackMix;
+  audible: boolean;
+  /** The first clip warning, or null. */
+  warning: string | null;
+  /** Another lane plays the same UST, so this one can be removed. */
+  removable: boolean;
+  /** The wav cannot be read or decoded. */
+  problem: string | null;
+}
+
+/** A clip in the live view: a placed clip at its times, a parked clip after the lane's other parked clips from the view's left edge. */
+interface ClipSpan {
+  clip: TimelineClip;
+  start: number;
+  end: number;
+  parked: boolean;
 }
 
 export interface TimelineCanvasProps {
@@ -44,8 +95,10 @@ export interface TimelineCanvasProps {
   onSeek: (t: number) => void;
   onSelectSyllable: (ref: SylRef) => void;
   onPlayRange: (start: number, end: number) => void;
-  /** Called once before a drag edit starts (undo snapshot). */
+  /** Called once before a syllable or section drag starts (undo snapshot of the calibration). */
   onEditBegin: () => void;
+  /** Called once before the first move of a clip drag (undo snapshot of the placements). */
+  onClipDragBegin: () => void;
   /** `partner`: the touching syllable that moves along (roll edit), chosen when the drag starts; null to move this edge alone. */
   onBoundaryDrag: (ref: SylRef, edge: "start" | "end", t: number, partner: SylRef | null) => void;
   onSectionDrag: (sectionIdx: number, t: number) => void;
@@ -62,30 +115,81 @@ export interface TimelineCanvasProps {
   onBarDrop: (idx: number, t: number) => void;
   /** Alt+click on a bar line: free its beat again. */
   onBarUnpin: (idx: number) => void;
+  /** Gain, mute and solo of the mix and the vocal stem ("mix", "vocal"). */
+  trackMix: Record<"mix" | "vocal", TrackMix>;
+  /** What plays now (mute and solo applied), keyed like `trackMix`. */
+  audible: Record<"mix" | "vocal", boolean>;
+  hasVocal: boolean;
+  onTrackMix: (id: "mix" | "vocal", patch: Partial<TrackMix>) => void;
+  /** The vocal lanes, in placements order. Empty when the song has no renders. */
+  lanes: TimelineLane[];
+  /** Lyric blocks offered in the lane's Lyric block field. */
+  blockOptions: string[];
+  onLaneMix: (id: string, patch: Partial<TrackMix>) => void;
+  /** Razor tool: a click on a placed clip splits it; clip drags are off. */
+  razor: boolean;
+  /** Moves a clip while it is dragged (no undo step; `onClipDragBegin` ran before the first move). */
+  onClipMove: (laneId: string, clipId: string, atBeat: number) => void;
+  /** Splits a clip at UST tick `atTick` (may be fractional). */
+  onClipSplit: (laneId: string, clipId: string, atTick: number) => void;
+  onLaneBlock: (id: string, block: string) => void;
+  onLaneDuplicate: (id: string) => void;
+  onLaneRemove: (id: string) => void;
+  /** The song's singers, lead first (user_input/singers.json); empty when the song has no singers file. */
+  singers: { id: string; lead: boolean }[];
+  /** The singer whose calibration `doc` is; null without a singers file. */
+  activeSinger: string | null;
+  onSinger: (id: string) => void;
+  /** The other singers' calibrations that exist, drawn faint under the Lyrics lane (no hit testing). */
+  faint: { id: string; doc: CalibrationDoc }[];
 }
 
-const HEADER_W = 148;
+const HEADER_W = 210;
 const RULER_H = 30;
 const TEMPO_H = 22;
 const MARKERS_H = 22;
 const MIX_H = 46;
 const LYRICS_H = 60;
 const LINES_H = 20;
+/** Height of one faint singer row under the Lyrics lane. */
+const FAINT_H = 16;
 const OVERVIEW_H = 18;
 const MIN_VOCAL_H = 64;
+/** The vocal lane height when the song has no vocal stem. */
+const NO_VOCAL_H = 28;
+/** Height of one vocal lane (two header rows). */
+const LANE_H = 46;
 const EDGE_HIT_PX = 6;
+/** Snap targets pull within this distance. */
+const SNAP_PX = 8;
+/** The razor's cut preview line. */
+const RAZOR_COLOR = "#ff4d6d";
 /** The top strip of the ruler holds the bar lines you can drag. */
 const BAR_GRIP_H = 12;
 const PITCH_FPS = 100;
 
 interface Lane {
-  id: "ruler" | "tempo" | "markers" | "mix" | "vocal" | "lyrics" | "lines";
+  id: "ruler" | "tempo" | "markers" | "mix" | "vocal" | "renders" | "lyrics" | "faint" | "lines";
   y: number;
   h: number;
 }
 
-function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overviewY: number } {
-  const vocalH = Math.max(MIN_VOCAL_H, height - RULER_H - TEMPO_H - MARKERS_H - MIX_H - LYRICS_H - LINES_H - OVERVIEW_H);
+/**
+ * `renders` is the scrolling area of the vocal lanes (height 0 without lanes). The vocal waveform takes the spare height; without a
+ * vocal stem the lanes take it. `faint` holds one row per other singer (height 0 without).
+ */
+function layoutLanes(
+  height: number,
+  laneCount: number,
+  hasVocal: boolean,
+  faintCount: number
+): { lanes: Record<Lane["id"], Lane>; overviewY: number } {
+  const faintH = faintCount * FAINT_H;
+  const free = height - RULER_H - TEMPO_H - MARKERS_H - MIX_H - LYRICS_H - faintH - LINES_H - OVERVIEW_H;
+  const vocalMin = hasVocal ? MIN_VOCAL_H : NO_VOCAL_H;
+  const room = Math.max(LANE_H, free - vocalMin);
+  const rendersH = laneCount === 0 ? 0 : hasVocal ? Math.min(laneCount * LANE_H, room) : room;
+  const vocalH = Math.max(vocalMin, free - rendersH);
   let y = 0;
   const lane = (id: Lane["id"], h: number): Lane => {
     const l = { id, y, h };
@@ -98,7 +202,9 @@ function layoutLanes(height: number): { lanes: Record<Lane["id"], Lane>; overvie
     markers: lane("markers", MARKERS_H),
     mix: lane("mix", MIX_H),
     vocal: lane("vocal", vocalH),
+    renders: lane("renders", rendersH),
     lyrics: lane("lyrics", LYRICS_H),
+    faint: lane("faint", faintH),
     lines: lane("lines", LINES_H),
   };
   return { lanes, overviewY: y };
@@ -170,7 +276,22 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   let container!: HTMLDivElement;
   let canvas!: HTMLCanvasElement;
   const [size, setSize] = createSignal({ w: 800, h: 320 });
-  const layout = createMemo(() => layoutLanes(size().h));
+  const layout = createMemo(() => layoutLanes(size().h, props.lanes.length, props.hasVocal, props.faint.length));
+  /** Vertical scroll of the vocal lanes area, in px. */
+  const [laneScroll, setLaneScroll] = createSignal(0);
+  const maxLaneScroll = () => Math.max(0, props.lanes.length * LANE_H - layout().lanes.renders.h);
+  const scrollLanes = (px: number) => setLaneScroll(Math.max(0, Math.min(maxLaneScroll(), px)));
+  createEffect(() => {
+    if (laneScroll() > maxLaneScroll()) setLaneScroll(maxLaneScroll());
+  });
+  const laneY = (i: number) => layout().lanes.renders.y + i * LANE_H - laneScroll();
+  /** Index of the vocal lane at canvas y (inside the lanes area), or -1. */
+  const laneRowAt = (y: number): number => {
+    const r = layout().lanes.renders;
+    if (y < r.y || y >= r.y + r.h) return -1;
+    const i = Math.floor((y - r.y + laneScroll()) / LANE_H);
+    return i < props.lanes.length ? i : -1;
+  };
 
   let drag:
     | { kind: "boundary"; ref: SylRef; edge: "start" | "end"; partner: SylRef | null }
@@ -181,9 +302,13 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | { kind: "overview"; grabOffset: number }
     /** Press on empty space: a drag pans the view; a release without moving is a click (`click` runs then). */
     | { kind: "pan"; x0: number; view0: number; moved: boolean; click: () => void }
+    /** A vocal lane clip: `grab` = pointer time minus the time of the clip's anchor (`anchorTick`); a release without moving is a click. */
+    | { kind: "clip"; lane: string; clip: string; grab: number; x0: number; moved: boolean; begun: boolean; click: () => void }
     | null = null;
   let hoverEdge: { ref: SylRef; edge: "start" | "end" } | null = null;
   let snapGuide: { time: number; label: string } | null = null;
+  /** The razor's cut preview: lane id and the snapped cut time. */
+  let razorHover: { lane: string; time: number } | null = null;
   let barGhost: { idx: number; t: number } | null = null;
   let frame = 0;
 
@@ -209,8 +334,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const findSnap = (raw: number, exclude?: SylRef): { time: number; label: string } => {
     if (!props.snapEnabled) return { time: raw, label: "" };
-    const tolPx = 8;
-    const tol = (tolPx / canvasW()) * props.viewDuration;
+    const tol = (SNAP_PX / canvasW()) * props.viewDuration;
     let best = { time: raw, label: "", d: tol };
     const consider = (t: number, label: string) => {
       const d = Math.abs(t - raw);
@@ -233,6 +357,27 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       });
     }
     return { time: best.time, label: best.label };
+  };
+
+  const clipSpans = (lane: TimelineLane): ClipSpan[] => {
+    let parkedAt = props.viewStart;
+    return lane.clips.map((clip) => {
+      if (clip.start !== null && clip.end !== null) return { clip, start: clip.start, end: clip.end, parked: false };
+      const start = parkedAt;
+      parkedAt += clip.duration;
+      return { clip, start, end: start + clip.duration, parked: true };
+    });
+  };
+
+  /**
+   * A clip move or a razor cut at `raw`: beat (Shift = bar, Alt = free, see `laneSnapMode`), or the start or end of a placed clip of
+   * any lane within SNAP_PX when nearer. The clip `exclude` (being moved or cut) is not a target.
+   */
+  const snapClip = (raw: number, e: { shiftKey: boolean; altKey: boolean }, exclude: { lane: string; clip: string }): SnapResult => {
+    const edges = props.lanes.flatMap((l) =>
+      l.clips.flatMap((c) => (c.start === null || c.end === null || (l.id === exclude.lane && c.id === exclude.clip) ? [] : [c.start, c.end]))
+    );
+    return snapClipTime(props.beats ?? [], props.downbeats ?? [], raw, laneSnapMode(e), edges, (SNAP_PX / canvasW()) * props.viewDuration);
   };
 
   /** Syllable edge under x in the lyrics lane; prefers the selected syllable on ties. */
@@ -351,10 +496,25 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const contentBottom = overviewY;
 
     // Lane backgrounds
-    for (const l of [lanes.mix, lanes.lyrics]) {
+    for (const l of [lanes.mix, lanes.lyrics, lanes.faint]) {
       ctx.fillStyle = C.laneAlt;
       ctx.fillRect(0, l.y, W, l.h);
     }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, lanes.renders.y, W, lanes.renders.h);
+    ctx.clip();
+    ctx.strokeStyle = C.laneBorder;
+    props.lanes.forEach((_, i) => {
+      const y = laneY(i);
+      ctx.fillStyle = i % 2 === 0 ? C.bg : C.laneAlt;
+      ctx.fillRect(0, y, W, LANE_H);
+      ctx.beginPath();
+      ctx.moveTo(0, y + LANE_H - 0.5);
+      ctx.lineTo(W, y + LANE_H - 0.5);
+      ctx.stroke();
+    });
+    ctx.restore();
     ctx.strokeStyle = C.laneBorder;
     ctx.lineWidth = 1;
     for (const l of Object.values(lanes)) {
@@ -397,10 +557,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     drawRuler(ctx, W, lanes.ruler, downs);
     drawMarkers(ctx, W, lanes.markers);
     drawTempo(ctx, W, lanes.tempo);
-    drawWave(ctx, lanes.mix, props.mixPeaks, C.mixWave, props.monitor === "mix");
-    drawWave(ctx, lanes.vocal, props.vocalPeaks, C.vocalWave, props.monitor === "vocal");
+    drawWave(ctx, lanes.mix, props.mixPeaks, C.mixWave, props.audible.mix);
+    drawWave(ctx, lanes.vocal, props.vocalPeaks, C.vocalWave, props.audible.vocal);
+    drawVocalLanes(ctx, W, false);
     if (props.showPitch) drawPitch(ctx, lanes.vocal);
     drawLyrics(ctx, lanes.lyrics);
+    drawFaint(ctx, lanes.faint);
     drawLines(ctx, lanes.lines);
   };
 
@@ -410,6 +572,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     const contentTop = lanes.markers.y;
     const contentBottom = overviewY;
     drawOverview(ctx, W, overviewY);
+    drawVocalLanes(ctx, W, true);
 
     // Hovered / dragged syllable edge
     const doc = props.doc;
@@ -431,6 +594,26 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       ctx.lineTo(gx, contentBottom);
       ctx.stroke();
       ctx.lineWidth = 1;
+    }
+
+    // Razor cut preview: a line across the clip's lane at the snapped cut time
+    if (razorHover) {
+      const i = props.lanes.findIndex((l) => l.id === razorHover!.lane);
+      const r = lanes.renders;
+      if (i >= 0) {
+        const rx = Math.round(tToX(razorHover.time)) + 0.5;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, r.y, W, r.h);
+        ctx.clip();
+        ctx.strokeStyle = RAZOR_COLOR;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(rx, laneY(i) + 1);
+        ctx.lineTo(rx, laneY(i) + LANE_H - 1);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     // Snap guide
@@ -616,19 +799,31 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const drawWave = (ctx: CanvasRenderingContext2D, lane: Lane, peaks: Float32Array | undefined, color: string, active: boolean) => {
     if (!peaks || peaks.length === 0) return;
-    const W = canvasW();
-    const mid = lane.y + lane.h / 2;
-    const half = lane.h / 2 - 3;
+    drawPeaks(ctx, lane.y + lane.h / 2, lane.h / 2 - 3, peaks, 0, color, active ? 0.95 : 0.45, 0, canvasW());
+  };
+
+  /** Peaks whose first value is at song time `t0`, centred on `mid`, between canvas x `xFrom` and `xTo`. */
+  const drawPeaks = (
+    ctx: CanvasRenderingContext2D,
+    mid: number,
+    half: number,
+    peaks: Float32Array,
+    t0: number,
+    color: string,
+    alpha: number,
+    xFrom: number,
+    xTo: number
+  ) => {
     const pps = props.peaksPerSec;
     ctx.fillStyle = color;
-    ctx.globalAlpha = active ? 0.95 : 0.45;
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
-    for (let x = 0; x < W; x++) {
-      const t0 = xToT(x);
-      const t1 = xToT(x + 1);
-      if (t1 <= 0 || t0 * pps >= peaks.length) continue;
-      const a = Math.max(0, Math.floor(t0 * pps));
-      const b = Math.min(peaks.length, Math.max(a + 1, Math.floor(t1 * pps)));
+    for (let x = Math.max(0, Math.floor(xFrom)); x < xTo; x++) {
+      const p0 = (xToT(x) - t0) * pps;
+      const p1 = (xToT(x + 1) - t0) * pps;
+      if (p1 <= 0 || p0 >= peaks.length) continue;
+      const a = Math.max(0, Math.floor(p0));
+      const b = Math.min(peaks.length, Math.max(a + 1, Math.floor(p1)));
       let p = 0;
       for (let i = a; i < b; i++) if (peaks[i]! > p) p = peaks[i]!;
       const h = Math.max(0.5, p * half);
@@ -636,6 +831,71 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     }
     ctx.fill();
     ctx.globalAlpha = 1;
+  };
+
+  /**
+   * The clips of the vocal lanes: the placed ones (`parked` false, in the scene) at their times, or the parked ones (`parked` true, in
+   * the overlay) from the left edge of the view, grey and dashed. Each clip shows the peaks of its own wav range; a gap marks where
+   * two clips touch. A solid line marks UST tick 0 when it is inside the clip.
+   */
+  const drawVocalLanes = (ctx: CanvasRenderingContext2D, W: number, parked: boolean) => {
+    const r = layout().lanes.renders;
+    if (r.h === 0) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, r.y, W, r.h);
+    ctx.clip();
+    props.lanes.forEach((lane, i) => {
+      const y = laneY(i);
+      if (y + LANE_H <= r.y || y >= r.y + r.h) return;
+      const top = y + 3;
+      const h = LANE_H - 6;
+      let hue = 210;
+      for (const ch of lane.block) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+      const sat = parked ? 0 : lane.block ? 50 : 25;
+      const alpha = parked ? 0.55 : lane.audible ? 1 : 0.45;
+      for (const span of clipSpans(lane)) {
+        if (span.parked !== parked) continue;
+        const { clip } = span;
+        const x1 = tToX(span.start);
+        const x2 = Math.max(x1 + 2, tToX(span.end));
+        if (x2 < 0 || x1 > W) continue;
+        ctx.globalAlpha = alpha;
+        roundRect(ctx, x1 + 1, top, Math.max(1, x2 - x1 - 2), h, 3);
+        ctx.fillStyle = `hsla(${hue}, ${sat}%, 45%, 0.3)`;
+        ctx.fill();
+        ctx.strokeStyle = clip.warning && !parked ? "#f59e0b" : `hsl(${hue}, ${sat}%, 58%)`;
+        if (parked) ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (lane.peaks) {
+          const color = parked ? C.rulerText : `hsl(${hue}, ${sat + 15}%, 62%)`;
+          drawPeaks(ctx, top + 8 + (h - 8) / 2, (h - 8) / 2 - 1, lane.peaks, span.start - clip.offset, color, alpha * 0.9, x1 + 1, Math.min(W, x2 - 1));
+        }
+        ctx.globalAlpha = alpha;
+        if (clip.tick0 !== null && clip.tick0 >= span.start && clip.tick0 <= span.end) {
+          const tx = Math.round(tToX(clip.tick0)) + 0.5;
+          ctx.strokeStyle = `hsl(${hue}, ${sat + 20}%, 70%)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(tx, top);
+          ctx.lineTo(tx, top + h);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x1 + 1, top, Math.max(1, x2 - x1 - 2), h);
+        ctx.clip();
+        ctx.fillStyle = C.rulerText;
+        ctx.font = "600 10px 'Segoe UI', sans-serif";
+        const where = clip.atBeat === null ? "not placed: drag it onto the timeline" : `beat ${Number(clip.atBeat.toFixed(3))}`;
+        ctx.fillText(lane.problem ?? `${clip.id}${lane.block ? ` · ${lane.block}` : ""} · ${where}`, Math.max(x1, 0) + 5, top + 10);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+    });
+    ctx.restore();
   };
 
   const drawPitch = (ctx: CanvasRenderingContext2D, lane: Lane) => {
@@ -762,6 +1022,37 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     }
   };
 
+  /** The other singers' syllables, one faint row per singer (read-only: no selection, no edge hits). */
+  const drawFaint = (ctx: CanvasRenderingContext2D, lane: Lane) => {
+    props.faint.forEach(({ doc }, row) => {
+      const top = lane.y + row * FAINT_H + 2;
+      const h = FAINT_H - 4;
+      ctx.globalAlpha = 0.4;
+      for (const line of doc.lines) {
+        if (line.end < vStart() || line.start > vStart() + vDur()) continue;
+        for (const w of line.words) {
+          w.syl.forEach(([s0, s1], si) => {
+            const x1 = tToX(s0);
+            const x2 = tToX(s1);
+            ctx.fillStyle = si % 2 === 0 ? C.clipFree : C.clipFreeAlt;
+            ctx.fillRect(x1, top, Math.max(1, x2 - x1 - 1), h);
+            if (x2 - x1 > 12) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(x1, top, x2 - x1, h);
+              ctx.clip();
+              ctx.fillStyle = C.clipText;
+              ctx.font = "10px 'Segoe UI', sans-serif";
+              ctx.fillText(w.sylText[si] ?? "", x1 + 2, top + h - 3);
+              ctx.restore();
+            }
+          });
+        }
+      }
+      ctx.globalAlpha = 1;
+    });
+  };
+
   const drawLines = (ctx: CanvasRenderingContext2D, lane: Lane) => {
     const doc = props.doc;
     if (!doc) return;
@@ -812,7 +1103,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   // Scene data: anything that changes the painted lanes (not the playhead or the scroll, which only move the blit).
   createEffect(() => {
     void [theme(), props.doc, props.viewDuration, props.beats, props.downbeats, props.bar1Index, props.mixPeaks, props.vocalPeaks,
-      props.peaksPerSec, props.pitchContour, props.showPitch, props.selectedSyl, props.hotspots, props.monitor, props.duration, props.tempo, size()];
+      props.peaksPerSec, props.pitchContour, props.showPitch, props.selectedSyl, props.hotspots, props.audible, props.duration, props.tempo,
+      props.lanes, props.faint, laneScroll(), size()];
     sceneDirty = true;
     requestDraw();
   });
@@ -876,6 +1168,41 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     return i < 0 ? null : i;
   };
 
+  /** The vocal lane clip under (x, y) in the live view. Parked clips lie over the placed ones, so they are hit first. */
+  const clipAt = (x: number, y: number): { lane: TimelineLane; span: ClipSpan } | null => {
+    const lane = props.lanes[laneRowAt(y)];
+    if (!lane) return null;
+    const spans = clipSpans(lane).sort((a, b) => Number(b.parked) - Number(a.parked));
+    for (const span of spans) {
+      const x1 = tToX(span.start);
+      if (x >= x1 && x <= Math.max(x1 + 2, tToX(span.end))) return { lane, span };
+    }
+    return null;
+  };
+
+  /** The razor cut at (x, y): a placed clip and the snapped cut time strictly inside it, or null. */
+  const razorCut = (x: number, y: number, e: { shiftKey: boolean; altKey: boolean }): { lane: TimelineLane; clip: TimelineClip; time: number; label: string } | null => {
+    const hit = clipAt(x, y);
+    if (!hit || hit.span.parked) return null;
+    const s = snapClip(xToT(x), e, { lane: hit.lane.id, clip: hit.span.clip.id });
+    if (s.time <= hit.span.start || s.time >= hit.span.end) return null;
+    return { lane: hit.lane, clip: hit.span.clip, time: s.time, label: s.label };
+  };
+
+  /** Hover feedback of the razor: the cut preview and its snap guide. */
+  const updateRazorHover = (x: number, y: number, e: { shiftKey: boolean; altKey: boolean }) => {
+    const cut = props.razor && laneAt(y) === "renders" ? razorCut(x, y, e) : null;
+    razorHover = cut ? { lane: cut.lane.id, time: cut.time } : null;
+    snapGuide = cut?.label ? { time: cut.time, label: cut.label } : null;
+  };
+
+  createEffect(() => {
+    if (props.razor || drag) return;
+    razorHover = null;
+    snapGuide = null;
+    requestDraw();
+  });
+
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const { x, y } = local(e);
@@ -915,6 +1242,24 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       props.onSelectSyllable(edge.ref);
       // Touching syllables of the same line move together; hold Alt to move this edge alone (opens a gap).
       drag = { kind: "boundary", ref: edge.ref, edge: edge.edge, partner: e.altKey || !props.doc ? null : rollPartner(props.doc, edge.ref, edge.edge) };
+    } else if (lane === "renders" && props.razor && clipAt(x, y)) {
+      // Razor: a click on a placed clip splits it at the snapped time (beat; Shift = bar; Alt = free; clip edges pull).
+      const cut = razorCut(x, y, e);
+      if (cut && cut.clip.tick0 !== null) props.onClipSplit(cut.lane.id, cut.clip.id, (cut.time - cut.clip.tick0) / cut.lane.secPerTick);
+      updateRazorHover(x, y, e);
+    } else if (lane === "renders" && clipAt(x, y)) {
+      // A clip: drag it along the beat grid (its start snaps: beat; Shift = bar; Alt = free; clip edges pull). A click moves the playhead.
+      const hit = clipAt(x, y)!;
+      drag = {
+        kind: "clip",
+        lane: hit.lane.id,
+        clip: hit.span.clip.id,
+        grab: t - (hit.span.start + (anchorTick(hit.span.clip) - hit.span.clip.from) * hit.lane.secPerTick),
+        x0: e.clientX,
+        moved: false,
+        begun: false,
+        click: () => props.onSeek(Math.max(0, t)),
+      };
     } else {
       // Everything else: drag pans the view, a plain click selects what is under it and moves the playhead there.
       const click = () => {
@@ -948,7 +1293,18 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         lane === "markers" && (props.doc?.sections ?? []).some((s, i) => i > 0 && Math.abs(tToX(s.start) - x) <= EDGE_HIT_PX);
       const onTempo = lane === "tempo" && tempoGripAt(x) !== null;
       const onBar = lane === "ruler" && y <= BAR_GRIP_H && !!props.tempo && barAt(x) !== null;
-      canvas.style.cursor = hoverEdge || onSection || onTempo || onBar ? "ew-resize" : lane === "ruler" ? "text" : lane === "overview" ? "pointer" : "grab";
+      const onClip = !props.razor && lane === "renders" && clipAt(x, y) !== null;
+      updateRazorHover(x, y, e);
+      canvas.style.cursor =
+        props.razor && lane === "renders"
+          ? "crosshair"
+          : hoverEdge || onSection || onTempo || onBar || onClip
+            ? "ew-resize"
+            : lane === "ruler"
+              ? "text"
+              : lane === "overview"
+                ? "pointer"
+                : "grab";
       requestDraw();
       return;
     }
@@ -974,6 +1330,25 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const s = findSnap(t);
       snapGuide = s.label ? s : null;
       props.onSectionDrag(drag.idx, s.time);
+    } else if (drag.kind === "clip") {
+      if (!drag.moved && Math.abs(e.clientX - drag.x0) <= 3) return;
+      drag.moved = true;
+      const d = drag;
+      const lane = props.lanes.find((l) => l.id === d.lane);
+      const clip = lane?.clips.find((c) => c.id === d.clip);
+      if (!lane || !clip) return;
+      // The anchor (tick 0, or the cut of a clip that starts after it) snaps, so tick 0 lands on the beat, not the silent lead-in.
+      const s = snapClip(t - d.grab, e, d);
+      snapGuide = s.label ? s : null;
+      // 1e-6 beat (under one sample) keeps beat and bar snaps integer despite float round trips through the grid.
+      const atBeat = Math.round(atBeatForTick(props.beats ?? [], s.time, anchorTick(clip), lane.secPerTick) * 1e6) / 1e6;
+      if (clip.atBeat !== atBeat) {
+        if (!d.begun) {
+          props.onClipDragBegin();
+          d.begun = true;
+        }
+        props.onClipMove(d.lane, d.clip, atBeat);
+      }
     } else {
       const s = findSnap(t, drag.ref);
       snapGuide = s.label ? s : null;
@@ -984,7 +1359,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   const onPointerUp = (e: PointerEvent) => {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-    if (drag?.kind === "pan" && !drag.moved) drag.click();
+    if ((drag?.kind === "pan" || drag?.kind === "clip") && !drag.moved) drag.click();
     if (drag?.kind === "tempo") props.onTempoDrop();
     if (drag?.kind === "bar" && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
     barGhost = null;
@@ -1007,6 +1382,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       const anchor = xToT(x);
       const dur = Math.max(0.5, Math.min(total() + 5, props.viewDuration * (e.deltaY < 0 ? 0.8 : 1.25)));
       props.onViewChange(Math.max(0, anchor - (x / canvasW()) * dur), dur);
+    } else if (laneAt(local(e).y) === "renders" && maxLaneScroll() > 0 && Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.shiftKey) {
+      // Over the vocal lanes the wheel scrolls them up and down; Shift+wheel pans the view.
+      scrollLanes(laneScroll() + e.deltaY);
     } else {
       const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       const start = props.viewStart + (delta / canvasW()) * props.viewDuration;
@@ -1022,6 +1400,44 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       <span class="daw-track-title">{p.title}</span>
       <div class="daw-track-tools">{p.children as never}</div>
     </div>
+  );
+
+  /** Gain slider, mute and solo of one track. The controls do not take the keyboard focus (Space stays play/pause). */
+  const MixControls = (p: { mix: TrackMix; onMix: (patch: Partial<TrackMix>) => void; disabled?: boolean }) => (
+    <>
+      <input
+        class="daw-gain"
+        type="range"
+        min="0"
+        max="1.5"
+        step="0.05"
+        value={p.mix.gain}
+        disabled={p.disabled}
+        title={`Gain ${Math.round(p.mix.gain * 100)} %`}
+        onInput={(e) => p.onMix({ gain: Number(e.currentTarget.value) })}
+        onChange={(e) => e.currentTarget.blur()}
+      />
+      <button
+        class="daw-icon-btn daw-ms-btn"
+        classList={{ "daw-mute-on": p.mix.mute }}
+        disabled={p.disabled}
+        title="Mute"
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => p.onMix({ mute: !p.mix.mute })}
+      >
+        M
+      </button>
+      <button
+        class="daw-icon-btn daw-ms-btn"
+        classList={{ "daw-solo-on": p.mix.solo }}
+        disabled={p.disabled}
+        title="Solo"
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => p.onMix({ solo: !p.mix.solo })}
+      >
+        S
+      </button>
+    </>
   );
 
   return (
@@ -1049,26 +1465,128 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           >
             <i class="bi bi-volume-up-fill" />
           </button>
+          <MixControls mix={props.trackMix.mix} onMix={(patch) => props.onTrackMix("mix", patch)} />
         </Header>
-        <Header lane={layout().lanes.vocal} title="Vocal" icon="mic-fill">
-          <button
-            class="daw-icon-btn"
-            classList={{ "daw-on": props.showPitch }}
-            title="Show pitch contour"
-            onClick={() => props.onTogglePitch()}
-          >
-            <i class="bi bi-graph-up" />
-          </button>
-          <button
-            class="daw-icon-btn"
-            classList={{ "daw-on": props.monitor === "vocal" }}
-            title="Listen to the isolated vocal"
-            onClick={() => props.onMonitor("vocal")}
-          >
-            <i class="bi bi-volume-up-fill" />
-          </button>
+        <Header lane={layout().lanes.vocal} title={props.hasVocal ? "Vocal" : "No vocal stem"} icon="mic-fill">
+          <Show when={props.hasVocal}>
+            <button
+              class="daw-icon-btn"
+              classList={{ "daw-on": props.showPitch }}
+              title="Show pitch contour"
+              onClick={() => props.onTogglePitch()}
+            >
+              <i class="bi bi-graph-up" />
+            </button>
+            <button
+              class="daw-icon-btn"
+              classList={{ "daw-on": props.monitor === "vocal" }}
+              title="Listen to the isolated vocal"
+              onClick={() => props.onMonitor("vocal")}
+            >
+              <i class="bi bi-volume-up-fill" />
+            </button>
+            <MixControls mix={props.trackMix.vocal} onMix={(patch) => props.onTrackMix("vocal", patch)} />
+          </Show>
         </Header>
-        <Header lane={layout().lanes.lyrics} title="Lyrics" icon="fonts" />
+        <Show when={props.lanes.length > 0}>
+          <div
+            class="daw-lane-headers"
+            style={{ top: `${layout().lanes.renders.y}px`, height: `${layout().lanes.renders.h}px` }}
+            onWheel={(e) => {
+              e.preventDefault();
+              scrollLanes(laneScroll() + e.deltaY);
+            }}
+          >
+            <div style={{ transform: `translateY(${-laneScroll()}px)` }}>
+              <Index each={props.lanes}>
+                {(lane) => (
+                  <div
+                    class="daw-lane-header"
+                    classList={{ "daw-lane-parked": lane().clips.every((c) => c.atBeat === null) }}
+                    style={{ height: `${LANE_H}px` }}
+                  >
+                    <div class="daw-lane-row">
+                      <span class="daw-lane-label" title={`${lane().id}: ${lane().ust}${lane().problem ? ` (${lane().problem})` : ""}`}>
+                        {lane().id}
+                      </span>
+                      <Show when={lane().warning}>
+                        <i class="bi bi-exclamation-triangle-fill daw-lane-warn" title={lane().warning!} />
+                      </Show>
+                      <button
+                        class="daw-icon-btn"
+                        title="Duplicate lane (the copy starts unplaced)"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => props.onLaneDuplicate(lane().id)}
+                      >
+                        <i class="bi bi-copy" />
+                      </button>
+                      <Show when={lane().removable}>
+                        <button
+                          class="daw-icon-btn"
+                          title="Remove this lane (another lane plays the same UST)"
+                          onPointerDown={(e) => e.preventDefault()}
+                          onClick={() => props.onLaneRemove(lane().id)}
+                        >
+                          <i class="bi bi-x-lg" />
+                        </button>
+                      </Show>
+                    </div>
+                    <div class="daw-lane-row">
+                      <input
+                        class="daw-lane-block"
+                        list="daw-lane-blocks"
+                        placeholder="Lyric block"
+                        aria-label="Lyric block"
+                        title="Lyric block: the first line (romaji) of the lyric block this lane sings; empty = no lyrics"
+                        value={lane().block}
+                        onChange={(e) => {
+                          props.onLaneBlock(lane().id, e.currentTarget.value.trim());
+                          e.currentTarget.blur();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                        }}
+                      />
+                      <MixControls mix={lane().mix} onMix={(patch) => props.onLaneMix(lane().id, patch)} />
+                    </div>
+                  </div>
+                )}
+              </Index>
+            </div>
+            <datalist id="daw-lane-blocks">
+              <For each={props.blockOptions}>{(p) => <option value={p} />}</For>
+            </datalist>
+          </div>
+        </Show>
+        <Header lane={layout().lanes.lyrics} title="Lyrics" icon="fonts">
+          <Show when={props.singers.length > 0}>
+            <select
+              class="daw-singer-select"
+              title="Singer: whose calibration file the Lyrics and Lines lanes edit (the other singers show faint underneath)"
+              onChange={(e) => {
+                props.onSinger(e.currentTarget.value);
+                e.currentTarget.blur();
+              }}
+            >
+              <For each={props.singers}>
+                {(s) => (
+                  <option value={s.id} selected={s.id === props.activeSinger}>
+                    {s.lead ? `${s.id} (lead)` : s.id}
+                  </option>
+                )}
+              </For>
+            </select>
+          </Show>
+        </Header>
+        <Show when={props.faint.length > 0}>
+          <div
+            class="daw-track-header daw-faint-header"
+            style={{ top: `${layout().lanes.faint.y}px`, height: `${layout().lanes.faint.h}px` }}
+            title="Other singers (read-only; pick one in the Lyrics lane to edit it)"
+          >
+            <For each={props.faint}>{(f) => <span class="daw-faint-row">{f.id}</span>}</For>
+          </div>
+        </Show>
         <Header lane={layout().lanes.lines} title="Lines" icon="list" />
         <div class="daw-track-header daw-overview-header" style={{ top: `${layout().overviewY}px`, height: `${OVERVIEW_H}px` }}>
           <span class="daw-track-title">Overview</span>
@@ -1083,6 +1601,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         onPointerUp={onPointerUp}
         onPointerLeave={() => {
           hoverEdge = null;
+          razorHover = null;
+          if (!drag) snapGuide = null;
           requestDraw();
         }}
         onDblClick={onDblClick}

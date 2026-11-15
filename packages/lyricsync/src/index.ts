@@ -58,3 +58,12 @@ export { solveAnalytic, ANALYTIC_DESIGN } from './engine/analytic.ts';
 // The song folder (also importable alone, without the models: "lyricsync/song-folder").
 export * from './song-folder.ts';
 export { isSylPinned, parseCalibrationDoc } from './calibration-doc.ts';
+
+// Subtitle cues and writers (also importable alone: "lyricsync/formats"), export and retime of a song folder.
+export * from './formats/index.ts';
+export { calibrationTargets } from './calibration-files.ts';
+export type { CalibrationTarget, TargetSelector } from './calibration-files.ts';
+export { exportSubs } from './subs-song.ts';
+export type { SubsExportOptions, SubsFile } from './subs-song.ts';
+export { retimeDoc, retimeSong } from './retime.ts';
+export type { RetimeResult } from './retime.ts';

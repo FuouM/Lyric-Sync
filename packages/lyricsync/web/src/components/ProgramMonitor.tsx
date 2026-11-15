@@ -8,6 +8,13 @@ import { createEffect, createMemo, For, onCleanup, Show, type JSX } from "solid-
 import { isSylPinned, type CalibrationDoc, type CalLine, type CalWord } from "../../../src/calibration-doc";
 import { barBeatAt, floorIndex, formatTimecode, lineAt, sylUnits } from "../lib/doc-edit";
 
+export interface SingerTrack {
+  id: string;
+  lead?: boolean;
+  active: boolean;
+  doc: CalibrationDoc | null;
+}
+
 export interface ProgramMonitorProps {
   doc: CalibrationDoc | null;
   currentTime: number;
@@ -19,6 +26,11 @@ export interface ProgramMonitorProps {
   metronome: boolean;
   /** Shown instead of the stage when no song is loaded. */
   empty?: JSX.Element;
+  /** Available singers when multi-singer project is loaded. */
+  singers?: SingerTrack[];
+  activeSingerId?: string | null;
+  activeSingerLead?: boolean;
+  onSinger?: (id: string) => void;
 }
 
 /** Show the next line this long before it starts, and keep the last one this long after it ends. */
@@ -58,27 +70,31 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
   });
   onCleanup(() => void audioCtx?.close());
 
+  const navFor = (d: CalibrationDoc | null) => {
+    if (!d) return { idx: -1, next: -1 };
+    const t = props.currentTime;
+    const li = lineAt(d, t);
+    const cur = d.lines[li];
+    const nxt = d.lines[li + 1];
+    let idx = -1;
+    if (cur && t <= cur.end) idx = li;
+    else if (nxt && nxt.start - t <= LEAD_SEC) idx = li + 1;
+    else if (cur && t - cur.end < HOLD_SEC) idx = li;
+    return { idx, next: idx >= 0 ? idx + 1 : li + 1 };
+  };
+
   /** The line on stage (sung, about to start, or just ended) and the one after it, as indices: they change a few times a line, not per frame. */
   const nav = createMemo(
-    () => {
-      const doc = props.doc;
-      if (!doc) return { idx: -1, next: -1 };
-      const t = props.currentTime;
-      const li = lineAt(doc, t);
-      const cur = doc.lines[li];
-      const nxt = doc.lines[li + 1];
-      let idx = -1;
-      if (cur && t <= cur.end) idx = li;
-      else if (nxt && nxt.start - t <= LEAD_SEC) idx = li + 1;
-      else if (cur && t - cur.end < HOLD_SEC) idx = li;
-      return { idx, next: idx >= 0 ? idx + 1 : li + 1 };
-    },
+    () => navFor(props.doc),
     undefined,
     { equals: (a, b) => a.idx === b.idx && a.next === b.next },
   );
   const line = createMemo(() => props.doc?.lines[nav().idx]);
   const nextLine = () => props.doc?.lines[nav().next];
 
+  const otherSingers = createMemo(() => {
+    return (props.singers ?? []).filter((s) => !s.active && s.doc && s.doc.lines.length > 0);
+  });
   /** The word being sung and its syllable; it changes per syllable, the percentage in it is `pct`. */
   const singing = createMemo(
     () => {
@@ -126,6 +142,40 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
       </span>
     );
   };
+  const SubSingerRow = (p: { singer: SingerTrack }) => {
+    const sNav = createMemo(
+      () => navFor(p.singer.doc),
+      undefined,
+      { equals: (a, b) => a.idx === b.idx && a.next === b.next },
+    );
+    const sLine = createMemo(() => p.singer.doc?.lines[sNav().idx]);
+
+    return (
+      <div
+        class="kara-sub-singer-row"
+        onClick={() => props.onSinger?.(p.singer.id)}
+        title={props.onSinger ? `Switch active editor to ${p.singer.id}` : undefined}
+      >
+        <span class="kara-singer-badge kara-singer-badge--sub">
+          {p.singer.id}{p.singer.lead ? " (lead)" : ""}
+        </span>
+        <div class="kara-line kara-line--sub">
+          <Show when={sLine()} fallback={<span class="kara-rest">♪</span>}>
+            {(l) => (
+              <For each={l().words}>
+                {(w) => (
+                  <span class="kara-word">
+                    <For each={sylUnits(w)}>{([from, to]) => <Syllable line={l()} w={w} from={from} to={to} />}</For>
+                  </span>
+                )}
+              </For>
+            )}
+          </Show>
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div class="daw-monitor">
@@ -137,6 +187,11 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
           <div class="kara-card">
             <span class="kara-title">Karaoke stage</span>
             <div class="kara-head">
+              <Show when={props.activeSingerId} fallback={<span />}>
+                <span class="kara-singer-badge kara-singer-badge--main">
+                  {props.activeSingerId}{props.activeSingerLead ? " (lead)" : ""}
+                </span>
+              </Show>
               <Show when={line()}>
                 {(l) => (
                   <span class="kara-line-info">
@@ -146,7 +201,7 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
               </Show>
             </div>
 
-            <div class="kara-line">
+            <div class="kara-line kara-line--main">
               <Show when={line()} fallback={<span class="kara-rest">♪</span>}>
                 {(l) => (
                   <For each={l().words}>
@@ -179,6 +234,12 @@ export function ProgramMonitor(props: ProgramMonitorProps) {
             <div class="kara-next">
               <Show when={nextLine()}>{(n) => <>Next: {n().text}</>}</Show>
             </div>
+
+            <Show when={otherSingers().length > 0}>
+              <div class="kara-other-singers">
+                <For each={otherSingers()}>{(s) => <SubSingerRow singer={s} />}</For>
+              </div>
+            </Show>
           </div>
 
           <Show when={pos()}>
