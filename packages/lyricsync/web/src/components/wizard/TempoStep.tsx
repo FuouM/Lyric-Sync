@@ -7,6 +7,7 @@ import { floorIndex, formatTimecode } from "../../lib/doc-edit";
 import { MAX_BPM, MIN_BPM, parseTempoRows, tempoAt, tempoGrid, type TempoRow } from "../../lib/tempo-grid";
 import { LcdDigits } from "../LcdDigits";
 import { persistedSignal } from "../../lib/persisted-signal";
+import { addTap, fitTaps, type Tap } from "../../lib/tap-tempo";
 import { theme } from "../../stores/theme";
 
 export interface TempoStepProps {
@@ -24,9 +25,18 @@ export interface TempoStepProps {
 
 export const TEMPO_PEAKS_PER_SEC = 100;
 const VIEW_SEC = 8;
-/** A tap more than this after the previous one starts a new measurement. */
+/** A tap more than this after the previous one starts a new measurement (on the song clock, only before the 4th tap). */
 const TAP_RESET_MS = 2000;
-const MAX_TAPS = 16;
+/** Interval bars shown under the tap readout. */
+const TAP_DOTS = 24;
+
+/** One tap measurement: its taps, the clock they are on (the song's while the mix plays, else the wall clock) and the tempo it sets. */
+interface TapRun {
+  clock: "song" | "wall";
+  /** tapTarget() when the measurement started. */
+  target: number;
+  taps: Tap[];
+}
 
 export function TempoStep(props: TempoStepProps) {
   let audio!: HTMLAudioElement;
@@ -37,7 +47,7 @@ export function TempoStep(props: TempoStepProps) {
   const [time, setTime] = createSignal(0);
   const [duration, setDuration] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
-  const [taps, setTaps] = createSignal<number[]>([]);
+  const [tapRun, setTapRun] = createSignal<TapRun>({ clock: "wall", target: -1, taps: [] });
   const [flash, setFlash] = createSignal(0);
   const [click, setClick] = persistedSignal("lyricsync.wizard.metronomeClick", true);
   const [width, setWidth] = createSignal(600);
@@ -78,30 +88,40 @@ export function TempoStep(props: TempoStepProps) {
   };
   const tapTargetLabel = () => (tapTarget() < 0 ? "the starting tempo" : `the tempo change at ${props.changes[tapTarget()]!.at} s`);
 
-  const tapStats = createMemo(() => {
-    const t = taps();
-    if (t.length < 2) return null;
-    const d = t.slice(1).map((x, i) => x - t[i]!);
-    const sorted = [...d].sort((a, b) => a - b);
-    const med = sorted[sorted.length >> 1]!;
-    const mean = d.reduce((s, x) => s + x, 0) / d.length;
-    const sd = Math.sqrt(d.reduce((s, x) => s + (x - mean) ** 2, 0) / d.length);
-    return { bpm: 60000 / med, spread: sd / mean };
-  });
+  const tapFit = createMemo(() => fitTaps(tapRun().taps));
+  const resetTaps = () => setTapRun({ ...tapRun(), taps: [] });
 
+  // Song clock for taps: the play position extrapolated with the wall clock from the last play/seek, so taps are not
+  // quantized to the media element's currentTime updates.
+  let clockAt = { perf: 0, song: 0 };
+  const anchorClock = () => (clockAt = { perf: performance.now(), song: audio.currentTime });
+  const songNow = () => clockAt.song + ((performance.now() - clockAt.perf) / 1000) * audio.playbackRate;
+
+  let lastTapWall = 0;
   const tap = () => {
-    const now = performance.now();
-    const prev = taps();
-    const next = prev.length > 0 && now - prev[prev.length - 1]! > TAP_RESET_MS ? [now] : [...prev, now].slice(-MAX_TAPS);
-    setTaps(next);
+    const wall = performance.now();
+    const clock = playing() ? "song" : "wall";
+    const target = tapTarget();
+    const run = tapRun();
+    const gap = wall - lastTapWall > TAP_RESET_MS && (clock === "wall" || run.taps.length < 4);
+    const prev = run.clock !== clock || run.target !== target || gap ? [] : run.taps;
+    lastTapWall = wall;
+    const taps = addTap(prev, clock === "song" ? songNow() : wall / 1000);
+    setTapRun({ clock, target, taps });
     setFlash(flash() + 1);
-    const s = tapStats();
-    if (next.length >= 4 && s) {
-      const target = tapTarget();
-      if (target < 0) props.onBpm(s.bpm.toFixed(1));
-      else setRow(target, { bpm: s.bpm.toFixed(1) });
+    const fit = fitTaps(taps);
+    if (taps.length >= 4 && fit) {
+      if (target < 0) props.onBpm(fit.bpm.toFixed(2));
+      else setRow(target, { bpm: fit.bpm.toFixed(2) });
     }
   };
+  /** The last taps' intervals relative to the fitted beat (1 = on tempo), for the bars under the readout. */
+  const tapDots = createMemo(() => {
+    const fit = tapFit();
+    const t = tapRun().taps.slice(-TAP_DOTS - 1);
+    if (!fit) return [];
+    return t.slice(1).flatMap((p, i) => (p.beat === t[i]!.beat ? [] : [(p.t - t[i]!.t) / (fit.period * (p.beat - t[i]!.beat))]));
+  });
 
   const togglePlay = () => (audio.paused ? void audio.play() : audio.pause());
   const seek = (t: number) => {
@@ -139,7 +159,7 @@ export function TempoStep(props: TempoStepProps) {
     if (k === " ") tap();
     else if (k === "p") togglePlay();
     else if (k === "d") markDownbeat(audio.currentTime);
-    else if (k === "r") setTaps([]);
+    else if (k === "r") resetTaps();
     else if (k === "arrowleft") seek(audio.currentTime - 1);
     else if (k === "arrowright") seek(audio.currentTime + 1);
     else return;
@@ -220,6 +240,36 @@ export function TempoStep(props: TempoStepProps) {
         }
       }
     }
+    // The grid the taps give (song clock only), every 4th beat from the first tap heavier, and the taps themselves
+    const run = tapRun();
+    const tf = tapFit();
+    if (run.clock === "song") {
+      const green = isDark ? "74,222,128" : "22,163,74";
+      if (tf !== null && tf.period > 60 / (MAX_BPM * 2)) {
+        ctx.setLineDash([3, 3]);
+        for (let k = Math.ceil((v0 - tf.origin) / tf.period); tf.origin + k * tf.period <= v0 + VIEW_SEC; k++) {
+          const bx = Math.round(x(tf.origin + k * tf.period)) + 0.5;
+          const bar = ((k % 4) + 4) % 4 === 0;
+          ctx.strokeStyle = `rgba(${green},${bar ? 0.95 : 0.55})`;
+          ctx.lineWidth = bar ? 2 : 1;
+          ctx.beginPath();
+          ctx.moveTo(bx, 16);
+          ctx.lineTo(bx, DETAIL_H);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = `rgb(${green})`;
+      for (const p of run.taps) {
+        const px = x(p.t);
+        if (px < -6 || px > w + 6) continue;
+        ctx.beginPath();
+        ctx.moveTo(px, DETAIL_H - 9);
+        ctx.lineTo(px - 5, DETAIL_H);
+        ctx.lineTo(px + 5, DETAIL_H);
+        ctx.fill();
+      }
+    }
     ctx.setLineDash([4, 3]);
     ctx.strokeStyle = "#e879f9";
     ctx.fillStyle = "#e879f9";
@@ -263,8 +313,13 @@ export function TempoStep(props: TempoStepProps) {
         for (let i = a; i < b; i++) if (peaks[i]! > m) m = peaks[i]!;
         o.fillRect(px, OVER_H / 2 - m * 11, 1, m * 22);
       }
+      const vx = (v0 / total) * w;
+      const vw = Math.max(6, (VIEW_SEC / total) * w);
       o.fillStyle = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,120,215,0.15)";
-      o.fillRect((v0 / total) * w, 0, (VIEW_SEC / total) * w, OVER_H);
+      o.fillRect(vx, 0, vw, OVER_H);
+      o.strokeStyle = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)";
+      o.lineWidth = 1;
+      o.strokeRect(vx + 0.5, 0.5, vw - 1, OVER_H - 1);
       o.fillStyle = "#ff3b30";
       o.fillRect((t / total) * w, 0, 1.5, OVER_H);
       if (d !== null) {
@@ -301,6 +356,26 @@ export function TempoStep(props: TempoStepProps) {
     drag = null;
   };
 
+  // ── Overview: press and drag like the editor's overview bar. Grabbing the view window keeps the grab point under the
+  // pointer; pressing outside it centres the view (the play position) there.
+  let overGrab: number | null = null;
+  const overT = (e: PointerEvent) => (e.offsetX / width()) * songEnd();
+  const onOverDown = (e: PointerEvent) => {
+    if (e.button !== 0 || songEnd() === 0) return;
+    const t = overT(e);
+    overGrab = Math.abs(t - time()) <= VIEW_SEC / 2 ? t - time() : 0;
+    overview.setPointerCapture(e.pointerId);
+    overview.style.cursor = "grabbing";
+    seek(t - overGrab);
+  };
+  const onOverMove = (e: PointerEvent) => {
+    if (overGrab !== null) seek(overT(e) - overGrab);
+  };
+  const onOverUp = () => {
+    overGrab = null;
+    overview.style.cursor = "";
+  };
+
   const lightBeat = () => {
     const b = beatAt(time());
     return b === null || b < 0 ? -1 : b % 4;
@@ -313,8 +388,12 @@ export function TempoStep(props: TempoStepProps) {
         src={props.mixUrl ?? undefined}
         onPlay={() => {
           setPlaying(true);
+          anchorClock();
           raf = requestAnimationFrame(frame);
         }}
+        onPlaying={anchorClock}
+        onSeeked={anchorClock}
+        onRateChange={anchorClock}
         onPause={() => {
           setPlaying(false);
           cancelAnimationFrame(raf);
@@ -324,7 +403,7 @@ export function TempoStep(props: TempoStepProps) {
 
       <div class="daw-tempo-wave" ref={wrap}>
         <canvas ref={canvas} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onDblClick={(e) => markDownbeat(tAtX(e.offsetX))} />
-        <canvas ref={overview} class="daw-tempo-overview" onPointerDown={(e) => seek((e.offsetX / width()) * (duration() || 0))} />
+        <canvas ref={overview} class="daw-tempo-overview" onPointerDown={onOverDown} onPointerMove={onOverMove} onPointerUp={onOverUp} onPointerCancel={onOverUp} />
         <Show when={!props.peaks}>
           <div class="daw-tempo-loading">Reading the mix…</div>
         </Show>
@@ -345,7 +424,7 @@ export function TempoStep(props: TempoStepProps) {
         <button class="daw-toggle" classList={{ "daw-on": click() }} title="Click on the grid while playing" onClick={(e) => { setClick(!click()); e.currentTarget.blur(); }}>
           <i class="bi bi-bell-fill" /> Click
         </button>
-        <span class="daw-wizard-note daw-tempo-hint">Drag the waveform to scroll · click to jump · double-click to put beat 1 there</span>
+        <span class="daw-wizard-note daw-tempo-hint">Drag the waveform or the bar below it to scroll · click to jump · double-click to put beat 1 there</span>
       </div>
 
       <div class="daw-tempo-cards">
@@ -356,32 +435,32 @@ export function TempoStep(props: TempoStepProps) {
             <span class="daw-tap-key">Space</span>
           </button>
           <div class="daw-tap-readout">
-            <div class="daw-tap-bpm">{tapStats() ? tapStats()!.bpm.toFixed(1) : "—"}</div>
+            <div class="daw-tap-bpm">{tapFit() ? tapFit()!.bpm.toFixed(2) : "—"}</div>
             <div class="daw-tap-meta">
-              {taps().length} tap{taps().length === 1 ? "" : "s"}
-              <Show when={tapStats() && taps().length >= 4}>
-                <span classList={{ "daw-ok": tapStats()!.spread < 0.04, "daw-warn": tapStats()!.spread >= 0.04 }}>
-                  {tapStats()!.spread < 0.04 ? " · steady" : " · keep tapping"}
+              {tapRun().taps.length} tap{tapRun().taps.length === 1 ? "" : "s"}
+              <Show when={tapFit() && tapRun().taps.length >= 4}>
+                {` · ±${tapFit()!.bpmError.toFixed(2)}`}
+                <span classList={{ "daw-ok": tapFit()!.jitter < 0.04, "daw-warn": tapFit()!.jitter >= 0.04 }}>
+                  {tapFit()!.jitter < 0.04 ? " · steady" : " · keep tapping"}
                 </span>
               </Show>
             </div>
-            <div class="daw-tap-dots" title="Each bar is one tap interval; even bars mean steady tapping">
-              <For each={taps().slice(1).map((t, i) => t - taps()[i]!)}>
-                {(d) => {
-                  const med = tapStats() ? 60000 / tapStats()!.bpm : d;
-                  return <span class="daw-tap-dot" style={{ height: `${Math.min(30, Math.max(3, (d / med) * 15))}px` }} />;
-                }}
-              </For>
+            <div class="daw-tap-dots" title="Each bar is one tap interval against the measured beat; even bars mean steady tapping">
+              <For each={tapDots()}>{(r) => <span class="daw-tap-dot" style={{ height: `${Math.min(30, Math.max(3, r * 15))}px` }} />}</For>
             </div>
           </div>
           <div class="daw-field">
             <span>BPM</span>
             <input class="daw-num" value={props.bpm} onInput={(e) => props.onBpm(e.currentTarget.value)} />
-            <button class="daw-btn daw-btn-sm" title="Half tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() / 2).toFixed(1))}>×½</button>
-            <button class="daw-btn daw-btn-sm" title="Double tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() * 2).toFixed(1))}>×2</button>
-            <button class="daw-btn daw-btn-sm" title="Clear the taps (R)" onClick={() => setTaps([])}>Reset</button>
+            <button class="daw-btn daw-btn-sm" title="Half tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() / 2).toFixed(2))}>×½</button>
+            <button class="daw-btn daw-btn-sm" title="Double tempo" onClick={() => bpmNum() > 0 && props.onBpm((bpmNum() * 2).toFixed(2))}>×2</button>
+            <button class="daw-btn daw-btn-sm" title="Clear the taps (R)" onClick={resetTaps}>Reset</button>
           </div>
-          <p class="daw-wizard-note">Tap along with the beat while the song plays. The beat tracker needs the tempo within about ±12 %. Tapping sets {tapTargetLabel()}.</p>
+          <p class="daw-wizard-note">
+            Tap along with the beat while the song plays; every tap counts, so keep tapping until the ± is small. A skipped beat is fine. The green
+            lines are the grid your taps give (heavier every 4th beat from your first tap). The beat tracker needs the tempo within about ±12 %.
+            Tapping sets {tapTargetLabel()}.
+          </p>
         </section>
 
         <section class="daw-tempo-card">
