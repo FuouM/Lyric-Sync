@@ -93,7 +93,7 @@ nearest_bpm: 135     # the tempo
 first_downbeat_s: 0  # time of bar 1, in seconds. Default 0.
 ```
 
-Run `lyricsync grid <song>`. It writes `generated/timing.ai.json` in the same schema as the tracker (`v`, `model`, `duration`, `bpm`, `beat_period`, `beats`, `downbeats`). `model` is `"fixed"`. It needs no model and no GPU. The wizard and the tempo re-fit of the editor write the same grid when the song says `grid: fixed`.
+Run `lyricsync grid <song>`, or turn on Exact BPM in the editor's Tempo Map group or the New Song wizard (they write `grid: fixed` for you). `lyricsync grid` writes `generated/timing.ai.json` in the same schema as the tracker (`v`, `model`, `duration`, `bpm`, `beat_period`, `beats`, `downbeats`). `model` is `"fixed"`. It needs no model and no GPU. The wizard and the tempo re-fit of the editor write the same grid when the song says `grid: fixed`. The grid is beatsync's `exactBeatGrid`, which `beatsync <mix> --bpm <n> --exact-bpm` also prints.
 
 - Beat `k` is at `first_downbeat_s + k * 60 / nearest_bpm`. Times are rounded to 1e-6 s. The tracker rounds to 1e-3 s.
 - `duration` is the length of the mix (`files.song`), rounded to 1e-3 s.

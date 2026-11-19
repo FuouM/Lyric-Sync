@@ -5,6 +5,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { trackBeats } from './tracker.ts';
+import { exactBeatGrid } from './exact-grid.ts';
+import { loadAudioFile } from './audio.ts';
 import { computeFeatures } from './features.ts';
 import type { DrumOnsetKey, FeatureStems, OnsetStems, StemEnvelopeKey } from './types.ts';
 
@@ -19,7 +21,9 @@ Usage:
 
 Options:
   --bpm <n>             Target BPM prior (e.g. 120, 200). Helps regularize beat tracking.
-  --first-downbeat <s>  First downbeat timestamp hint in seconds (aligns 4/4 downbeat phase).
+  --exact-bpm           Use --bpm as the exact tempo: no beat tracking, beat k is at first-downbeat + k * 60 / bpm
+                        (pickup beats before it included, down to 0 s). Output model is "fixed", times to 1e-6 s.
+  --first-downbeat <s>  First downbeat timestamp hint in seconds (aligns 4/4 downbeat phase). With --exact-bpm, bar 1 (default 0).
   --device gpu|cpu      Where the model runs (default gpu; falls back to the CPU without a GPU provider). Same beats on both.
   --out <file.json>     Write output JSON to specified file path.
   --json                Print pure JSON contract to stdout.
@@ -135,6 +139,7 @@ async function main(): Promise<void> {
   let firstDownbeat: number | undefined = undefined;
   let outPath: string | null = null;
   let isJson = false;
+  let exactBpm = false;
   let device: 'gpu' | 'cpu' = 'gpu';
 
   for (let i = 0; i < args.length; i++) {
@@ -169,6 +174,8 @@ async function main(): Promise<void> {
       outPath = val;
     } else if (arg === '--json') {
       isJson = true;
+    } else if (arg === '--exact-bpm') {
+      exactBpm = true;
     } else if (arg.startsWith('-')) {
       console.error(`Unknown option: ${arg}`);
       printHelp();
@@ -197,21 +204,37 @@ async function main(): Promise<void> {
   }
 
   try {
-    const analysis = await trackBeats(resolvedAudio, {
-      targetBpm,
-      firstDownbeat,
-      device,
-    });
-
-    const outputPayload = {
-      v: 1,
-      model: 'beat_this',
-      duration: parseFloat(analysis.durationSec.toFixed(3)),
-      bpm: analysis.bpm,
-      beat_period: analysis.beatPeriod,
-      beats: analysis.beats.map((b) => parseFloat(b.toFixed(3))),
-      downbeats: analysis.downbeats.map((d) => parseFloat(d.toFixed(3))),
-    };
+    let outputPayload: { v: 1; model: string; duration: number; bpm: number; beat_period: number; beats: number[]; downbeats: number[] };
+    let inferenceTimeMs = 0;
+    if (exactBpm) {
+      const durationSec = (await loadAudioFile(resolvedAudio, 22050)).length / 22050;
+      const grid = exactBeatGrid(targetBpm, firstDownbeat ?? 0, durationSec);
+      outputPayload = {
+        v: 1,
+        model: 'fixed',
+        duration: parseFloat(durationSec.toFixed(3)),
+        bpm: targetBpm,
+        beat_period: grid.beatPeriod,
+        beats: grid.beats,
+        downbeats: grid.downbeats,
+      };
+    } else {
+      const analysis = await trackBeats(resolvedAudio, {
+        targetBpm,
+        firstDownbeat,
+        device,
+      });
+      inferenceTimeMs = analysis.inferenceTimeMs;
+      outputPayload = {
+        v: 1,
+        model: 'beat_this',
+        duration: parseFloat(analysis.durationSec.toFixed(3)),
+        bpm: analysis.bpm,
+        beat_period: analysis.beatPeriod,
+        beats: analysis.beats.map((b) => parseFloat(b.toFixed(3))),
+        downbeats: analysis.downbeats.map((d) => parseFloat(d.toFixed(3))),
+      };
+    }
 
     if (outPath) {
       const resolvedOut = path.resolve(outPath);
@@ -234,7 +257,7 @@ async function main(): Promise<void> {
       console.log(`Beat Period:      ${outputPayload.beat_period}s`);
       console.log(`Total Beats:      ${outputPayload.beats.length}`);
       console.log(`Total Downbeats:  ${outputPayload.downbeats.length}`);
-      console.log(`Inference Time:   ${analysis.inferenceTimeMs}ms`);
+      console.log(`Inference Time:   ${exactBpm ? 'none (--exact-bpm)' : `${inferenceTimeMs}ms`}`);
       console.log(`----------------------------------------`);
       console.log(
         `First 8 Beats:     [${outputPayload.beats.slice(0, 8).map((b) => b.toFixed(3)).join(', ')}]`

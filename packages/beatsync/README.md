@@ -29,6 +29,9 @@ beatsync song.wav --bpm 120 --json
 
 # Output to JSON file
 beatsync song.wav --bpm 120 --out timing.json
+
+# Exact tempo, no beat tracking: a beat every 0.5 s from bar 1 at 0.32 s
+beatsync song.wav --bpm 120 --exact-bpm --first-downbeat 0.32
 ```
 
 ### CLI JSON Contract
@@ -131,6 +134,7 @@ const doc = await computeFeatures('song.wav', { vocal: ['vocal.wav'] }, { kick: 
 - Trying tempo priors again: the model run is the slow step. `new BeatTracker({ targetBpm }).trackLogitsFile(path)` (or `trackLogits(samples)`) returns the model's per-frame beat and downbeat logits (`BeatLogits`); `beatsFromLogits(logits, { targetBpm, tempoChanges, firstDownbeat })` turns them into the same `BeatAnalysis` as `trackBeats` in milliseconds. Keep the logits to re-fit the beats as the tempo map changes (the lyricsync editor does).
 - `beatPins` (optional, with `beatsFromLogits`): `[{ beat, at }]`, increasing in both: beat number `beat` (0 = the first beat) is at `at` seconds. Pinned beats are exact; the beats between two pins (and before the first) are re-fitted with their count kept, the tempo between two pins being the one they imply (±12 %); after the last pin the tracker continues with the tempo prior. Pins that leave no room for the beats between them throw. Validate with `checkBeatPins`.
 - `--first-downbeat` / `firstDownbeat` (optional): seconds; aligns downbeat phase to the beat nearest this time. Beat times are unchanged.
+- `--exact-bpm` / `exactBeatGrid(bpm, firstDownbeat, durationSec)` (optional): no model run. `--bpm` is the exact tempo: beat k is at `--first-downbeat` (bar 1, default 0) + k · 60 / bpm for every beat in the song, including the pickup beats before bar 1 down to 0 s; every 4th beat from bar 1 is a downbeat. Times are rounded to 1e-6 s, `model` is `"fixed"`, `bpm` is the tempo given and `beat_period` is 60 / bpm unrounded. Only the audio's duration is read.
 - `--device` / `device` (optional): `gpu` (default) or `cpu`. `gpu` uses the GPU provider of the platform's onnxruntime-node build (DirectML on Windows; CUDA where the build has it) and runs on the CPU where there is none. Beat and downbeat times are the same on both (checked on a 194 s song).
 
 ## Verified behaviour

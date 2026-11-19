@@ -638,6 +638,15 @@ export function App() {
     }
   };
 
+  /** Saves `t` as bar 1 (first_downbeat_s) in prompt.yaml. */
+  const saveBar1 = async (t: number) => {
+    const s = song();
+    if (!s) throw new Error("No song is open.");
+    const prompt = await s.store.read(PROMPT_PATH);
+    if (!prompt) throw new Error(`${PROMPT_PATH} is missing.`);
+    await s.store.write(PROMPT_PATH, writeFirstDownbeat(await prompt.text(), t));
+  };
+
   /** Makes the beat nearest the playhead bar 1 (the beats themselves stay) and saves it as first_downbeat_s in prompt.yaml. */
   const setBar1Here = async () => {
     const s = song();
@@ -648,9 +657,7 @@ export function App() {
     setDownbeats(grid.downbeats);
     setBar1Index(grid.bar1Index);
     try {
-      const prompt = await s.store.read(PROMPT_PATH);
-      if (!prompt) throw new Error(`${PROMPT_PATH} is missing.`);
-      await s.store.write(PROMPT_PATH, writeFirstDownbeat(await prompt.text(), b[idx]!));
+      await saveBar1(b[idx]!);
       setStatus(`Bar 1 is now the beat at ${formatTimecode(b[idx]!)} (saved as first_downbeat_s in ${PROMPT_PATH}).`);
     } catch (e: unknown) {
       setStatus(`Bar 1 moved, but saving it failed: ${errorMessage(e)}`);
@@ -691,11 +698,11 @@ export function App() {
    * Sends a tempo map (the given one, else the one on screen) to the server, which re-fits the beats; the new beats replace the grid.
    * The lyric timing is not touched: Re-analyze (the beats are part of the analysis) and Auto-time re-time it to the new beats.
    */
-  const applyTempo = async (next?: TempoMap) => {
+  const applyTempo = async (next?: TempoMap, force = false) => {
     const s = song();
     const map = next ?? tempoMap();
     if (!s || !map || tempoBusy()) return;
-    if (JSON.stringify(map) === JSON.stringify(appliedTempo)) {
+    if (!force && JSON.stringify(map) === JSON.stringify(appliedTempo)) {
       setTempoMap(map);
       return;
     }
@@ -734,6 +741,10 @@ export function App() {
   const addTempoChange = () => {
     const map = tempoMap();
     if (!map || tempoBusy()) return;
+    if (map.grid === "fixed") {
+      setStatus("Exact BPM has one tempo for the whole song. Turn Exact BPM off in the Tempo Map to add tempo changes.");
+      return;
+    }
     const at = Number(currentTime().toFixed(3));
     if (at < 0.5 || at > duration() - 0.5 || map.tempoChanges.some((c) => Math.abs(c.at - at) < 0.5)) {
       setStatus("Put the playhead on the first beat of the new tempo, away from the start, the end and other tempo changes.");
@@ -743,30 +754,78 @@ export function App() {
     void applyTempo({ ...map, tempoChanges: [...map.tempoChanges, { at, bpm }].sort((a, b) => a.at - b.at) });
   };
 
+  /** Exact BPM on: the grid becomes nearestBpm exactly from the bar 1 on screen (saved as first_downbeat_s). Off: the beat tracker again. */
+  const setExactBpm = async (on: boolean) => {
+    const map = tempoMap();
+    if (!map || tempoBusy()) return;
+    if (on) {
+      const bar1 = downbeats()?.[bar1Index()];
+      if (bar1 === undefined) {
+        setStatus("Exact BPM needs bar 1: the song has no beat grid yet.");
+        return;
+      }
+      try {
+        await saveBar1(bar1);
+      } catch (e: unknown) {
+        setStatus(`Exact BPM not applied: saving bar 1 failed: ${errorMessage(e)}`);
+        return;
+      }
+    }
+    await applyTempo({ ...map, grid: on ? "fixed" : "tracked" });
+  };
+
+  /** Exact BPM: bar line `idx` was dragged to `t`. The whole grid moves with it (bar 1 moves by as much, kept at 0 s or later). */
+  const shiftExactGrid = async (idx: number, t: number) => {
+    const map = tempoMap();
+    const time = downbeats()?.[idx];
+    const bar1 = downbeats()?.[bar1Index()];
+    if (!map || time === undefined || bar1 === undefined || tempoBusy()) return;
+    const barLen = (4 * 60) / map.nearestBpm;
+    let next = bar1 + (t - time);
+    if (next < 0) next += Math.ceil(-next / barLen) * barLen;
+    try {
+      await saveBar1(next);
+    } catch (e: unknown) {
+      setStatus(`Grid not moved: saving bar 1 failed: ${errorMessage(e)}`);
+      return;
+    }
+    await applyTempo(map, true);
+  };
+
   /** The fixed beats with the bar each is on (the Inspector lists them). */
   const pinRows = createMemo(() => (tempoMap()?.beatPins ?? []).map((p) => ({ ...p, bar: barBeatAt(p.at, beats(), downbeats(), bar1Index())?.bar ?? null })));
 
-  /** Bar line `idx` was dragged to `t`: its beat is fixed there (replacing an older pin on the same beat); the beats around it are re-fitted. */
+  /** Bar line `idx` was dragged to `t`: its beat is fixed there (replacing an older pin on the same beat); the beats around it are re-fitted. With exact BPM the whole grid moves instead. */
   const pinBar = (idx: number, t: number) => {
     const map = tempoMap();
     const b = beats();
     const time = downbeats()?.[idx];
     if (!map || !b || time === undefined || tempoBusy()) return;
+    if (map.grid === "fixed") {
+      void shiftExactGrid(idx, t);
+      return;
+    }
     const beat = nearestBeatIndex(b, time);
     const beatPins = [...map.beatPins.filter((p) => p.beat !== beat), { beat, at: Number(t.toFixed(3)) }].sort((x, y) => x.beat - y.beat);
     void applyTempo({ ...map, beatPins });
   };
 
-  /** Frees the beat of bar line `idx` again. */
+  /** Frees the beat of bar line `idx` again (exact BPM has no fixed beats). */
   const unpinBar = (idx: number) => {
     const map = tempoMap();
     const b = beats();
     const time = downbeats()?.[idx];
-    if (!map || !b || time === undefined) return;
+    if (!map || map.grid === "fixed" || !b || time === undefined) return;
     const beat = nearestBeatIndex(b, time);
     if (!map.beatPins.some((p) => p.beat === beat)) return;
     void applyTempo({ ...map, beatPins: map.beatPins.filter((p) => p.beat !== beat) });
   };
+
+  /** The tempo map the timeline draws: exact BPM has no tempo changes or fixed beats (they stay in prompt.yaml for going back). */
+  const timelineTempo = createMemo(() => {
+    const map = tempoMap();
+    return map && map.grid === "fixed" ? { ...map, tempoChanges: [], beatPins: [] } : map;
+  });
 
   const removePin = (beat: number) => {
     const map = tempoMap();
@@ -1627,7 +1686,7 @@ export function App() {
           { label: "Edit Syllable Split", shortcut: "E", action: focusSplit, disabled: !hasSel },
           { label: "Add Section Marker at Playhead", shortcut: "M", action: addSection, disabled: !hasDoc },
           { label: "Set Bar 1 at Playhead", shortcut: "B", action: () => void setBar1Here(), disabled: !beats() },
-          { label: "Add Tempo Change at Playhead", shortcut: "T", action: addTempoChange, disabled: !tempoMap() || tempoBusy() },
+          { label: "Add Tempo Change at Playhead", shortcut: "T", action: addTempoChange, disabled: !tempoMap() || tempoMap()!.grid === "fixed" || tempoBusy() },
         ],
       },
       {
@@ -1839,6 +1898,7 @@ export function App() {
             tempoBusy={tempoBusy()}
             onTempoEdit={(map) => void applyTempo(map)}
             onAddTempo={addTempoChange}
+            onExactBpm={(on) => void setExactBpm(on)}
             onSeek={seek}
             pins={pinRows()}
             onRemovePin={removePin}
@@ -1899,7 +1959,7 @@ export function App() {
             const start = calDoc()?.lines[li]?.start;
             if (start !== undefined) setStatus(`Line ${li} starts at ${formatTimecode(start)}: its first and last syllables are pinned; Auto-time re-times the middle`);
           }}
-          tempo={tempoMap()}
+          tempo={timelineTempo()}
           tempoBusy={tempoBusy()}
           onAddTempo={addTempoChange}
           onTempoDrag={dragTempoChange}

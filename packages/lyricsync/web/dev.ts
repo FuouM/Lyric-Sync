@@ -10,7 +10,7 @@
 //   POST /api/wizard/check { text, language, pronunciations }   lints lyrics: every word problem (unknown words), or counts,
 //                                          sections and automatic syllable splits. Always 200; `ok` says whether they are usable.
 //   POST /api/wizard/pronounce { language, input }   phones for a hand-added pronunciation ("sounds like" words, or phones).
-//   POST /api/wizard/create  (multipart: id, language, bpm, tempoChanges (JSON [{at, bpm}]), firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
+//   POST /api/wizard/create  (multipart: id, language, bpm, exactBpm ("1": grid: fixed), tempoChanges (JSON [{at, bpm}]), firstDownbeat, lyrics, pronunciations, mix, vocal)   new song + build.
 //   POST /api/wizard/resume { id }        continues a failed build.
 //   GET  /api/wizard/job                  the current or last build: state and log.
 //   GET/PUT /api/project/<id>/file/<path> song folder files (server/project-files.ts), for songs opened without the folder picker.
@@ -306,6 +306,7 @@ const localApi: Plugin = {
               bpm: Number(form.get("bpm")),
               tempoChanges: parseTempoChanges(JSON.parse(tempoChanges)),
               firstDownbeat: typeof downbeat === "string" && downbeat.trim() !== "" ? Number(downbeat) : null,
+              grid: form.get("exactBpm") === "1" ? "fixed" : "tracked",
               lyrics,
               pronunciations: parsePronunciations(JSON.parse(pronunciations), language),
               mix,

@@ -471,3 +471,16 @@ export function withBeatMap(prompt: string, nearestBpm: number, changes: readonl
   }
   return lines.join(eol);
 }
+
+/**
+ * `prompt` (the text of user_input/prompt.yaml) with its `grid` set: an existing `grid:` line is replaced; without one, "fixed" adds
+ * `grid: fixed` after `nearest_bpm` (or at the top) and "tracked" (the default) leaves the text as it is. Every other line stays.
+ */
+export function withGridMode(prompt: string, grid: GridMode): string {
+  const eol = prompt.includes('\r\n') ? '\r\n' : '\n';
+  const lines = prompt.split(/\r?\n/);
+  const at = lines.findIndex((l) => /^grid\s*:/.test(l));
+  if (at !== -1) lines[at] = `grid: ${grid}`;
+  else if (grid === 'fixed') lines.splice(lines.findIndex((l) => /^nearest_bpm\s*:/.test(l)) + 1, 0, 'grid: fixed');
+  return lines.join(eol);
+}

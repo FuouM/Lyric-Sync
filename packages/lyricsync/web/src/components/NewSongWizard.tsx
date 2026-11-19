@@ -63,6 +63,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
   const [bpm, setBpm] = createSignal("");
   const [downbeat, setDownbeat] = createSignal("");
   const [tempoRows, setTempoRows] = createSignal<TempoRow[]>([]);
+  const [exactBpm, setExactBpm] = createSignal(false);
   const [job, setJob] = createSignal<Job | null>(null);
   const [submitError, setSubmitError] = createSignal<string | null>(null);
   let idInput: HTMLInputElement | undefined;
@@ -204,6 +205,7 @@ export function NewSongWizard(props: NewSongWizardProps) {
     form.set("language", language());
     form.set("bpm", bpm());
     form.set("firstDownbeat", downbeat());
+    form.set("exactBpm", exactBpm() ? "1" : "0");
     form.set("tempoChanges", JSON.stringify(parseTempoRows(tempoRows()).changes));
     form.set("lyrics", lyrics());
     form.set("pronunciations", JSON.stringify(pronunciations()));
@@ -366,6 +368,20 @@ export function NewSongWizard(props: NewSongWizardProps) {
                 changes={tempoRows()}
                 onChanges={setTempoRows}
               />
+              <p class="daw-wizard-note">
+                <button
+                  class="win-button"
+                  classList={{ active: exactBpm() }}
+                  aria-pressed={exactBpm()}
+                  title="Use the tempo exactly: no beat tracking"
+                  onClick={() => setExactBpm(!exactBpm())}
+                >
+                  Exact BPM
+                </button>{" "}
+                {exactBpm()
+                  ? "The grid is the tempo exactly: a beat every 60 / BPM s from the first downbeat (0 s when empty), with no beat tracking. Tempo changes are kept but not used."
+                  : "The tempo is a guide for the beat tracker, which follows the music within about ±12 %."}
+              </p>
             </Show>
 
             <Show when={step() === 4}>
@@ -380,10 +396,12 @@ export function NewSongWizard(props: NewSongWizardProps) {
                     <div class="daw-kv"><span>Vocal</span><b>{vocal()?.name}</b></div>
                     <div class="daw-kv"><span>Lyrics</span><b>{readyLyrics() ? `${readyLyrics()!.lines} lines` : "—"}</b></div>
                     <div class="daw-kv"><span>Added pronunciations</span><b>{Object.keys(pronunciations()).length}</b></div>
-                    <div class="daw-kv"><span>Tempo</span><b>{bpm()} BPM{downbeat() ? `, beat 1 at ${downbeat()} s` : ""}</b></div>
-                    <For each={parseTempoRows(tempoRows()).changes}>
-                      {(c) => <div class="daw-kv"><span>Tempo change</span><b>{c.bpm} BPM from {c.at} s</b></div>}
-                    </For>
+                    <div class="daw-kv"><span>Tempo</span><b>{bpm()} BPM{exactBpm() ? " exactly" : ""}{downbeat() ? `, beat 1 at ${downbeat()} s` : ""}</b></div>
+                    <Show when={!exactBpm()}>
+                      <For each={parseTempoRows(tempoRows()).changes}>
+                        {(c) => <div class="daw-kv"><span>Tempo change</span><b>{c.bpm} BPM from {c.at} s</b></div>}
+                      </For>
+                    </Show>
                     <p class="daw-wizard-note">
                       The build tracks the beats, extracts the audio evidence (a few minutes) and makes a first timing with nothing pinned. The song then opens in the editor.
                     </p>

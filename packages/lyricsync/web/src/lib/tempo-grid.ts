@@ -25,16 +25,21 @@ export interface BeatPin {
   at: number;
 }
 
-/** A song's beat map (the dev server's /api/project/<id>/tempo): the BPM at the start, the tempo changes in time order, the fixed beats. */
+/**
+ * A song's beat map (the dev server's /api/project/<id>/tempo): the BPM at the start, the tempo changes in time order, the fixed
+ * beats, and the grid mode ("fixed": exact BPM from nearestBpm and bar 1, no beat tracker; the changes and pins are then ignored).
+ */
 export interface TempoMap {
   nearestBpm: number;
   tempoChanges: TempoChange[];
   beatPins: BeatPin[];
+  grid: "tracked" | "fixed";
 }
 
 /** A tempo map from a server answer, or null when it has another shape. */
 export function readTempoMap(raw: unknown): TempoMap | null {
   if (!isRecord(raw) || typeof raw.nearestBpm !== "number" || !Array.isArray(raw.tempoChanges) || !Array.isArray(raw.beatPins)) return null;
+  if (raw.grid !== "tracked" && raw.grid !== "fixed") return null;
   const { tempoChanges, beatPins } = raw;
   if (!tempoChanges.every((c) => isRecord(c) && typeof c.at === "number" && typeof c.bpm === "number")) return null;
   if (!beatPins.every((p) => isRecord(p) && typeof p.beat === "number" && typeof p.at === "number")) return null;
@@ -42,6 +47,7 @@ export function readTempoMap(raw: unknown): TempoMap | null {
     nearestBpm: raw.nearestBpm,
     tempoChanges: tempoChanges.map((c: { at: number; bpm: number }) => ({ at: c.at, bpm: c.bpm })),
     beatPins: beatPins.map((p: { beat: number; at: number }) => ({ beat: p.beat, at: p.at })),
+    grid: raw.grid,
   };
 }
 

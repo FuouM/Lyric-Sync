@@ -4,7 +4,7 @@
 //
 // <songs>/<id>/
 //   project.json                       video project with only the song asset (assets.song.src = the mix)
-//   user_input/prompt.yaml             song and stem names, nearest_bpm, tempo_changes, first_downbeat_s
+//   user_input/prompt.yaml             song and stem names, nearest_bpm, grid (fixed = exact BPM), tempo_changes, first_downbeat_s
 //   user_input/<mix>, user_input/stems/<vocal>
 //   user_input/lyrics.txt              the lyrics as typed;  user_input/lyrics.sync.json  the parsed lyrics contract
 //   generated/timing.ai.json           beat grid (beatsync)
@@ -40,7 +40,7 @@ import {
 import type { BeatsDocument, ConsensusLine } from "../../src/index.ts";
 import { isRecord, isStringArray } from "../../src/guards.ts";
 import { dictionaryG2P } from "../../src/lyrics/index.ts";
-import { findSongDir, readPromptManifest, readSongPrompt, SONG_ID_RE, songDir, songFolderPaths, songInputs, type SongsRoots } from "../../src/song-folder.ts";
+import { findSongDir, readPromptManifest, readSongPrompt, SONG_ID_RE, songDir, songFolderPaths, songInputs, type GridMode, type SongsRoots } from "../../src/song-folder.ts";
 
 export interface WizardJob {
   project: string;
@@ -123,6 +123,8 @@ export interface CreateInput {
   /** Tempo changes after the start of the song, increasing in time. */
   tempoChanges: TempoChange[];
   firstDownbeat: number | null;
+  /** "fixed": exact BPM, beats at first downbeat + k * 60 / bpm without the beat tracker (tempo changes are kept but ignored). */
+  grid: GridMode;
   lyrics: string;
   pronunciations: Pronunciations;
   mix: File;
@@ -172,6 +174,7 @@ export async function createSong(songsRoot: string, input: CreateInput): Promise
     `song_name: ${yamlString(input.id)}`,
     "timing_mode: ai",
     `nearest_bpm: ${input.bpm}`,
+    ...(input.grid === "fixed" ? ["grid: fixed"] : []),
     ...(input.firstDownbeat === null ? [] : [`first_downbeat_s: ${input.firstDownbeat}`]),
     ...(input.tempoChanges.length === 0 ? [] : ["tempo_changes:", ...input.tempoChanges.flatMap((c) => [`  - at: ${c.at}`, `    bpm: ${c.bpm}`])]),
     "files:",
@@ -237,8 +240,11 @@ async function build(roots: SongsRoots, id: string, say: (m: string) => void): P
   else {
     const prompt = readPromptManifest(roots, id);
     if (prompt.nearestBpm === null) throw new Error("prompt.yaml has no nearest_bpm.");
-    const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
-    say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
+    if (prompt.grid === "fixed") say(`Exact grid on ${path.basename(prompt.songPath)}: ${prompt.nearestBpm} BPM, bar 1 at ${prompt.firstDownbeat ?? 0} s (no beat tracking)…`);
+    else {
+      const changes = prompt.tempoChanges.map((c) => `${c.bpm} BPM from ${c.at} s`);
+      say(`Tracking beats on ${path.basename(prompt.songPath)} (tempo prior ${[`${prompt.nearestBpm} BPM`, ...changes].join(", then ")})…`);
+    }
     const doc = await songBeatsDocument(dir, prompt);
     writeJson(beatsFile, doc);
     say(`  ${doc.beats.length} beats, ${doc.downbeats.length} bars, ${doc.bpm} BPM.`);

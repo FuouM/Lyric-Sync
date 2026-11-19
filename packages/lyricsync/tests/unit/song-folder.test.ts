@@ -13,6 +13,7 @@ import {
   songFolderPaths,
   songInputs,
   withBeatMap,
+  withGridMode,
 } from '../../src/song-folder.ts';
 
 let root: string;
@@ -165,6 +166,19 @@ describe('song folder paths and prompt', () => {
   test('a beat pin without a number is an error', () => {
     put('user_input/prompt.yaml', PROMPT.replace('files:', 'beat_pins:\n  - beat: 4\nfiles:'));
     expect(() => readSongPrompt(dir)).toThrow('beat_pins');
+  });
+
+  test('withGridMode turns exact BPM on and off: grid: fixed after nearest_bpm, then replaced in place', () => {
+    const fixed = withGridMode(PROMPT, 'fixed');
+    expect(fixed.split('\n').slice(2, 4)).toEqual(['nearest_bpm: 120', 'grid: fixed']);
+    put('user_input/prompt.yaml', fixed);
+    expect(readSongPrompt(dir).grid).toBe('fixed');
+    expect(withGridMode(fixed, 'fixed')).toBe(fixed);
+    const tracked = withGridMode(fixed, 'tracked');
+    expect(tracked.match(/^grid:/gm)).toEqual(['grid:']);
+    put('user_input/prompt.yaml', tracked);
+    expect(readSongPrompt(dir).grid).toBe('tracked');
+    expect(withGridMode(PROMPT, 'tracked')).toBe(PROMPT);
   });
 
   test('readPromptManifest and songInputs keep the editor contract', () => {

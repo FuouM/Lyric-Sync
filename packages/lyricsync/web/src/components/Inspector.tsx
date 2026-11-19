@@ -30,6 +30,8 @@ export interface InspectorProps {
   /** Applies an edited tempo map (the server re-fits the beats). */
   onTempoEdit: (map: TempoMap) => void;
   onAddTempo: () => void;
+  /** Turns exact BPM (one constant tempo from the start BPM and bar 1, no beat tracker) on or off. */
+  onExactBpm: (on: boolean) => void;
   onSeek: (t: number) => void;
   /** The beats fixed by hand, with the bar each is on. */
   pins: Array<{ beat: number; at: number; bar: number | null }>;
@@ -235,39 +237,60 @@ export function Inspector(props: InspectorProps) {
               <GroupBox
                 title="Tempo Map"
                 actions={
-                  <button class="win-button ds-btn-icon" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempoBusy} onClick={() => props.onAddTempo()}>
-                    <i class="bi bi-plus-lg" />
-                  </button>
+                  <>
+                    <button
+                      class="win-button ds-btn-sm"
+                      classList={{ active: props.tempo?.grid === "fixed" }}
+                      aria-pressed={props.tempo?.grid === "fixed"}
+                      title="Exact BPM: the start BPM exactly, from bar 1, with no beat tracking"
+                      disabled={!props.tempo || props.tempoBusy}
+                      onClick={() => props.onExactBpm(props.tempo?.grid !== "fixed")}
+                    >
+                      Exact BPM
+                    </button>
+                    <button class="win-button ds-btn-icon" title="Add a tempo change at the playhead (T)" disabled={!props.tempo || props.tempo.grid === "fixed" || props.tempoBusy} onClick={() => props.onAddTempo()}>
+                      <i class="bi bi-plus-lg" />
+                    </button>
+                  </>
                 }
               >
                 <Show when={props.tempo} fallback={<div class="daw-empty-note">Open the song through the dev server to edit its tempo.</div>}>
                   {(map) => (
                     <>
                       <TempoRow label="Start" at={null} bpm={map().nearestBpm} disabled={props.tempoBusy} onChange={(_, bpm) => props.onTempoEdit({ ...map(), nearestBpm: bpm })} />
-                      <For each={map().tempoChanges}>
-                        {(c, i) => (
-                          <TempoRow
-                            label={`Change ${i() + 1}`}
-                            at={c.at}
-                            bpm={c.bpm}
-                            disabled={props.tempoBusy}
-                            onChange={(at, bpm) =>
-                              props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.map((x, j) => (j === i() ? { at, bpm } : x)).sort((a, b) => a.at - b.at) })
-                            }
-                            onGo={() => props.onSeek(c.at)}
-                            onRemove={() => props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.filter((_, j) => j !== i()) })}
-                          />
-                        )}
-                      </For>
-                      <p class="daw-wizard-note">
-                        Drag a grip in the Tempo track, or type here. Put a change on the first beat of the new tempo. The beats follow at once; Re-analyze, then Auto-time, re-fits the lyric timing to them.
-                      </p>
+                      <Show
+                        when={map().grid !== "fixed"}
+                        fallback={
+                          <p class="daw-wizard-note">
+                            Exact BPM: a beat every 60 / {map().nearestBpm} s from bar 1, with no beat tracking. Drag a bar line in the top strip of the ruler to move the whole grid; Set Bar 1 (B) moves bar 1 to another beat. Tempo changes and fixed bars are kept for when Exact BPM is turned off.
+                          </p>
+                        }
+                      >
+                        <For each={map().tempoChanges}>
+                          {(c, i) => (
+                            <TempoRow
+                              label={`Change ${i() + 1}`}
+                              at={c.at}
+                              bpm={c.bpm}
+                              disabled={props.tempoBusy}
+                              onChange={(at, bpm) =>
+                                props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.map((x, j) => (j === i() ? { at, bpm } : x)).sort((a, b) => a.at - b.at) })
+                              }
+                              onGo={() => props.onSeek(c.at)}
+                              onRemove={() => props.onTempoEdit({ ...map(), tempoChanges: map().tempoChanges.filter((_, j) => j !== i()) })}
+                            />
+                          )}
+                        </For>
+                        <p class="daw-wizard-note">
+                          Drag a grip in the Tempo track, or type here. Put a change on the first beat of the new tempo. The beats follow at once; Re-analyze, then Auto-time, re-fits the lyric timing to them.
+                        </p>
+                      </Show>
                     </>
                   )}
                 </Show>
               </GroupBox>
 
-              <Show when={props.tempo}>
+              <Show when={props.tempo && props.tempo.grid !== "fixed"}>
                 <GroupBox
                   title="Fixed Bars"
                   actions={
