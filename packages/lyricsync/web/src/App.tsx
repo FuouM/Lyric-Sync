@@ -29,6 +29,7 @@ import {
   loadSongFiles,
   PLACEMENTS_PATH,
   readRenderWav,
+  readSongLanguage,
   serverStore,
   type FileBackup,
   type SongRenders,
@@ -215,6 +216,8 @@ export function App() {
   const [showEditLyrics, setShowEditLyrics] = createSignal(false);
   const [editLyricsText, setEditLyricsText] = createSignal("");
   const [editLyricsInitialLine, setEditLyricsInitialLine] = createSignal<number | null>(null);
+  /** The song's language (user_input/lyrics.sync.json): Edit Lyrics checks words against its dictionary. */
+  const [editLyricsLanguage, setEditLyricsLanguage] = createSignal<"en" | "ja">("en");
   /** Edit Lyrics restores a backup (File > Backups…): its timing, whose pins the lyrics keep. */
   const [editLyricsRestore, setEditLyricsRestore] = createSignal<{ calibration: CalibrationDoc; label: string } | null>(null);
   // Syllables per editor line and word that the song's analysis (lyricsync workspace) was made for; null until known.
@@ -581,6 +584,13 @@ export function App() {
       setStatus(`Edit Lyrics: ${LEAD_ONLY}.`);
       return;
     }
+    let language: "en" | "ja";
+    try {
+      language = await readSongLanguage(s.store);
+    } catch (e: unknown) {
+      setStatus(`Edit Lyrics: cannot read the song's language: ${errorMessage(e)}`);
+      return;
+    }
     setEditLyricsInitialLine(lineIdx);
     setEditLyricsRestore(null);
     let text = "";
@@ -591,6 +601,7 @@ export function App() {
     if (!text.trim()) {
       text = reconstructLyricsText(doc);
     }
+    setEditLyricsLanguage(language);
     setEditLyricsText(text);
     setShowEditLyrics(true);
   };
@@ -604,7 +615,9 @@ export function App() {
       return;
     }
     try {
+      const language = await readSongLanguage(s.store);
       const found = await backupLyricsText(s.store, b, doc, lyricLineText);
+      setEditLyricsLanguage(language);
       setEditLyricsInitialLine(found && found.rebuilt.length > 0 ? found.rebuilt[0]! - 1 : null);
       setEditLyricsText(found?.text ?? reconstructLyricsText(doc));
       setEditLyricsRestore({ calibration: doc, label: b.time.toLocaleString() });
@@ -1994,6 +2007,7 @@ export function App() {
           songName={song()?.name ?? ""}
           initialText={editLyricsText()}
           initialLine={editLyricsInitialLine()}
+          language={editLyricsLanguage()}
           restore={editLyricsRestore()}
           onClose={() => setShowEditLyrics(false)}
           onApplied={() => void handleLyricsApplied()}

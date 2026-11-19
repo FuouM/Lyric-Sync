@@ -12,7 +12,8 @@ export interface EditLyricsModalProps {
   songName: string;
   initialText: string;
   initialLine?: number | null;
-  language?: "en" | "ja";
+  /** The song's language ("language" of user_input/lyrics.sync.json): words are checked against its dictionary. */
+  language: "en" | "ja";
   /** Restoring a backup (File > Backups…): the backup's timing, whose pins the lyrics keep instead of the saved file's. */
   restore?: { calibration: CalibrationDoc; label: string } | null;
   onClose: () => void;
@@ -34,7 +35,7 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
   const [job, setJob] = createSignal<ReanalyzeJob | null>(null);
   const [submitError, setSubmitError] = createSignal<string | null>(null);
 
-  const lang = () => props.language ?? "en";
+  const lang = () => props.language;
   const currentCheck = () => check()?.result ?? null;
 
   // Debounced live linter check with stale-while-revalidate

@@ -11,6 +11,7 @@
 //   user_input/placements.json          the vocal lanes and their clips (lib/lanes.ts); absent = one lane per render with one parked clip
 //   generated/timing.ai.json            the song beat grid (beats, downbeats)
 //   generated/renders/index.json        rendered vocal tracks (wavs in generated/renders/); absent = no vocal lanes
+//   user_input/lyrics.sync.json         the lyrics contract; "language" ("en" | "ja") is the song's language (Edit Lyrics checks words against its dictionary)
 //   lyricsync/lyricsync.json            lyricsync workspace manifest; "vocal" = vocal stem, relative to lyricsync/; absent = no workspace
 //   lyricsync/evidence/meta.json        evidence metadata (f0Hz pitch contour); part of the workspace
 //   lyricsync/out/review.json           solver review; absent until the first solve
@@ -28,6 +29,7 @@ export const CALIBRATED_PATH = "user_input/lyrics.calibrated.json";
 export const PLACEMENTS_PATH = "user_input/placements.json";
 const TIMING_PATH = "generated/timing.ai.json";
 const SINGERS_PATH = "user_input/singers.json";
+const SYNC_PATH = "user_input/lyrics.sync.json";
 const RENDER_INDEX_PATH = "generated/renders/index.json";
 
 /** A song folder. Paths are relative to it, with forward slashes. */
@@ -205,6 +207,13 @@ export interface CalibrationFile {
   doc: CalibrationDoc;
   exists: boolean;
   mtime: number;
+}
+
+/** The song's language: "language" of user_input/lyrics.sync.json. */
+export async function readSongLanguage(store: SongStore): Promise<"en" | "ja"> {
+  const raw = await readJson(store, SYNC_PATH);
+  if (!isRecord(raw) || (raw.language !== "en" && raw.language !== "ja")) throw new Error(`${SYNC_PATH} must declare "language": "en" or "ja".`);
+  return raw.language;
 }
 
 export async function loadCalibration(store: SongStore, path: string): Promise<CalibrationFile> {
