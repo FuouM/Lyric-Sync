@@ -127,6 +127,7 @@ export function EditLyricsModal(props: EditLyricsModalProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: text(),
+          baseText: props.initialText,
           pronunciations: pronunciations(),
           ...(props.restore ? { calibration: props.restore.calibration } : {}),
         }),

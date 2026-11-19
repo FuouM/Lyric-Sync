@@ -258,7 +258,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     | { kind: "boundary"; ref: SylRef; edge: "start" | "end"; partner: SylRef | null }
     | { kind: "section"; idx: number }
     | { kind: "tempo"; idx: number }
-    | { kind: "bar"; idx: number; lo: number; hi: number }
+    | { kind: "bar"; idx: number; lo: number; hi: number; grab: number; x0: number; moved: boolean }
     | { kind: "scrub" }
     | { kind: "overview"; grabOffset: number }
     /** Press on empty space: a drag pans the view; a release without moving is a click (`click` runs then). */
@@ -1196,7 +1196,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         const downs = props.downbeats ?? [];
         const beats = props.beats ?? [];
         const bi = floorIndex(beats, downs[idx]! + 1e-4);
-        drag = { kind: "bar", idx, lo: (beats[bi - 1] ?? 0) + 0.05, hi: (beats[bi + 1] ?? total()) - 0.05 };
+        // `grab`: where on the bar line the pointer went down, so the line moves by as much as the pointer, never jumping to it.
+        drag = { kind: "bar", idx, lo: (beats[bi - 1] ?? 0) + 0.05, hi: (beats[bi + 1] ?? total()) - 0.05, grab: t - downs[idx]!, x0: e.clientX, moved: false };
         barGhost = { idx, t: downs[idx]! };
       }
     } else if (lane === "ruler") {
@@ -1309,7 +1310,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     } else if (drag.kind === "tempo") {
       props.onTempoDrag(drag.idx, Math.max(0, t));
     } else if (drag.kind === "bar") {
-      barGhost = { idx: drag.idx, t: Math.max(drag.lo, Math.min(drag.hi, t)) };
+      // A click with a pixel or two of wobble is not a drag: it would re-fit the beats (and make the analysis stale).
+      if (!drag.moved && Math.abs(e.clientX - drag.x0) <= 3) return;
+      drag.moved = true;
+      barGhost = { idx: drag.idx, t: Math.max(drag.lo, Math.min(drag.hi, t - drag.grab)) };
     } else if (drag.kind === "section") {
       const s = findSnap(t);
       snapGuide = s.label ? s : null;
@@ -1355,7 +1359,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     if ((drag?.kind === "pan" || drag?.kind === "clip" || drag?.kind === "line") && !drag.moved) drag.click();
     if (drag?.kind === "tempo") props.onTempoDrop();
-    if (drag?.kind === "bar" && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
+    if (drag?.kind === "bar" && drag.moved && barGhost && Math.abs(barGhost.t - (props.downbeats?.[drag.idx] ?? barGhost.t)) > 0.003) props.onBarDrop(drag.idx, barGhost.t);
     barGhost = null;
     drag = null;
     snapGuide = null;

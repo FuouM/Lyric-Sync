@@ -225,12 +225,88 @@ export function reanalyze(roots: SongsRoots, id: string, lines: EditorSplitLine[
   return current;
 }
 
+/** A section of lyrics.calibrated.json. */
+export interface CalSection {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+}
+
+const isCalSection = (s: unknown): s is CalSection =>
+  isRecord(s) && typeof s.id === "string" && typeof s.name === "string" && typeof s.start === "number" && typeof s.end === "number";
+
+/**
+ * The sections after Edit Lyrics: the timing's own sections (`old`: the times set in the editor, and sections added there without a
+ * header) with only the header edits applied. `baseHeaders` are the `[Section]` headers of the text the edit started from, `headers`
+ * those of the new text, `fresh` the sections the new headers give (sectionsFromOutline: one per header, in order).
+ * - A renamed header renames its section; its times stay.
+ * - A removed header removes its section; the section before it takes its time (the one after it, when it was the first).
+ * - An added header splits the section its fresh start falls in (or is appended up to `songEnd`).
+ * - A header whose section was removed in the editor stays removed. Without old sections the fresh ones are used.
+ */
+export function carrySections(old: readonly CalSection[], baseHeaders: readonly string[], headers: readonly string[], fresh: readonly CalSection[], songEnd: number): CalSection[] {
+  if (old.length === 0) return fresh.map((s) => ({ ...s }));
+  const same = matchInOrder(headers, baseHeaders, (a, b) => a === b);
+  const renamed = pairEditedLines(same, baseHeaders.length);
+  const sectionOf = matchInOrder(baseHeaders, old, (h, s) => h === s.name);
+  const out = old.map((s) => ({ ...s }));
+  const usedBase = new Set<number>();
+  const added: CalSection[] = [];
+  headers.forEach((name, k) => {
+    const b = same[k] ?? renamed[k] ?? null;
+    if (b === null) {
+      added.push(fresh[k]!);
+      return;
+    }
+    usedBase.add(b);
+    const si = sectionOf[b];
+    if (si !== null && si !== undefined) out[si]!.name = name;
+  });
+  const drop = new Set<number>();
+  baseHeaders.forEach((_, b) => {
+    const si = sectionOf[b];
+    if (!usedBase.has(b) && si !== null && si !== undefined) drop.add(si);
+  });
+
+  const kept: CalSection[] = [];
+  let firstStart: number | null = null;
+  out.forEach((s, i) => {
+    if (!drop.has(i)) {
+      if (kept.length === 0 && firstStart !== null) s.start = firstStart;
+      kept.push(s);
+      return;
+    }
+    const prev = kept.at(-1);
+    if (prev) prev.end = s.end;
+    else firstStart ??= s.start;
+  });
+
+  for (const a of added) {
+    let id = a.id;
+    for (let n = 2; kept.some((s) => s.id === id); n++) id = `${a.id}_${n}`;
+    const t = a.start;
+    const containing = kept.findIndex((s) => t > s.start && t < s.end);
+    if (containing >= 0) {
+      const sec = kept[containing]!;
+      kept.splice(containing + 1, 0, { id, name: a.name, start: t, end: sec.end });
+      sec.end = t;
+      continue;
+    }
+    const next = kept.findIndex((s) => s.start >= t);
+    kept.splice(next >= 0 ? next : kept.length, 0, { id, name: a.name, start: t, end: next >= 0 ? kept[next]!.start : Math.max(t, songEnd) });
+  }
+  return kept;
+}
+
 export interface UpdateLyricsInput {
   text: string;
+  /** The lyrics text the edit started from: its `[Section]` headers tell which header edits to apply to the timing's sections. */
+  baseText: string;
   pronunciations?: Pronunciations;
   /**
-   * The timing whose pins the new lyrics keep, when it is not the saved file: a backup the editor switched to (File > Backups…)
-   * whose lyrics are being restored. Same shape as lyrics.calibrated.json.
+   * The timing whose pins (and sections) the new lyrics keep, when it is not the saved file: a backup the editor switched to
+   * (File > Backups…) whose lyrics are being restored. Same shape as lyrics.calibrated.json.
    */
   calibration?: unknown;
 }
@@ -272,6 +348,7 @@ export function updateLyrics(
     words?: RawCalWord[];
   }
   interface RawCalDoc {
+    sections?: unknown;
     lines?: RawCalLine[];
   }
   let oldCal: RawCalDoc | null = null;
@@ -378,6 +455,7 @@ export function updateLyrics(
           : result.lyrics.lines.at(-1)!.end;
       const outline = lyricsSectionOutline(input.text);
       const newCal = calibrationFromSolve(session.definition, result.lyrics.lines, outline, songEnd, parsed.sylJoin) as Record<string, unknown> & {
+        sections: CalSection[];
         lines: Array<{
           i: number;
           text: string;
@@ -413,6 +491,11 @@ export function updateLyrics(
         }
         if (c.whole && c.ol.calibrated) nl.calibrated = true;
       }
+
+      // Sections: the timing's own (moved or added in the editor) stay; only the header edits of this Edit Lyrics apply to them.
+      const oldSections = oldCal && Array.isArray(oldCal.sections) && oldCal.sections.every(isCalSection) ? oldCal.sections : [];
+      const names = (text: string) => lyricsSectionOutline(text).map((o) => o.name);
+      newCal.sections = carrySections(oldSections, names(input.baseText), outline.map((o) => o.name), newCal.sections, songEnd);
 
       fs.writeFileSync(calFile, `${JSON.stringify(newCal, null, 2)}\n`, "utf8");
       say(`Done in ${((Date.now() - t0) / 1000).toFixed(1)} s (${result.lyrics.lines.length} lines timed).`);

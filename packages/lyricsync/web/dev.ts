@@ -38,7 +38,7 @@ import { checkLyrics, createSong, currentJob, parsePronunciations, resumeSong } 
 import { parseTempoChanges, parseTempoMap, readTempoMap, refitTempoMap, SongNotFoundError } from "./server/beats.ts";
 import { listProjectDir, ProjectFileError, readProjectFile, writeProjectFile } from "./server/project-files.ts";
 import { analysedSplits, currentReanalyzeJob, parseSplitLines, reanalyze, updateLyrics } from "./server/syllables.ts";
-import { findSongDir } from "../src/song-folder.ts";
+import { findSongDir, songInputs } from "../src/song-folder.ts";
 import { deviceConfig, isInferenceDevice, setInferenceDevice } from "./server/device.ts";
 import { isRecord } from "../src/guards.ts";
 import {
@@ -410,16 +410,17 @@ const localApi: Plugin = {
         }
         if (m?.[1] === "POST" && m[3] === "update") {
           const body: unknown = await (await toRequest(req)).json();
-          if (!isRecord(body) || typeof body.text !== "string") {
-            return send(res, 400, { error: "BAD_REQUEST", message: "Needs text." });
+          if (!isRecord(body) || typeof body.text !== "string" || typeof body.baseText !== "string") {
+            return send(res, 400, { error: "BAD_REQUEST", message: "Needs text and baseText (the lyrics the edit started from)." });
           }
           const build = currentJob();
           try {
-            const prons = isRecord(body.pronunciations) ? parsePronunciations(body.pronunciations, "en") : undefined;
+            const id = decodeURIComponent(m[2]!);
+            const prons = isRecord(body.pronunciations) ? parsePronunciations(body.pronunciations, songInputs(ROOT_LIST, id).language) : undefined;
             const job = updateLyrics(
               ROOT_LIST,
-              decodeURIComponent(m[2]!),
-              { text: body.text, pronunciations: prons, ...(body.calibration !== undefined ? { calibration: body.calibration } : {}) },
+              id,
+              { text: body.text, baseText: body.baseText, pronunciations: prons, ...(body.calibration !== undefined ? { calibration: body.calibration } : {}) },
               build?.state === "running" ? `The build of ${build.project} is running. Wait for it to finish.` : null
             );
             return send(res, 202, { job });
